@@ -6,15 +6,13 @@
 
 import { beforeAnythingInjectionToken } from "@freelensapp/application-for-electron-main";
 import { getInjectable } from "@ogre-tools/injectable";
-import { pathNames } from "../../common/app-paths/app-path-names";
 import appPathsStateInjectable from "../../common/app-paths/app-paths-state.injectable";
 import joinPathsInjectable from "../../common/path/join-paths.injectable";
 import appNameInjectable from "../../common/vars/app-name.injectable";
 import directoryForIntegrationTestingInjectable from "./directory-for-integration-testing/directory-for-integration-testing.injectable";
 import getElectronAppPathInjectable from "./get-electron-app-path/get-electron-app-path.injectable";
+import { initializeAppPaths } from "./initialize-app-paths";
 import setElectronAppPathInjectable from "./set-electron-app-path/set-electron-app-path.injectable";
-
-import type { AppPaths } from "../../common/app-paths/app-path-injection-token";
 
 const setupAppPathsInjectable = getInjectable({
   id: "setup-app-paths",
@@ -28,16 +26,12 @@ const setupAppPathsInjectable = getInjectable({
       const directoryForIntegrationTesting = di.inject(directoryForIntegrationTestingInjectable);
       const joinPaths = di.inject(joinPathsInjectable);
 
-      if (directoryForIntegrationTesting) {
-        setElectronAppPath("appData", directoryForIntegrationTesting);
-      }
-
-      const appDataPath = getElectronAppPath("appData");
-
-      setElectronAppPath("userData", joinPaths(appDataPath, appName));
-      setElectronAppPath("sessionData", getElectronAppPath("userData"));
-
-      const appPaths = Object.fromEntries(pathNames.map((name) => [name, getElectronAppPath(name)])) as AppPaths;
+      const appPaths = initializeAppPaths({
+        host: { getPath: getElectronAppPath, setPath: setElectronAppPath },
+        appName,
+        directoryForIntegrationTesting,
+        joinPaths,
+      });
 
       appPathsState.set(appPaths);
 

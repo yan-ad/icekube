@@ -1,4 +1,4 @@
-import { startApplicationInjectionToken } from "@freelensapp/application";
+import { createHostApplicationStarter, startApplicationInjectionToken } from "@freelensapp/application";
 import { runManySyncFor } from "@freelensapp/run-many";
 import { getInjectable2, instantiationDecoratorToken } from "@ogre-tools/injectable";
 import { beforeAnythingInjectionToken, beforeElectronIsReadyInjectionToken } from "./time-slots";
@@ -13,16 +13,12 @@ const startElectronApplicationInjectable = getInjectable2({
     const beforeElectronIsReady = runManySync(beforeElectronIsReadyInjectionToken);
     const startApplication = targetInstantiate(di, undefined);
 
-    return () => {
-      beforeAnything();
-      beforeElectronIsReady();
-
-      return (async () => {
-        await whenAppIsReady();
-
-        return startApplication();
-      })();
-    };
+    return createHostApplicationStarter({
+      beforeAnything,
+      beforeHostIsReady: beforeElectronIsReady,
+      whenHostIsReady: whenAppIsReady,
+      startApplication,
+    });
   },
   injectionToken: instantiationDecoratorToken.for(startApplicationInjectionToken),
 });
