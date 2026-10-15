@@ -1,0 +1,21 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Freelens Tauri Development",
+  "version": "0.1.0",
+  "identifier": "app.freelens.tauri-development",
+  "build": {
+    "frontendDist": "../tauri-runtime"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": {
+      "csp": "default-src 'none'; script-src 'self'; connect-src ipc: http://ipc.localhost; style-src 'none'; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'",
+      "capabilities": []
+    }
+  },
+  "bundle": {
+    "active": false,
+    "icon": ["../../packages/core/build/icons/512x512.png"]
+  }
+}

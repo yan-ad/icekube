@@ -2,6 +2,23 @@
 
 Repository scripts that the build, the checks or a developer run directly.
 
+## run-tauri.mjs
+
+Builds the isolated Node bootstrap and runs the Tauri development host. The host
+uses a temporary profile and does not start cluster services or load extensions.
+See [the migration guide](../TAURI_MIGRATION.md#running-the-development-runtime)
+for prerequisites, limitations and the smoke-test commands.
+
+```sh
+pnpm dev:tauri
+pnpm check:tauri
+pnpm test:tauri
+pnpm smoke:tauri
+```
+
+`tauri-backend.test.mjs` tests the built backend through real child-process pipes;
+run it through `test:tauri` so its bundled entry and temporary profile are supplied.
+
 ## generate-explicit-di-registration.mjs
 
 Generates the `register-injectables.ts` files that register every injectable

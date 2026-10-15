@@ -4,7 +4,6 @@
  */
 
 import { isAbsolute, join } from "node:path";
-
 import {
   type AppPathHost,
   initializeAppPaths,

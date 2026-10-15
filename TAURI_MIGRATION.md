@@ -82,6 +82,41 @@ not establish that every API in that directory is exercised at runtime.
 
 ## Target architecture
 
+### Running the development runtime
+
+The Tauri development target runs a native window and an owned Node metadata
+bootstrap using the host-neutral startup and app-path helpers. It does not yet run
+the Freelens Kubernetes UI, cluster services, terminal services or extensions.
+It uses a distinct application identity and an isolated temporary profile; it does
+not open an existing Freelens profile. Node is the development machine's runtime,
+not a bundled release runtime, so this is not release-package parity.
+
+With repository dependencies installed, Node and the Rust toolchain available,
+and the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/):
+
+```sh
+pnpm dev:tauri
+pnpm check:tauri
+pnpm test:tauri
+pnpm smoke:tauri
+```
+
+`dev:tauri` opens the diagnostics window. `check:tauri` exercises Rust-to-Node
+startup and status without a window. `test:tauri` runs the Node protocol and Rust
+tests. `smoke:tauri` requires the real webview to render backend status and signal
+readiness, then exits; a timeout is a failure. Each command builds its Node entry
+into a system temporary directory and cleans up the temporary profile on normal
+exit. Rust build output is cached outside the repository. Cargo dependencies are
+locked in `freelens/src-tauri/Cargo.lock`.
+
+The bootstrap uses private stdin/stdout pipes, bounded messages, correlated
+requests and explicit startup failures. It exposes only runtime status to the
+embedded document. No general shell, filesystem, cluster or extension IPC is
+available. A green runtime status proves this development bootstrap only, not the
+remaining parity register.
+
+### Application layout
+
 ```text
 Tauri desktop host
   |-- native lifecycle, windows, menus, tray, dialogs, OS integration

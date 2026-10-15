@@ -1,6 +1,7 @@
 *.gz
 *.lock
 !mise.lock
+!freelens/src-tauri/Cargo.lock
 *.log
 *.map
 *.out
@@ -17,6 +18,8 @@ icon.iconset/
 .cache/
 .pnpm/
 .turbo/
+/freelens/src-tauri/target/
+/freelens/src-tauri/gen/
 
 # Runtime artifacts (screenshots, databases, keys, snapshots) written by
 # optional local AI-agent / MCP tooling, see DEVELOPMENT.md and AGENTS.md.
