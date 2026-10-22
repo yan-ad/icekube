@@ -4,7 +4,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { cssNames } from "@freelensapp/utilities";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
 import styles from "./gutter.module.scss";
 
 interface GutterProps {

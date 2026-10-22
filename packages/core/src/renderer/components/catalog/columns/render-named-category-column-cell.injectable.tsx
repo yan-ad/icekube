@@ -15,6 +15,7 @@ import { getInjectable } from "@ogre-tools/injectable";
 import activeHotbarInjectable from "../../../../features/hotbar/storage/common/active.injectable";
 import { Avatar } from "../../avatar";
 import styles from "../catalog.module.scss";
+import { CatalogNameView } from "../catalog-name-view";
 
 import type { RegisteredAdditionalCategoryColumn } from "../custom-category-columns";
 
@@ -36,26 +37,30 @@ const renderNamedCategoryColumnCellInjectable = getInjectable({
       );
 
       return (
-        <>
-          <Avatar
-            title={entity.getName()}
-            colorHash={`${entity.getName()}-${entity.getSource()}`}
-            src={entity.spec.icon?.src}
-            background={entity.spec.icon?.background}
-            className={styles.catalogAvatar}
-            size={24}
-          >
-            {entity.spec.icon?.material && <Icon material={entity.spec.icon?.material} small />}
-          </Avatar>
-          <span>{entity.getName()}</span>
-          <Icon
-            small
-            className={styles.pinIcon}
-            svg={isItemInHotbar ? "push_off" : "push_pin"}
-            tooltip={isItemInHotbar ? "Remove from Hotbar" : "Add to Hotbar"}
-            onClick={onClick}
-          />
-        </>
+        <CatalogNameView
+          name={entity.getName()}
+          avatar={
+            <Avatar
+              title={entity.getName()}
+              colorHash={`${entity.getName()}-${entity.getSource()}`}
+              src={entity.spec.icon?.src}
+              background={entity.spec.icon?.background}
+              className={styles.catalogAvatar}
+              size={24}
+            >
+              {entity.spec.icon?.material && <Icon material={entity.spec.icon?.material} small />}
+            </Avatar>
+          }
+          actions={
+            <Icon
+              small
+              className={styles.pinIcon}
+              svg={isItemInHotbar ? "push_off" : "push_pin"}
+              tooltip={isItemInHotbar ? "Remove from Hotbar" : "Add to Hotbar"}
+              onClick={onClick}
+            />
+          }
+        />
       );
     };
   },

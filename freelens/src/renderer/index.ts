@@ -9,7 +9,7 @@ import "@freelensapp/notifications/styles";
 import "@freelensapp/spinner/styles";
 
 import { animateFeature } from "@freelensapp/animate";
-import { applicationFeature, startApplicationInjectionToken } from "@freelensapp/application";
+import { applicationFeature } from "@freelensapp/application";
 import { clusterSidebarFeature } from "@freelensapp/cluster-sidebar";
 import {
   assertExtensionApiSingletonNames,
@@ -29,48 +29,38 @@ import { notificationsFeature } from "@freelensapp/notifications";
 import { randomFeature } from "@freelensapp/random";
 import { reactApplicationFeature } from "@freelensapp/react-application";
 import { routingFeature } from "@freelensapp/routing";
-import { createContainer } from "@ogre-tools/injectable";
-import { registerMobX } from "@ogre-tools/injectable-extension-for-mobx";
-import { runInAction } from "mobx";
 import { registerInjectables as registerCommonInjectables } from "../common/register-injectables";
+import { initializeRenderer } from "./bootstrap";
 import { registerInjectables as registerRendererInjectables } from "./register-injectables";
 
 const environment = "renderer";
 
-const di = createContainer(environment);
+initializeRenderer({
+  environment,
+  register: (di) => {
+    registerLensCore(di, environment);
 
-// @ogre-tools 23 prevents side-effect injectables by default; the production
-// container must opt back in to allow them.
-di.permitSideEffects();
+    registerFeature(di, loggerFeature);
 
-runInAction(() => {
-  registerMobX(di);
-  registerLensCore(di, environment);
+    registerFeature(
+      di,
+      applicationFeature,
+      messagingFeatureForRenderer,
+      keyboardShortcutsFeature,
+      reactApplicationFeature,
+      routingFeature,
+      metricsFeature,
+      animateFeature,
+      clusterSidebarFeature,
+      randomFeature,
+      kubeApiSpecificsFeature,
+      notificationsFeature,
+    );
 
-  registerFeature(di, loggerFeature);
-
-  registerFeature(
-    di,
-    applicationFeature,
-    messagingFeatureForRenderer,
-    keyboardShortcutsFeature,
-    reactApplicationFeature,
-    routingFeature,
-    metricsFeature,
-    animateFeature,
-    clusterSidebarFeature,
-    randomFeature,
-    kubeApiSpecificsFeature,
-    notificationsFeature,
-  );
-
-  registerRendererInjectables(di);
-  registerCommonInjectables(di);
+    registerRendererInjectables(di);
+    registerCommonInjectables(di);
+  },
 });
-
-const startApplication = di.inject(startApplicationInjectionToken);
-
-startApplication();
 
 // Phase 4 (D5): expose the extension API through a runtime global so the
 // published `@freelensapp/extensions` shim can re-export it in each process.

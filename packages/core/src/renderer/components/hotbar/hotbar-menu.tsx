@@ -4,8 +4,6 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import "./hotbar-menu.scss";
-
 import {
   closestCenter,
   DndContext,
@@ -32,6 +30,7 @@ import catalogEntityRegistryInjectable from "../../api/catalog/entity/registry.i
 import { HotbarCell } from "./hotbar-cell";
 import { HotbarEntityIcon } from "./hotbar-entity-icon";
 import { HotbarIcon } from "./hotbar-icon";
+import { HotbarMenuView } from "./hotbar-menu-view";
 import { HotbarSelector } from "./hotbar-selector";
 
 import type { IClassName, StrictReactNode } from "@freelensapp/utilities";
@@ -309,40 +308,33 @@ const NonInjectedHotbarMenu = observer((props: Dependencies & HotbarMenuProps) =
   };
 
   return (
-    <div
-      className={cssNames(
-        "HotbarMenu flex flex-col",
-        {
-          draggingOver,
-          autoHide: userPreferencesState.hotbarAutoHide,
-          visible: isHotbarVisible,
-        },
-        className,
-      )}
+    <HotbarMenuView
+      className={className}
+      draggingOver={draggingOver}
+      autoHide={userPreferencesState.hotbarAutoHide}
+      visible={isHotbarVisible}
       onMouseLeave={handleMouseLeave}
+      selector={<HotbarSelector />}
     >
-      <div className="HotbarItems flex flex-col">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={onDragStart}
-          onDragOver={onDragOver}
-          onDragEnd={onDragEnd}
-          onDragCancel={onDragCancel}
-        >
-          {renderGrid()}
-          {/* Portal the overlay to <body>: when auto-hide is on, `.HotbarMenu`
-              has a `transform`, which makes it the containing block for the
-              `position: fixed` overlay and clips it to the hotbar's
-              `overflow: hidden`. Rendering it at the body escapes that context. */}
-          {createPortal(
-            <DragOverlay>{activeItem ? renderIcon(activeItem, activeEntity, activeIndex, true) : null}</DragOverlay>,
-            document.body,
-          )}
-        </DndContext>
-      </div>
-      <HotbarSelector />
-    </div>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        onDragStart={onDragStart}
+        onDragOver={onDragOver}
+        onDragEnd={onDragEnd}
+        onDragCancel={onDragCancel}
+      >
+        {renderGrid()}
+        {/* Portal the overlay to <body>: when auto-hide is on, `.HotbarMenu`
+            has a `transform`, which makes it the containing block for the
+            `position: fixed` overlay and clips it to the hotbar's
+            `overflow: hidden`. Rendering it at the body escapes that context. */}
+        {createPortal(
+          <DragOverlay>{activeItem ? renderIcon(activeItem, activeEntity, activeIndex, true) : null}</DragOverlay>,
+          document.body,
+        )}
+      </DndContext>
+    </HotbarMenuView>
   );
 });
 

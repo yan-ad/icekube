@@ -4,10 +4,8 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import "./cluster-manager.scss";
-
 import { Redirect } from "@freelensapp/routing";
-import { buildURL, cssNames } from "@freelensapp/utilities";
+import { buildURL } from "@freelensapp/utilities";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import React from "react";
@@ -20,6 +18,7 @@ import { DeleteClusterDialog } from "../delete-cluster-dialog";
 import { HotbarMenu } from "../hotbar/hotbar-menu";
 import { TopBar } from "../layout/top-bar/top-bar";
 import { StatusBar } from "../status-bar/status-bar";
+import { ClusterManagerView } from "./cluster-manager-view";
 
 import type { IComputedValue } from "mobx";
 
@@ -71,17 +70,15 @@ class NonInjectedClusterManager extends React.Component<Dependencies> {
 
   render() {
     return (
-      <div className={cssNames("ClusterManager", { hotbarAutoHide: this.props.userPreferencesState.hotbarAutoHide })}>
-        <TopBar />
-        <main>
-          <div id="lens-views" />
-          {this.renderMainComponent()}
-        </main>
-        <HotbarMenu />
-        {this.props.userPreferencesState.hotbarAutoHide && <div className="hotbar-trigger-zone" />}
-        <StatusBar />
-        <DeleteClusterDialog />
-      </div>
+      <ClusterManagerView
+        hotbarAutoHide={this.props.userPreferencesState.hotbarAutoHide}
+        topBar={<TopBar />}
+        hotbar={<HotbarMenu />}
+        statusBar={<StatusBar />}
+        dialogs={<DeleteClusterDialog />}
+      >
+        {this.renderMainComponent()}
+      </ClusterManagerView>
     );
   }
 }

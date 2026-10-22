@@ -6,6 +6,7 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -116,10 +117,63 @@ try {
     target: "node24",
     format: "esm",
     metafile: true,
+    supported: { decorators: false },
+    banner: {
+      js: `import { createRequire } from "node:module"; const require = createRequire(${JSON.stringify(join(root, "package.json"))});`,
+    },
+    plugins: [
+      {
+        name: "explicit-node-catalog-dependencies",
+        setup(build) {
+          const permitted = new Set(["@ogre-tools/injectable", "mobx", "es-toolkit", "uuid"]);
+          build.onResolve({ filter: /^[^./]/ }, (args) => {
+            if (args.path.startsWith("node:")) return { path: args.path, external: true };
+            if (args.path.startsWith("@freelensapp/")) return;
+            const name = args.path.startsWith("@")
+              ? args.path.split("/").slice(0, 2).join("/")
+              : args.path.split("/")[0];
+            if (!permitted.has(name)) throw new Error(`Unsupported Node catalog dependency: ${args.path}`);
+            // Pin resolution to the importing workspace's installed dependencies,
+            // not the temporary bundle directory or NODE_PATH.
+            const require = createRequire(args.importer || join(root, "package.json"));
+            const path = require.resolve(args.path);
+            return name === "@ogre-tools/injectable"
+              ? { path, namespace: "pinned-commonjs" }
+              : { path, external: true };
+          });
+          build.onResolve({ filter: /.*/, namespace: "pinned-commonjs" }, (args) => ({
+            path: args.path,
+            external: true,
+          }));
+          build.onLoad({ filter: /.*/, namespace: "pinned-commonjs" }, (args) => ({
+            contents: `module.exports = require(${JSON.stringify(args.path)});`,
+            loader: "js",
+          }));
+        },
+      },
+    ],
   });
 
   const unexpected = Object.keys(bundle.metafile.inputs).filter(
-    (path) => path.includes("node_modules/") || path.includes("electron"),
+    (path) =>
+      (!path.startsWith("pinned-commonjs:") && path.includes("node_modules/")) ||
+      /electron|kubeconfig|terminal|extensions/i.test(path) ||
+      !(
+        path.startsWith("pinned-commonjs:") ||
+        path.startsWith("freelens/src/main/tauri/") ||
+        path.startsWith("packages/core/src/common/catalog/") ||
+        path.startsWith("packages/core/src/common/catalog-entities/") ||
+        path.startsWith("packages/core/src/main/catalog/") ||
+        path.startsWith("packages/core/src/common/front-end-routing/") ||
+        path === "packages/core/src/main/app-paths/initialize-app-paths.ts" ||
+        path === "packages/core/src/common/app-paths/app-path-names.ts" ||
+        ["iter", "typed-event-emitter", "type-narrowing", "buildUrl", "collection-functions"].some(
+          (leaf) => path === `packages/utility-features/utilities/src/${leaf}.ts`,
+        ) ||
+        path.startsWith("packages/technical-features/application/application/") ||
+        path.startsWith("packages/technical-features/feature-core/") ||
+        path.startsWith("packages/utility-features/run-many/")
+      ),
   );
 
   if (unexpected.length > 0) {

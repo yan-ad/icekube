@@ -27,6 +27,68 @@ pub struct BackendStatus {
     pub phases: Vec<String>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CatalogSnapshot {
+    pub protocol_version: u32,
+    pub scope: String,
+    pub categories: Vec<CatalogCategory>,
+    pub entities: Vec<CatalogEntity>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogCategory {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub group: String,
+    pub icon: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogEntity {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub group: String,
+    pub source: String,
+    pub status: String,
+    pub labels: std::collections::BTreeMap<String, String>,
+}
+
+fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
+    let mut category_ids = std::collections::HashSet::new();
+    let mut entity_ids = std::collections::HashSet::new();
+    if snapshot.protocol_version != 1
+        || snapshot.scope != "built-in"
+        || snapshot.categories.len() > 32
+        || snapshot.entities.len() > 100
+        || snapshot.categories.iter().any(|category| {
+            category.id != format!("{}/{}", category.group, category.kind)
+                || category.name.is_empty()
+                || category.group.is_empty()
+                || category.kind.is_empty()
+                || !category_ids.insert(&category.id)
+        })
+        || snapshot.entities.iter().any(|entity| {
+            entity.id.is_empty()
+                || entity.name.is_empty()
+                || entity.source.is_empty()
+                || entity.status.is_empty()
+                || !entity_ids.insert(&entity.id)
+                || !snapshot
+                    .categories
+                    .iter()
+                    .any(|category| category.group == entity.group && category.kind == entity.kind)
+        })
+    {
+        return Err("Backend catalog snapshot mismatch".into());
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -51,6 +113,59 @@ mod tests {
         assert!(backend.child.try_wait().unwrap().unwrap().success());
         assert!(backend.status().is_err());
         backend.stop();
+    }
+
+    #[test]
+    fn real_catalog_and_strict_schema_validation() {
+        let (node, script, profile) = node_paths();
+        let mut backend = Backend::start(&node, &script, &profile).unwrap();
+        let snapshot = backend.catalog_snapshot().unwrap();
+        assert_eq!(snapshot.categories.len(), 1);
+        assert_eq!(snapshot.categories[0].id, "entity.k8slens.dev/General");
+        assert_eq!(snapshot.entities.len(), 2);
+        assert_eq!(snapshot.entities[0].id, "welcome-page-entity");
+        assert_eq!(snapshot.entities[1].id, "catalog-entity");
+        assert!(snapshot.entities.iter().all(|entity| entity.source == "app"
+            && entity.status == "active"
+            && entity.labels.is_empty()));
+        assert!(!profile.exists());
+        let value = serde_json::to_value(&snapshot).unwrap();
+        for location in ["root", "category", "entity"] {
+            let mut invalid = value.clone();
+            let target = match location {
+                "category" => &mut invalid["categories"][0],
+                "entity" => &mut invalid["entities"][0],
+                _ => &mut invalid,
+            };
+            target["unknown"] = json!(true);
+            assert!(serde_json::from_value::<CatalogSnapshot>(invalid).is_err());
+        }
+        let mut invalid = snapshot.clone();
+        invalid.entities = vec![snapshot.entities[0].clone(); 101];
+        assert!(validate_catalog(&invalid).is_err());
+        invalid = snapshot.clone();
+        invalid.categories = vec![snapshot.categories[0].clone(); 33];
+        assert!(validate_catalog(&invalid).is_err());
+        invalid = snapshot.clone();
+        invalid.entities[0].kind = "NoSuchCategory".into();
+        assert!(validate_catalog(&invalid).is_err());
+        invalid = snapshot.clone();
+        invalid.entities[0].status.clear();
+        assert!(validate_catalog(&invalid).is_err());
+        let mut invalid = value;
+        invalid["entities"][0]["status"] = json!({"phase": "active"});
+        assert!(serde_json::from_value::<CatalogSnapshot>(invalid).is_err());
+    }
+
+    #[test]
+    fn invalid_catalog_response_is_terminal() {
+        let (node, script, profile) = node_paths();
+        let mut backend = Backend::start(&node, &script, &profile).unwrap();
+        let (sender, responses) = mpsc::sync_channel(1);
+        sender.send(Ok(json!({ "id": 2, "result": { "protocolVersion": 1, "scope": "built-in", "categories": [], "entities": [], "unknown": true } }))).unwrap();
+        backend.responses = responses;
+        assert!(backend.catalog_snapshot().is_err());
+        assert!(backend.child.try_wait().unwrap().is_some());
     }
 
     #[test]
@@ -185,23 +300,45 @@ impl Backend {
             next_id: 1,
             response_timeout: RESPONSE_TIMEOUT,
         };
-        backend.request("initialize", Some(app_data))?;
+        backend.request_status("initialize", Some(app_data))?;
         Ok(backend)
     }
 
     pub fn status(&mut self) -> Result<BackendStatus, String> {
-        self.request("status", None)
+        self.request_status("status", None)
     }
 
-    fn request(&mut self, method: &str, app_data: Option<&Path>) -> Result<BackendStatus, String> {
-        let result = self.exchange(method, app_data);
+    fn request_status(
+        &mut self,
+        method: &str,
+        app_data: Option<&Path>,
+    ) -> Result<BackendStatus, String> {
+        let result = self.exchange(method, app_data).and_then(|value| {
+            let status: BackendStatus = serde_json::from_value(value)
+                .map_err(|error| format!("Invalid backend status: {error}"))?;
+            validate_status(&status, self.child.id())?;
+            Ok(status)
+        });
         if result.is_err() {
             self.stop();
         }
         result
     }
 
-    fn exchange(&mut self, method: &str, app_data: Option<&Path>) -> Result<BackendStatus, String> {
+    pub fn catalog_snapshot(&mut self) -> Result<CatalogSnapshot, String> {
+        let result = self.exchange("catalog.snapshot", None).and_then(|value| {
+            let snapshot: CatalogSnapshot = serde_json::from_value(value)
+                .map_err(|error| format!("Invalid backend catalog snapshot: {error}"))?;
+            validate_catalog(&snapshot)?;
+            Ok(snapshot)
+        });
+        if result.is_err() {
+            self.stop();
+        }
+        result
+    }
+
+    fn exchange(&mut self, method: &str, app_data: Option<&Path>) -> Result<Value, String> {
         if self
             .child
             .try_wait()
@@ -229,10 +366,13 @@ impl Backend {
         if let Some(error) = response.get("error") {
             return Err(format!("Backend rejected request: {error}"));
         }
-        let status: BackendStatus = serde_json::from_value(response["result"].clone())
-            .map_err(|error| format!("Invalid backend status: {error}"))?;
-        validate_status(&status, self.child.id())?;
-        Ok(status)
+        let fields = response
+            .as_object()
+            .ok_or("Backend response must be an object")?;
+        if fields.len() != 2 || !fields.contains_key("result") {
+            return Err("Backend response contains unsupported fields".into());
+        }
+        Ok(response["result"].clone())
     }
 
     pub fn stop(&mut self) {

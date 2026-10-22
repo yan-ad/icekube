@@ -4,9 +4,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import assert from "node:assert";
-import { getOrInsertSetFor, isDefined } from "@freelensapp/utilities";
 import * as uuid from "uuid";
+import { getOrInsertSetFor } from "../../utilities/src/collection-functions";
+import { isDefined } from "../../utilities/src/type-narrowing";
 
 import type { DiContainerForInjection, InjectionInstanceWithMeta } from "@ogre-tools/injectable";
 
@@ -21,7 +21,7 @@ const computedNextEdge = (
   seenIds.add(currentId);
   const currentNode = graph.get(currentId);
 
-  assert(currentNode, `Runnable graph does not contain node with id="${currentId}"`);
+  if (!currentNode) throw new Error(`Runnable graph does not contain node with id="${currentId}"`);
 
   for (const nextId of currentNode.values()) {
     if (traversed.includes(nextId)) {

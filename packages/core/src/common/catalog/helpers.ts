@@ -4,7 +4,12 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { hasOwnProperty, hasTypedProperty, isObject, isString } from "@freelensapp/utilities";
+import {
+  hasOwnProperty,
+  hasTypedProperty,
+  isObject,
+  isString,
+} from "../../../../utility-features/utilities/src/type-narrowing";
 
 import type { CatalogEntity } from "./catalog-entity";
 

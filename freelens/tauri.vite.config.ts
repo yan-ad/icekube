@@ -19,9 +19,9 @@ export default defineConfig({
     {
       name: "freelens:browser-only",
       enforce: "pre",
-      resolveId(id) {
+      resolveId(id, importer) {
         if (id === "electron" || id.startsWith("node:") || builtins.has(id)) {
-          throw new Error(`Tauri frontend cannot import host module: ${id}`);
+          throw new Error(`Tauri frontend cannot import host module: ${id} (imported by ${importer ?? "<entry>"})`);
         }
       },
     },

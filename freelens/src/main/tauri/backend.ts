@@ -9,26 +9,20 @@ import {
   initializeAppPaths,
 } from "../../../../packages/core/src/main/app-paths/initialize-app-paths";
 import { createHostApplicationStarter } from "../../../../packages/technical-features/application/application/src/start-application/create-host-application-starter";
+import { createBuiltInCatalog } from "./catalog";
 
-interface BackendStatus {
-  protocolVersion: 1;
-  runtime: "node";
-  nodeVersion: string;
-  processId: number;
-  userData: string;
-  sessionData: string;
-  phases: string[];
-}
+import type { CatalogSnapshot, RuntimeStatus } from "../../common/tauri/protocol";
 
-type BackendResponse = { id: number; result: BackendStatus } | { id: number | null; error: string };
+type BackendResponse = { id: number; result: RuntimeStatus | CatalogSnapshot } | { id: number | null; error: string };
 
 const maximumRequestBytes = 16 * 1024;
 let initializationStarted = false;
-let status: BackendStatus | undefined;
+let status: RuntimeStatus | undefined;
+let catalogSnapshot: (() => CatalogSnapshot) | undefined;
 
 // This host only computes paths in memory. It never asks the OS for a profile,
 // opens credentials, or creates the userData/sessionData directories.
-const initialize = async (appData: string): Promise<BackendStatus> => {
+const initialize = async (appData: string): Promise<RuntimeStatus> => {
   if (initializationStarted) {
     throw new Error("Backend has already been initialized");
   }
@@ -61,7 +55,8 @@ const initialize = async (appData: string): Promise<BackendStatus> => {
       phases.push("host-ready");
     },
     startApplication: async () => {
-      // Metadata bootstrap only: application services are not started here yet.
+      // Only the explicitly composed, in-memory built-ins are started.
+      catalogSnapshot = createBuiltInCatalog();
       phases.push("application-started");
     },
   });
@@ -135,6 +130,13 @@ const handleRequest = async (line: string): Promise<BackendResponse> => {
         }
 
         return { id, result: status };
+      }
+      case "catalog.snapshot": {
+        if (!status || !catalogSnapshot) {
+          throw new Error("Backend has not been initialized");
+        }
+
+        return { id, result: catalogSnapshot() };
       }
       default:
         throw new Error("Unknown method");

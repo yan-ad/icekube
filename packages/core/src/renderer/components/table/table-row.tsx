@@ -6,14 +6,15 @@
 
 import "./table-row.scss";
 
-import { cssNames } from "@freelensapp/utilities";
 import React from "react";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
 
 import type { CSSProperties } from "react";
 
 export type TableRowElem<Item> = React.ReactElement<TableRowProps<Item>>;
 
-export interface TableRowProps<Item> extends React.DOMAttributes<HTMLDivElement> {
+export interface TableRowProps<Item> extends React.DOMAttributes<HTMLDivElement>, React.AriaAttributes {
+  role?: React.AriaRole;
   className?: string;
   selected?: boolean;
   style?: CSSProperties;

@@ -18,9 +18,10 @@ export const defaultWidth = 320;
 
 export interface WelcomeViewProps {
   productName: string;
-  menuItems: WelcomeMenuRegistration[];
+  menuItems: (WelcomeMenuRegistration & { disabled?: boolean; unavailableReason?: string })[];
   renderIcon: (props: IconProps) => ReactNode;
   introduction?: ReactNode;
+  keyboardNavigation?: boolean;
 }
 
 export const WelcomeView = observer(function WelcomeView({
@@ -28,6 +29,7 @@ export const WelcomeView = observer(function WelcomeView({
   menuItems,
   renderIcon,
   introduction,
+  keyboardNavigation = false,
 }: WelcomeViewProps) {
   return (
     <div className="flex justify-center Welcome items-center" data-testid="welcome-page">
@@ -58,7 +60,21 @@ export const WelcomeView = observer(function WelcomeView({
             </p>
             <ul className="block" style={{ width: `${defaultWidth}px` }} data-testid="welcome-menu-container">
               {menuItems.map((item, index) => (
-                <li key={index} className="flex grid-12" onClick={() => item.click()}>
+                <li
+                  key={index}
+                  className="flex grid-12"
+                  role={keyboardNavigation ? "button" : undefined}
+                  tabIndex={keyboardNavigation && !item.disabled ? 0 : undefined}
+                  aria-disabled={item.disabled || undefined}
+                  title={item.unavailableReason}
+                  onClick={item.disabled ? undefined : () => item.click()}
+                  onKeyDown={(event) => {
+                    if (keyboardNavigation && !item.disabled && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      item.click();
+                    }
+                  }}
+                >
                   {renderIcon({ material: item.icon, className: "col-1" })}
                   <a className="col-10">{typeof item.title === "string" ? item.title : item.title()}</a>
                   {renderIcon({ material: "navigate_next", className: "col-1" })}

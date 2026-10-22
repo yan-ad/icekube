@@ -9,12 +9,11 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { cssNames } from "@freelensapp/utilities";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import statusBarCurrentStatusInjectable from "./current-status.injectable";
-import styles from "./status-bar.module.scss";
 import statusBarItemsInjectable from "./status-bar-items.injectable";
+import { StatusBarView } from "./status-bar-view";
 
 import type { IComputedValue, IObservableValue } from "mobx";
 
@@ -29,28 +28,7 @@ interface Dependencies {
 }
 
 const NonInjectedStatusBar = observer(({ items, status }: Dependencies & StatusBarProps) => {
-  const { left, right } = items.get();
-  const barStatus = status.get();
-  const barStyle = barStatus === "default" ? undefined : styles[`status-${barStatus}`];
-
-  return (
-    <div className={cssNames(styles.StatusBar, barStyle)} data-testid="status-bar">
-      <div className={styles.leftSide} data-testid="status-bar-left">
-        {left.map((Item, index) => (
-          <div className={styles.item} key={index} data-origin={Item.origin}>
-            {<Item.component />}
-          </div>
-        ))}
-      </div>
-      <div className={styles.rightSide} data-testid="status-bar-right">
-        {right.map((Item, index) => (
-          <div className={styles.item} key={index} data-origin={Item.origin}>
-            {<Item.component />}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  return <StatusBarView items={items.get()} status={status.get()} />;
 });
 
 export const StatusBar = withInjectables<Dependencies, StatusBarProps>(NonInjectedStatusBar, {

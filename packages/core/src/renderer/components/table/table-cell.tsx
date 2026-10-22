@@ -4,126 +4,26 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import "./table-cell.scss";
-
 import { Icon } from "@freelensapp/icon";
-import { cssNames } from "@freelensapp/utilities";
-import autoBindReact from "auto-bind/react";
-import React from "react";
 import { Checkbox } from "../checkbox";
+import { TableCellView } from "./table-cell-view";
 
 import type { TableCellProps } from "@freelensapp/list-layout";
 
+import type React from "react";
 export type TableCellElem = React.ReactElement<TableCellProps>;
 
-export class TableCell extends React.Component<TableCellProps> {
-  private suppressClick = false;
-
-  constructor(props: TableCellProps) {
-    super(props);
-    autoBindReact(this);
-  }
-
-  onClick(evt: React.MouseEvent<HTMLDivElement>) {
-    const { _sort, sortBy, onClick } = this.props;
-
-    if (this.suppressClick) {
-      return;
-    }
-
-    onClick?.(evt);
-
-    if (_sort && typeof sortBy === "string") {
-      _sort(sortBy);
-    }
-  }
-
-  private suppressClickUntilMouseUp() {
-    this.suppressClick = true;
-
-    const clear = () => {
-      window.removeEventListener("mouseup", clear);
-      // Defer clearing so the subsequent click event (fired after mouseup) is suppressed.
-      requestAnimationFrame(() => {
-        this.suppressClick = false;
-      });
-    };
-
-    window.addEventListener("mouseup", clear);
-  }
-
+export class TableCell extends TableCellView {
   renderSortIcon() {
     const { sortBy, _sorting } = this.props;
-
-    if (!_sorting || !sortBy) {
-      return null;
-    }
-
-    const sortActive = _sorting.sortBy === sortBy;
-    const sortIconName = !sortActive || _sorting.orderBy === "desc" ? "arrow_drop_down" : "arrow_drop_up";
-
-    return <Icon className={cssNames("sortIcon", { enabled: sortActive })} material={sortIconName} />;
+    if (!_sorting || !sortBy) return null;
+    const active = _sorting.sortBy === sortBy;
+    const direction = !active || _sorting.orderBy === "desc" ? "arrow_drop_down" : "arrow_drop_up";
+    return <Icon className={`sortIcon${active ? " enabled" : ""}`} material={direction} />;
   }
 
   renderCheckbox() {
     const { checkbox, isChecked } = this.props;
-    const showCheckbox = isChecked !== undefined;
-
-    if (checkbox && showCheckbox) {
-      return <Checkbox value={isChecked} />;
-    }
-
-    return null;
-  }
-
-  render() {
-    const {
-      className,
-      checkbox,
-      isChecked,
-      scrollable,
-      sortBy,
-      _sort,
-      _sorting,
-      _nowrap,
-      children,
-      title,
-      showWithColumn,
-      resizable,
-      onResizeStart,
-      onResizeReset,
-      style,
-      ...cellProps
-    } = this.props;
-
-    const classNames = cssNames("TableCell", className, {
-      checkbox,
-      scrollable,
-      nowrap: _nowrap,
-      sorting: _sort && typeof sortBy === "string",
-    });
-    const content = title || children;
-
-    return (
-      <div {...cellProps} className={classNames} style={style} onClick={this.onClick}>
-        {this.renderCheckbox()}
-        {_nowrap ? <div className="content">{content}</div> : content}
-        {this.renderSortIcon()}
-        {resizable ? (
-          <div
-            className="resize-handle"
-            onMouseDown={(event) => {
-              event.stopPropagation();
-              this.suppressClickUntilMouseUp();
-              onResizeStart?.(event.nativeEvent);
-            }}
-            onDoubleClick={(event) => {
-              event.stopPropagation();
-              onResizeReset?.();
-            }}
-          />
-        ) : null}
-      </div>
-    );
+    return checkbox && isChecked !== undefined ? <Checkbox value={isChecked} /> : null;
   }
 }

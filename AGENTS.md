@@ -1021,3 +1021,12 @@ developers:
 - Search codebase for similar implementations
 - Review PR history for related changes
 - Consult DEVELOPMENT.md for setup instructions
+
+## Porting Step Rules
+1. Pick a menu and ask developer for latest freelens tauri page (include screenshot file should be nice)
+2. Mapping the ui and the backend possibility
+3. Start the porting and unit testing
+4. Tell user to see the page that implemented
+5. If it's okay so ask user to do next by back to point no.1
+
+Do not creating from scratch of business logic, focus on 90% ux port as minimal, if we need a logic decision just ask first

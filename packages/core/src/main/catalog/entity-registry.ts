@@ -4,7 +4,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { iter } from "@freelensapp/utilities";
+import { iter } from "@freelensapp/utilities/src/iter";
 import { action, computed, type IComputedValue, type IObservableArray, observable } from "mobx";
 
 import type { CatalogEntity } from "../../common/catalog";

@@ -4,9 +4,10 @@ Repository scripts that the build, the checks or a developer run directly.
 
 ## run-tauri.mjs
 
-Builds the isolated Node bootstrap and browser-only Welcome frontend, then runs
-the Tauri development host. The host uses a temporary profile and does not start
-cluster services or load extensions. Frontend assets and the profile are built
+Builds the isolated Node bootstrap and browser-only launcher/Catalog frontend,
+then runs the Tauri development host. The Catalog snapshot uses the existing
+built-in application providers; it does not discover clusters. The host uses a
+temporary profile and does not start cluster services or load extensions. Frontend assets and the profile are built
 outside the working tree. The browser build rejects Node and Electron imports.
 See [the migration guide](../TAURI_MIGRATION.md#running-the-development-runtime)
 for prerequisites, limitations and the smoke-test commands.
@@ -21,7 +22,9 @@ pnpm smoke:tauri
 `tauri-backend.test.mjs` tests the built backend through real child-process pipes;
 run it through `test:tauri` so its bundled entry and temporary profile are supplied.
 `tauri-frontend.test.mjs` tests the compiled browser entry, its assets, themes,
-startup failures and rendering-before-readiness ordering through the same command.
+startup failures, real backend Catalog snapshots, navigation/search and
+rendering-before-readiness ordering through the same command. The native smoke
+test traverses Welcome to Catalog before exiting.
 
 ## generate-explicit-di-registration.mjs
 

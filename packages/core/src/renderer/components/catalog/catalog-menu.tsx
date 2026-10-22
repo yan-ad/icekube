@@ -8,12 +8,9 @@ import { Icon } from "@freelensapp/icon";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import filteredCategoriesInjectable from "../../../common/catalog/filtered-categories.injectable";
-import { HorizontalLine } from "../horizontal-line/horizontal-line";
-import { TreeGroup, TreeItem, TreeView } from "../tree-view/tree-view";
 import { browseCatalogTab } from "./catalog-browse-tab";
 import { CatalogCategoryLabel } from "./catalog-category-label";
-import styles from "./catalog-menu.module.scss";
-import treeStyles from "./catalog-tree.module.scss";
+import { CatalogMenuView } from "./catalog-menu-view";
 
 import type { IComputedValue } from "mobx";
 
@@ -40,32 +37,17 @@ interface Dependencies {
 
 const NonInjectedCatalogMenu = observer(
   ({ activeTab, filteredCategories, onItemClick }: CatalogMenuProps & Dependencies) => (
-    <div className="flex flex-col w-full">
-      <div className={styles.catalog}>Catalog</div>
-      <TreeView>
-        <TreeItem
-          classes={treeStyles}
-          label="Browse"
-          data-testid="*-tab"
-          onClick={() => onItemClick("*")}
-          selected={activeTab === browseCatalogTab}
-        />
-        <HorizontalLine size="xxs" />
-        <TreeGroup classes={treeStyles} label={<div className={styles.parent}>Categories</div>}>
-          {filteredCategories.get().map((category) => (
-            <TreeItem
-              classes={treeStyles}
-              key={category.getId()}
-              icon={<CategoryIcon category={category} />}
-              label={<CatalogCategoryLabel category={category} />}
-              selected={activeTab === category.getId()}
-              data-testid={`${category.getId()}-tab`}
-              onClick={() => onItemClick(category.getId())}
-            />
-          ))}
-        </TreeGroup>
-      </TreeView>
-    </div>
+    <CatalogMenuView
+      activeTab={activeTab}
+      onItemClick={(id) => onItemClick(id === browseCatalogTab ? "*" : id)}
+      collapseIcon={<Icon material="expand_more" />}
+      expandIcon={<Icon material="chevron_right" />}
+      categories={filteredCategories.get().map((category) => ({
+        id: category.getId(),
+        label: <CatalogCategoryLabel category={category} />,
+        icon: <CategoryIcon category={category} />,
+      }))}
+    />
   ),
 );
 

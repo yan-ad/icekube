@@ -6,12 +6,13 @@
 
 import "./table-head.scss";
 
-import { cssNames } from "@freelensapp/utilities";
 import React from "react";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
 
 export type TableHeadElem = React.ReactElement<TableHeadProps>;
 
-export interface TableHeadProps extends React.DOMAttributes<HTMLDivElement> {
+export interface TableHeadProps extends React.DOMAttributes<HTMLDivElement>, React.AriaAttributes {
+  role?: React.AriaRole;
   className?: string;
   showTopLine?: boolean; // show border line at the top
   sticky?: boolean; // keep header on top when scrolling

@@ -116,3 +116,51 @@ test("accepts an unterminated final request and exits without a shutdown command
   assert.equal(responses.length, 1);
   assert.equal(responses[0].result.runtime, "node");
 });
+
+test("snapshots only the real built-in catalog providers as plain data", async () => {
+  const { responses } = await exchange(
+    line({ id: 7, method: "catalog.snapshot" }) +
+      line(initialize) +
+      line({ id: 8, method: "catalog.snapshot", path: "/not-allowed" }) +
+      line({ id: 9, method: "catalog.snapshot" }) +
+      line({ id: 10, method: "catalog.snapshot" }),
+  );
+  assert.match(responses[0].error, /not been initialized/);
+  assert.match(responses[2].error, /unsupported keys/);
+  const expected = {
+    protocolVersion: 1,
+    scope: "built-in",
+    categories: [
+      {
+        id: "entity.k8slens.dev/General",
+        name: "General",
+        kind: "General",
+        group: "entity.k8slens.dev",
+        icon: "settings",
+      },
+    ],
+    entities: [
+      {
+        id: "welcome-page-entity",
+        name: "Welcome Page",
+        kind: "General",
+        group: "entity.k8slens.dev",
+        source: "app",
+        status: "active",
+        labels: {},
+      },
+      {
+        id: "catalog-entity",
+        name: "Catalog",
+        kind: "General",
+        group: "entity.k8slens.dev",
+        source: "app",
+        status: "active",
+        labels: {},
+      },
+    ],
+  };
+  assert.deepEqual(responses[3], { id: 9, result: expected });
+  assert.deepEqual(responses[4], { id: 10, result: expected });
+  assert.equal(existsSync(profile), false, "catalog composition must never read or create a profile");
+});

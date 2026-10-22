@@ -5,7 +5,6 @@
  */
 
 import "./input.scss";
-
 import { Icon } from "@freelensapp/icon";
 import { Tooltip } from "@freelensapp/tooltip";
 import { cssNames, debouncePromise, isPromiseSettledFulfilled } from "@freelensapp/utilities";
@@ -14,6 +13,7 @@ import { debounce, uniqueId } from "es-toolkit/compat";
 import React from "react";
 import * as uuid from "uuid";
 import * as Validators from "./input_validators";
+import { InputView } from "./input-view";
 
 import type { TooltipProps } from "@freelensapp/tooltip";
 import type { SingleOrMany, StrictReactNode } from "@freelensapp/utilities";
@@ -21,6 +21,7 @@ import type { SingleOrMany, StrictReactNode } from "@freelensapp/utilities";
 import type { DOMAttributes, InputHTMLAttributes, TextareaHTMLAttributes } from "react";
 
 import type { InputValidation, InputValidationResult, InputValidator, SyncValidationMessage } from "./input_validators";
+import type { InputViewProps } from "./input-view";
 
 const {
   conditionalValidators,
@@ -454,25 +455,28 @@ export class Input extends React.Component<InputProps, State> {
     }
 
     return (
-      <div id={componentId} className={className}>
-        {tooltipError}
-        <label className="input-area flex items-center gap-2" id="">
-          {this.renderIcon(iconLeft)}
-          {multiLine ? <textarea {...(inputProps as object)} /> : <input {...(inputProps as object)} />}
-          {this.renderIcon(iconRight)}
-          {contentRight}
-        </label>
-        <div className="input-info flex gap-2">
-          {!showErrorsAsTooltip && showErrors && errorsInfo}
-          {this.showMaxLenIndicator && (
-            <div className="maxLengthIndicator">
-              {this.getValue().length}
-              {" / "}
-              {maxLength}
-            </div>
-          )}
-        </div>
-      </div>
+      <InputView
+        id={componentId}
+        className={className}
+        inputProps={inputProps as unknown as InputViewProps["inputProps"]}
+        multiLine={multiLine}
+        iconLeft={this.renderIcon(iconLeft)}
+        iconRight={this.renderIcon(iconRight)}
+        contentRight={contentRight}
+        tooltip={tooltipError}
+        info={
+          <>
+            {!showErrorsAsTooltip && showErrors && errorsInfo}
+            {this.showMaxLenIndicator && (
+              <div className="maxLengthIndicator">
+                {this.getValue().length}
+                {" / "}
+                {maxLength}
+              </div>
+            )}
+          </>
+        }
+      />
     );
   }
 }

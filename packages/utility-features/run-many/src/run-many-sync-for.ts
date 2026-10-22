@@ -4,10 +4,10 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import EventEmitter from "node:events";
+import { TypedEmitter } from "../../utilities/src/typed-event-emitter";
 import { convertToWithIdWith, verifyRunnablesAreDAG } from "./helpers";
 
-import type { Disposer, TypedEventEmitter } from "@freelensapp/utilities";
+import type { Disposer } from "@freelensapp/utilities";
 
 import type { DiContainerForInjection, InjectionToken } from "@ogre-tools/injectable";
 
@@ -17,8 +17,7 @@ export type RunManySync = <Param>(injectionToken: InjectionToken<RunnableSync<Pa
 
 class SyncBarrier {
   private readonly finishedIds = new Set<string>();
-  private readonly events: TypedEventEmitter<Record<string, () => void>> =
-    new EventEmitter() as unknown as TypedEventEmitter<Record<string, () => void>>;
+  private readonly events = new TypedEmitter<Record<string, () => void>>();
 
   setFinished(id: string): void {
     this.finishedIds.add(id);

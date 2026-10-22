@@ -4,11 +4,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import EventEmitter from "node:events";
-import { getOrInsert } from "@freelensapp/utilities";
+import { getOrInsert } from "../../utilities/src/collection-functions";
+import { TypedEmitter } from "../../utilities/src/typed-event-emitter";
 import { convertToWithIdWith, verifyRunnablesAreDAG } from "./helpers";
-
-import type { TypedEventEmitter } from "@freelensapp/utilities";
 
 import type { DiContainerForInjection, InjectionToken } from "@ogre-tools/injectable";
 import type { Asyncify } from "type-fest";
@@ -23,8 +21,7 @@ type BarrierEvent = {
 
 class DynamicBarrier {
   private readonly finishedIds = new Map<string, Promise<void>>();
-  private readonly events: TypedEventEmitter<BarrierEvent> =
-    new EventEmitter() as unknown as TypedEventEmitter<BarrierEvent>;
+  private readonly events = new TypedEmitter<BarrierEvent>();
 
   private initFinishingPromise(id: string): Promise<void> {
     return getOrInsert(

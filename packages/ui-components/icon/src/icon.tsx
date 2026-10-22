@@ -5,7 +5,6 @@
  */
 
 import "./icon.scss";
-
 import { loggerInjectionToken } from "@freelensapp/logger";
 import { NavLink } from "@freelensapp/routing";
 import { withTooltip } from "@freelensapp/tooltip";
@@ -33,6 +32,7 @@ import User from "../assets/user.svg?raw";
 import Users from "../assets/users.svg?raw";
 import Wheel from "../assets/wheel.svg?raw";
 import Workloads from "../assets/workloads.svg?raw";
+import { IconView } from "./icon-view";
 
 import type { Logger } from "@freelensapp/logger";
 import type { To } from "@freelensapp/routing";
@@ -290,7 +290,7 @@ const RawIcon = (props: IconProps & Dependencies) => {
     logger.warn("[ICON]: href prop is unsafe, blocking", { href });
   }
 
-  return <i {...iconProps} ref={ref} />;
+  return <IconView {...iconProps} iconRef={ref} />;
 };
 
 const InjectedIcon = withInjectables<Dependencies, IconProps>(RawIcon, {

@@ -6,10 +6,11 @@
 
 import "./item-list-layout.scss";
 
-import { cssNames, isDefined } from "@freelensapp/utilities";
+import { isDefined } from "@freelensapp/utilities";
 import { observer } from "mobx-react";
 import React from "react";
 import { SearchInputUrl } from "../input";
+import { ItemListLayoutHeaderView } from "./header-view";
 
 import type { ItemObject } from "@freelensapp/list-layout";
 import type { IClassName, StrictReactNode } from "@freelensapp/utilities";
@@ -82,12 +83,13 @@ export class ItemListLayoutHeader<I extends ItemObject, PreLoadStores extends bo
     );
 
     return (
-      <div className={cssNames("header flex gap-4 items-center", headerClassName)}>
-        {title}
-        {info && <div className="info-panel grow shrink-0 basis-0">{info}</div>}
-        {filters}
-        {searchFilters.length > 0 && searchProps && <SearchInputUrl {...searchProps} />}
-      </div>
+      <ItemListLayoutHeaderView
+        className={headerClassName}
+        title={title}
+        info={info}
+        filters={filters}
+        search={searchFilters.length > 0 && searchProps && <SearchInputUrl {...searchProps} />}
+      />
     );
   }
 }

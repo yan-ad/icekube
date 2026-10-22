@@ -4,6 +4,7 @@
  */
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -21,6 +22,85 @@ const compiled = await build({
   format: "iife",
   write: false,
 });
+
+for (const light of [false, true]) {
+  test(`navigates Welcome → real backend Catalog → Home (${light ? "light" : "dark"})`, async (t) => {
+    const app = boot(
+      t,
+      async (command) => {
+        if (command === "runtime_status") return status;
+        if (command === "catalog_snapshot") return catalogSnapshot;
+        assert.equal(command, "runtime_ready");
+      },
+      light,
+    );
+    await waitFor(() => app.document.querySelector('[data-testid="welcome-page"]'));
+    [...app.document.querySelectorAll("li")]
+      .find((item) => item.textContent.includes("Browse Clusters in Catalog"))
+      .click();
+    await waitFor(() => app.document.querySelector('[data-testid="catalog-entity-catalog-entity"]'));
+    assert.equal(app.window.location.hash, "#/catalog");
+    assert.match(app.document.body.textContent, /Welcome Page/);
+    app.document.querySelector('[data-testid="entity.k8slens.dev/General-tab"]').click();
+    assert.match(app.document.body.textContent, /Welcome Page/);
+    const input = app.document.querySelector('[aria-label="Search catalog"]');
+    const setValue = Object.getOwnPropertyDescriptor(app.window.HTMLInputElement.prototype, "value").set;
+    setValue.call(input, "not present");
+    input.dispatchEvent(new app.window.Event("input", { bubbles: true }));
+    await waitFor(() => app.document.body.textContent.includes("No catalog entities found."));
+    assert.equal(app.document.querySelector('[data-testid="catalog-entity-welcome-page-entity"]'), null);
+    app.document.querySelector('[data-testid="home-button"]').click();
+    await waitFor(() => app.document.querySelector('[data-testid="welcome-page"]'));
+    assert.equal(app.window.location.hash, "#/welcome");
+    assert.deepEqual(app.errors, []);
+  });
+}
+
+test("deep-linked Catalog waits for its snapshot before signaling readiness", async (t) => {
+  let resolveSnapshot;
+  let ready = false;
+  const app = boot(
+    t,
+    async (command) => {
+      if (command === "runtime_status") return status;
+      if (command === "catalog_snapshot")
+        return new Promise((resolve) => {
+          resolveSnapshot = resolve;
+        });
+      assert.equal(command, "runtime_ready");
+      assert.ok(app.document.querySelector('[data-testid="catalog-entity-catalog-entity"]'));
+      ready = true;
+    },
+    false,
+    "#/catalog",
+  );
+  await waitFor(() => resolveSnapshot);
+  assert.match(app.document.body.textContent, /Loading catalog/);
+  assert.equal(ready, false);
+  resolveSnapshot(catalogSnapshot);
+  await waitFor(() => ready);
+});
+
+test("Catalog errors remain recoverable and malformed snapshots are not rendered", async (t) => {
+  let attempts = 0;
+  const app = boot(
+    t,
+    async (command) => {
+      if (command === "runtime_status") return status;
+      if (command === "catalog_snapshot") {
+        attempts++;
+        return attempts === 1 ? { ...catalogSnapshot, scope: "untrusted" } : catalogSnapshot;
+      }
+    },
+    false,
+    "#/catalog",
+  );
+  await waitFor(() => app.document.querySelector('[role="alert"]'));
+  assert.equal(app.document.querySelector('[data-testid="catalog-entity-catalog-entity"]'), null);
+  [...app.document.querySelectorAll("button")].find((button) => button.textContent === "Retry").click();
+  await waitFor(() => app.document.querySelector('[data-testid="catalog-entity-catalog-entity"]'));
+  assert.equal(attempts, 2);
+});
 const source = compiled.outputFiles[0].text;
 
 const status = {
@@ -33,8 +113,22 @@ const status = {
   phases: ["before-anything", "before-host-ready", "host-ready", "application-started"],
 };
 
-const boot = (t, invoke, light = false) => {
-  const dom = new JSDOM(html, { url: "https://tauri.localhost/", runScripts: "outside-only", pretendToBeVisual: true });
+// Exercise the browser contract against actual backend providers, not invented cluster rows.
+const backend = spawnSync(process.execPath, [process.env.FREELENS_TAURI_BACKEND], {
+  input: `${JSON.stringify({ id: 1, method: "initialize", appData: process.env.FREELENS_TAURI_PROFILE })}\n${JSON.stringify({ id: 2, method: "catalog.snapshot" })}\n`,
+  encoding: "utf8",
+  timeout: 5000,
+});
+assert.equal(backend.status, 0, backend.stderr);
+const catalogSnapshot = JSON.parse(backend.stdout.trim().split("\n")[1]).result;
+assert.equal(catalogSnapshot.entities.length, 2);
+
+const boot = (t, invoke, light = false, hash = "") => {
+  const dom = new JSDOM(html, {
+    url: `https://tauri.localhost/${hash}`,
+    runScripts: "outside-only",
+    pretendToBeVisual: true,
+  });
   t.after(() => dom.window.close());
   const errors = [];
   dom.window.addEventListener("error", (event) => errors.push(event.message));
@@ -47,7 +141,7 @@ const boot = (t, invoke, light = false) => {
   dom.window.matchMedia = () => preference;
   if (invoke) dom.window.__TAURI__ = { core: { invoke } };
   dom.window.eval(source);
-  return { document: dom.window.document, errors, preference };
+  return { document: dom.window.document, errors, preference, window: dom.window };
 };
 
 async function waitFor(predicate) {
@@ -80,14 +174,9 @@ for (const light of [false, true]) {
     assert.deepEqual(app.errors, []);
     assert.equal(document.body.classList.contains("theme-light"), light);
     assert.equal(document.documentElement.style.getPropertyValue("--mainBackground"), light ? "#f1f1f1" : "#1e2124");
-    assert.match(
-      document.body.textContent,
-      /Cluster discovery, catalog actions, terminals, and extensions are not connected yet/,
-    );
-    const details = document.querySelector("details");
-    assert.ok(details);
-    details.open = true;
-    assert.match(details.textContent, /\/isolated\/Freelens/);
+    assert.match(document.body.textContent, /Built-in catalog only/);
+    assert.ok(document.querySelector(".ClusterManager .HotbarMenu"));
+    assert.ok(document.querySelector('[data-testid="status-bar"]'));
     app.preference.matches = !light;
     app.preference.change();
     assert.equal(document.body.classList.contains("theme-light"), !light);

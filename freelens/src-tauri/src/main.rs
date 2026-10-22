@@ -3,7 +3,7 @@
 
 mod backend;
 
-use backend::{Backend, BackendStatus};
+use backend::{Backend, BackendStatus, CatalogSnapshot};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -53,12 +53,34 @@ async fn runtime_status(
 }
 
 #[tauri::command]
+async fn catalog_snapshot(
+    window: WebviewWindow,
+    backend: State<'_, SharedBackend>,
+) -> Result<CatalogSnapshot, String> {
+    check_caller(&window)?;
+    let backend = backend.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backend
+            .lock()
+            .map_err(|error| error.to_string())?
+            .catalog_snapshot()
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn runtime_ready(window: WebviewWindow, smoke: State<'_, SmokeTest>) -> Result<(), String> {
     check_caller(&window)?;
-    println!("TAURI_WEBVIEW_READY");
     if smoke.0 {
+        if window.url().map_err(|error| error.to_string())?.fragment() != Some("/catalog") {
+            window.eval("window.location.hash = '/catalog'").map_err(|error| error.to_string())?;
+            return Ok(());
+        }
+        println!("TAURI_CATALOG_READY");
         window.app_handle().exit(0);
     }
+    println!("TAURI_WEBVIEW_READY");
     Ok(())
 }
 
@@ -92,7 +114,11 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                 window.app_handle().exit(0);
             }
         })
-        .invoke_handler(tauri::generate_handler![runtime_status, runtime_ready])
+        .invoke_handler(tauri::generate_handler![
+            runtime_status,
+            catalog_snapshot,
+            runtime_ready
+        ])
         .on_page_load(|_, payload| eprintln!("Tauri runtime page: {}", payload.url()))
         .setup(move |app| {
             let data_directory = profile.join("webview");

@@ -4,7 +4,8 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { iter, TypedEmitter } from "@freelensapp/utilities";
+import { iter } from "@freelensapp/utilities/src/iter";
+import { TypedEmitter } from "@freelensapp/utilities/src/typed-event-emitter";
 import { once } from "es-toolkit";
 import { makeObservable, observable } from "mobx";
 

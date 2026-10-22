@@ -3,29 +3,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-.application {
-  display: flex;
-  flex-direction: column;
-  overflow: auto;
-}
-
 .startup {
   padding: calc(var(--padding) * 3);
   overflow: auto;
-}
-
-.diagnostics {
-  flex-shrink: 0;
-  padding: var(--padding);
-  background: var(--layoutBackground);
-
-  summary {
-    cursor: pointer;
-  }
-
-  pre {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
-    padding-top: var(--padding);
-  }
 }

@@ -4,10 +4,10 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { buildURL } from "@freelensapp/utilities";
+import { buildURL } from "@freelensapp/utilities/src/buildUrl";
 import { getInjectable } from "@ogre-tools/injectable";
 import catalogRouteInjectable from "../../../front-end-routing/routes/catalog/catalog-route.injectable";
-import { GeneralEntity } from "../../index";
+import { GeneralEntity } from "../../general";
 import { generalCatalogEntityInjectionToken } from "../general-catalog-entity-injection-token";
 
 const catalogCatalogEntityInjectable = getInjectable({

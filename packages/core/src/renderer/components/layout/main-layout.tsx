@@ -11,11 +11,10 @@
 
 import { ErrorBoundary } from "@freelensapp/error-boundary";
 import { ResizeDirection, ResizeGrowthDirection, ResizeSide, ResizingAnchor } from "@freelensapp/resizing-anchor";
-import { cssNames } from "@freelensapp/utilities";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import React from "react";
-import styles from "./main-layout.module.scss";
+import { MainLayoutView } from "./main-layout-view";
 import sidebarStorageInjectable, { defaultSidebarWidth } from "./sidebar-storage/sidebar-storage.injectable";
 
 import type { StrictReactNode } from "@freelensapp/utilities";
@@ -49,12 +48,14 @@ class NonInjectedMainLayout extends React.Component<MainLayoutProps & Dependenci
   render() {
     const { className, footer, children, sidebar } = this.props;
     const { width: sidebarWidth } = this.props.sidebarStorage.get();
-    const style = { "--sidebar-width": `${sidebarWidth}px` } as React.CSSProperties;
 
     return (
-      <div className={cssNames(styles.mainLayout, className)} style={style}>
-        <div className={styles.sidebar}>
-          {sidebar}
+      <MainLayoutView
+        className={className}
+        sidebar={sidebar}
+        sidebarWidth={sidebarWidth}
+        footer={footer}
+        resizingAnchor={
           <ResizingAnchor
             direction={ResizeDirection.HORIZONTAL}
             placement={ResizeSide.TRAILING}
@@ -65,14 +66,10 @@ class NonInjectedMainLayout extends React.Component<MainLayoutProps & Dependenci
             minExtent={150}
             maxExtent={400}
           />
-        </div>
-
-        <div className={styles.contents}>
-          <ErrorBoundary>{children}</ErrorBoundary>
-        </div>
-
-        <div className={styles.footer}>{footer}</div>
-      </div>
+        }
+      >
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </MainLayoutView>
     );
   }
 }

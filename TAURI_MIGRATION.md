@@ -84,12 +84,21 @@ not establish that every API in that directory is exercised at runtime.
 
 ### Running the development runtime
 
-The Tauri development target renders Freelens's shared Welcome view in a native
-window and runs an owned Node metadata bootstrap using the host-neutral startup
-and app-path helpers. The browser entry uses the existing theme declarations,
-styles, fonts and logo without importing Electron or Node modules. It does not run
-the catalog, cluster services, terminal services or extensions. The Welcome view
-identifies those unavailable services rather than offering actions that cannot run.
+The Tauri development target renders the shared Freelens launcher layout, Welcome
+view and read-only Catalog in a native window. Electron and Tauri share renderer
+bootstrap orchestration and the application lifecycle, but use separate feature
+compositions. The browser entry does not register Electron's full renderer graph.
+It uses existing theme declarations, styles, fonts, launcher regions, list header,
+input, avatar and table presentation without importing Electron or Node modules.
+
+Catalog snapshots come from the existing backend registries and built-in Welcome
+and Catalog providers. They do not scan kubeconfigs or include a user's clusters.
+Category selection, search, sorting, Home and browser back/forward navigation work
+within this slice. Entity actions, native menus, hotbar persistence, terminals,
+cluster services and extensions are not connected. The terminal menu item is
+visibly disabled, and the status bar identifies the read-only scope. The hotbar
+uses the shared layout without inventing a persisted profile or cells. These
+limitations are not UI or workflow parity with the complete Electron application.
 It uses a distinct application identity and an isolated temporary profile; it does
 not open an existing Freelens profile. Node is the development machine's runtime,
 not a bundled release runtime, so this is not release-package parity.
@@ -104,11 +113,12 @@ pnpm test:tauri
 pnpm smoke:tauri
 ```
 
-`dev:tauri` opens the Welcome view with expandable runtime diagnostics.
+`dev:tauri` opens the launcher and Welcome view.
 `check:tauri` exercises Rust-to-Node startup and status without a window.
 `test:tauri` runs the Node protocol, compiled browser-entry and Rust tests.
-`smoke:tauri` requires the real webview to commit the Welcome view after backend
-readiness, then exits; a timeout is a failure. Startup failures are shown in the
+`smoke:tauri` requires the real webview to render Welcome, navigate to Catalog,
+request its backend snapshot and commit the Catalog view, then exits; a timeout
+is a failure. Startup failures are shown in the
 window and do not signal readiness. Each command builds its Node entry and Vite
 frontend into a system temporary directory and cleans up the temporary profile on
 normal exit. The script passes that frontend directory to Tauri through
@@ -117,12 +127,41 @@ build output is cached outside the repository. Cargo dependencies are locked in
 `freelens/src-tauri/Cargo.lock`.
 
 The bootstrap uses private stdin/stdout pipes, bounded messages, correlated
-requests and explicit startup failures. It exposes only runtime status to the
-embedded document. No general shell, filesystem, cluster or extension IPC is
+requests and explicit startup failures. The Tauri adapter implements the existing
+typed request-channel interface with an allowlist for runtime status and a Catalog
+snapshot. Rust commands and browser parsers validate the snapshot shape, version,
+bounds, unique IDs and category membership. Unsupported channels or request
+payloads are rejected; entity specs and executable actions are never serialized.
+No general shell, filesystem, cluster or extension IPC is
 available. The CSP allows bundled styles, fonts and images; inline styles are
 needed by existing React layout and runtime theme variables. Scripts remain local,
-and frames and remote resources remain disabled. A rendered Welcome view proves
+and frames and remote resources remain disabled. A rendered Catalog view proves
 this development bootstrap only, not the remaining parity register.
+
+#### Side-by-side UI comparison
+
+Use Electron from the same source revision as the UI reference, rather than an
+installed release whose menus may differ. With the Electron development
+prerequisites and build resources ready, launch it in a separate terminal:
+
+```sh
+comparison_dir="$(mktemp -d)"
+FREELENS_INTEGRATION_TESTING_DIR="$comparison_dir" pnpm --dir freelens dev
+```
+
+The existing integration-testing path policy isolates Electron's app data and
+home-directory lookup from the normal Freelens profile. Tauri independently
+creates its own temporary profile:
+
+```sh
+node scripts/run-tauri.mjs
+```
+
+Compare the same theme, window content size and route. Check Welcome menu order,
+top-bar Home/back/forward controls, Catalog categories, list header/count, search,
+sort indicators and row spacing. Native title bars and font rasterization can
+differ between Electron and the system webview; unported controls and data sources
+must be recorded as gaps rather than treated as equivalent behavior.
 
 ### Application layout
 

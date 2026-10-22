@@ -1,0 +1,26 @@
+/**
+ * Copyright (c) Freelens Authors. All rights reserved.
+ * Licensed under MIT License. See LICENSE in root directory for more information.
+ */
+
+.catalog {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+
+  :global(.TableRow) {
+    height: 36px;
+  }
+}
+
+.list {
+  min-height: 0;
+
+  > :global(.items) {
+    overflow: auto;
+  }
+}
+
+.empty {
+  padding: calc(var(--padding) * 2);
+}

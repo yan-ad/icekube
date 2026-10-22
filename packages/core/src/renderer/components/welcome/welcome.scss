@@ -37,9 +37,17 @@
         margin-left: 10px;
         border-bottom: none;
       }
+      &[aria-disabled="true"] {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
     }
     li:hover {
       color: var(--textColorAccent);
+    }
+    li:focus-visible {
+      outline: 2px solid var(--textColorAccent);
+      outline-offset: 2px;
     }
   }
 

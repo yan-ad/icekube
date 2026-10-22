@@ -4,7 +4,8 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { getOrInsertMap, iter, strictSet } from "@freelensapp/utilities";
+import { getOrInsertMap, strictSet } from "@freelensapp/utilities/src/collection-functions";
+import { iter } from "@freelensapp/utilities/src/iter";
 import { once } from "es-toolkit";
 import { action, computed, observable } from "mobx";
 
