@@ -18,12 +18,13 @@ export interface TopBarViewProps {
   itemsOnLeft: TopBarViewItem[];
   itemsOnRight: TopBarViewItem[];
   onDoubleClick?: MouseEventHandler<HTMLDivElement>;
+  onMouseDown?: MouseEventHandler<HTMLDivElement>;
 }
 
 /** Preserve the registered item order and the original dragging and gutter boundaries. */
-export function TopBarView({ itemsOnLeft, itemsOnRight, onDoubleClick }: TopBarViewProps) {
+export function TopBarView({ itemsOnLeft, itemsOnRight, onDoubleClick, onMouseDown }: TopBarViewProps) {
   return (
-    <div className={styles.topBar} onDoubleClick={onDoubleClick}>
+    <div className={styles.topBar} onDoubleClick={onDoubleClick} onMouseDown={onMouseDown}>
       <div className={styles.items}>
         <Map items={itemsOnLeft} getSeparator={() => <Gutter size="sm" />}>
           {toItemWhichWorksWithWindowDraggingAndDoubleClicking}

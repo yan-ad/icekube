@@ -4,9 +4,9 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { buildURL } from "@freelensapp/utilities";
+import { buildURL } from "@freelensapp/utilities/src/buildUrl";
 import { getInjectable } from "@ogre-tools/injectable";
-import { GeneralEntity } from "../../../common/catalog-entities";
+import { GeneralEntity } from "../../../common/catalog-entities/general";
 import { generalCatalogEntityInjectionToken } from "../../../common/catalog-entities/general-catalog-entities/general-catalog-entity-injection-token";
 import preferencesRouteInjectable from "./preferences-route.injectable";
 

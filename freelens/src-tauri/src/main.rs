@@ -70,6 +70,22 @@ async fn catalog_snapshot(
 }
 
 #[tauri::command]
+fn window_drag(window: WebviewWindow) -> Result<(), String> {
+    check_caller(&window)?;
+    window.start_dragging().map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn window_toggle_maximize(window: WebviewWindow) -> Result<(), String> {
+    check_caller(&window)?;
+    if window.is_maximized().map_err(|error| error.to_string())? {
+        window.unmaximize().map_err(|error| error.to_string())
+    } else {
+        window.maximize().map_err(|error| error.to_string())
+    }
+}
+
+#[tauri::command]
 fn runtime_ready(window: WebviewWindow, smoke: State<'_, SmokeTest>) -> Result<(), String> {
     check_caller(&window)?;
     if smoke.0 {
@@ -117,14 +133,16 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             catalog_snapshot,
+            window_drag,
+            window_toggle_maximize,
             runtime_ready
         ])
         .on_page_load(|_, payload| eprintln!("Tauri runtime page: {}", payload.url()))
         .setup(move |app| {
             let data_directory = profile.join("webview");
             std::fs::create_dir_all(&data_directory)?;
-            tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Freelens Tauri Development")
+            let window = tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                .title("Freelens")
                 .inner_size(900.0, 600.0)
                 .min_inner_size(700.0, 500.0)
                 .data_directory(data_directory)
@@ -132,8 +150,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                     let allowed = is_runtime_url(url);
                     eprintln!("Tauri runtime navigation: {url} allowed={allowed}");
                     allowed
-                })
-                .build()?;
+                });
+            #[cfg(target_os = "macos")]
+            let window = window.title_bar_style(tauri::TitleBarStyle::Overlay)
+                .hidden_title(true)
+                .traffic_light_position(tauri::LogicalPosition::new(14.0, 18.0));
+            window.build()?;
             if smoke {
                 let handle = app.handle().clone();
                 std::thread::spawn(move || {

@@ -7,38 +7,13 @@
 import { isDefined } from "@freelensapp/utilities";
 import { KubeConfig } from "@kubernetes/client-node";
 import { newClusters, newContexts, newUsers } from "@kubernetes/client-node/dist/config_types.js";
-import Joi from "joi";
 import * as yaml from "js-yaml";
+import { validateKubeConfigDocument } from "./kube-config-document";
 
 import type { Cluster, Context, User } from "@kubernetes/client-node";
+import type Joi from "joi";
 import type { DumpOptions } from "js-yaml";
 import type { PartialDeep } from "type-fest";
-
-const clusterSchema = Joi.object({
-  name: Joi.string().min(1).required(),
-  cluster: Joi.object({
-    server: Joi.string().min(1).required(),
-  }).required(),
-});
-
-const userSchema = Joi.object({
-  name: Joi.string().min(1).required(),
-});
-
-const contextSchema = Joi.object({
-  name: Joi.string().min(1).required(),
-  context: Joi.object({
-    cluster: Joi.string().min(1).required(),
-    user: Joi.string().min(1).required(),
-  }),
-});
-
-const kubeConfigSchema = Joi.object({
-  users: Joi.array().items(userSchema).optional(),
-  clusters: Joi.array().items(clusterSchema).optional(),
-  contexts: Joi.array().items(contextSchema).optional(),
-  "current-context": Joi.string().min(1).failover("default"),
-}).required();
 
 interface KubeConfigOptions {
   clusters: Cluster[];
@@ -53,31 +28,14 @@ interface OptionsResult {
 }
 
 function loadToOptions(rawYaml: string): OptionsResult {
-  // js-yaml v5 throws on empty input instead of returning undefined
-  const parsed = rawYaml.trim() ? yaml.load(rawYaml) : undefined;
-  const { error } = kubeConfigSchema.validate(parsed, {
-    abortEarly: false,
-    allowUnknown: true,
-  });
-  const { value } = kubeConfigSchema.validate(parsed, {
-    abortEarly: false,
-    allowUnknown: true,
-    stripUnknown: {
-      arrays: true,
-    },
-  });
-  const {
-    clusters: rawClusters,
-    users: rawUsers,
-    contexts: rawContexts,
-    "current-context": currentContext,
-  } = value ?? {};
+  const { document, error } = validateKubeConfigDocument(rawYaml);
+  const { clusters: rawClusters, users: rawUsers, contexts: rawContexts, "current-context": currentContext } = document;
   const clusters = newClusters(rawClusters);
   const users = newUsers(rawUsers);
   const contexts = newContexts(rawContexts);
 
   return {
-    options: { clusters, users, contexts, currentContext },
+    options: { clusters, users, contexts, currentContext: currentContext! },
     error,
   };
 }

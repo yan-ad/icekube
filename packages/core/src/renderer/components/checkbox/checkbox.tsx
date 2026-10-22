@@ -6,8 +6,9 @@
 
 import "./checkbox.scss";
 
-import { cssNames, noop } from "@freelensapp/utilities";
 import React from "react";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
+import { noop } from "../../../../../utility-features/utilities/src/noop";
 
 import type { StrictReactNode } from "@freelensapp/utilities";
 

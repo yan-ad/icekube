@@ -108,7 +108,7 @@
   }
 }
 
-@include mixins.theme-light {
+body.theme-light {
   .Menu {
     border: 1px solid var(--borderColor);
   }

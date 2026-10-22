@@ -6,8 +6,8 @@
 
 import "./hotbar-menu.scss";
 
-import { cssNames } from "@freelensapp/utilities";
 import React, { useState } from "react";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
 
 import type { StrictReactNode } from "@freelensapp/utilities";
 

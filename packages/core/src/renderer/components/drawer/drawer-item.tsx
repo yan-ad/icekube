@@ -6,8 +6,8 @@
 
 import "./drawer-item.scss";
 
-import { cssNames } from "@freelensapp/utilities";
 import React from "react";
+import { cssNames } from "../../../../../utility-features/utilities/src/cssNames";
 
 import type { StrictReactNode } from "@freelensapp/utilities";
 

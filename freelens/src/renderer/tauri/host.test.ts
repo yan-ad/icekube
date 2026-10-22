@@ -10,7 +10,7 @@ import { createTauriRequester } from "./host";
 
 describe("Tauri request adapter", () => {
   it("maps only explicitly supported channels to native commands", async () => {
-    const snapshot = { protocolVersion: 1, scope: "built-in", categories: [], entities: [] };
+    const snapshot = { protocolVersion: 2, scope: "local", categories: [], entities: [], warnings: [] };
     const invoke = vi.fn().mockResolvedValue(snapshot);
     await expect(createTauriRequester(invoke)(catalogSnapshotChannel)).resolves.toEqual(snapshot);
     expect(invoke).toHaveBeenCalledWith("catalog_snapshot");
@@ -27,7 +27,7 @@ describe("Tauri request adapter", () => {
   it("rejects malformed host results", async () => {
     const invoke = vi
       .fn()
-      .mockResolvedValue({ protocolVersion: 1, scope: "built-in", categories: [], entities: [], extra: true });
+      .mockResolvedValue({ protocolVersion: 2, scope: "untrusted", categories: [], entities: [], warnings: [] });
     await expect(createTauriRequester(invoke)(catalogSnapshotChannel)).rejects.toThrow();
   });
 });

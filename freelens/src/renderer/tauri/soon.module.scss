@@ -1,0 +1,19 @@
+/**
+ * Copyright (c) Freelens Authors. All rights reserved.
+ * Licensed under MIT License. See LICENSE in root directory for more information.
+ */
+
+.soon {
+  display: inline-block;
+  flex-shrink: 0;
+  margin-inline-start: 0.4em;
+  padding: 0 0.3em;
+  border: 1px solid var(--borderColor);
+  border-radius: 2px;
+  color: var(--textColorSecondary);
+  font-size: var(--font-size-small);
+  font-weight: normal;
+  line-height: 1.3;
+  vertical-align: middle;
+  white-space: nowrap;
+}

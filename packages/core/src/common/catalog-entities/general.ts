@@ -5,6 +5,7 @@
  */
 
 import { CatalogCategory, CatalogEntity, categoryVersion } from "../catalog/catalog-entity";
+import { generalCatalogCategory } from "./general-category";
 
 import type { CatalogEntityMetadata, CatalogEntitySpec, CatalogEntityStatus } from "../catalog";
 import type { CatalogEntityActionContext } from "../catalog/catalog-entity";
@@ -30,14 +31,14 @@ export class GeneralCategory extends CatalogCategory {
   public readonly apiVersion = "catalog.k8slens.dev/v1alpha1";
   public readonly kind = "CatalogCategory";
   public metadata = {
-    name: "General",
-    icon: "settings",
+    name: generalCatalogCategory.name,
+    icon: generalCatalogCategory.icon,
   };
   public spec = {
-    group: "entity.k8slens.dev",
+    group: generalCatalogCategory.group,
     versions: [categoryVersion("v1alpha1", GeneralEntity)],
     names: {
-      kind: "General",
+      kind: generalCatalogCategory.kind,
     },
   };
 }

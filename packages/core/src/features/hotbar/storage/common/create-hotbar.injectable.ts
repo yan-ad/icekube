@@ -6,6 +6,8 @@
 
 import { prefixedLoggerInjectable } from "@freelensapp/logger";
 import { getInjectable } from "@ogre-tools/injectable";
+import { broadcastMessage } from "../../../../common/ipc";
+import { hotbarTooManyItemsChannel } from "../../../../common/ipc/hotbar";
 import { Hotbar } from "./hotbar";
 
 import type { HotbarDependencies } from "./hotbar";
@@ -18,6 +20,7 @@ const createHotbarInjectable = getInjectable({
   instantiate: (di): CreateHotbar => {
     const deps: HotbarDependencies = {
       logger: di.inject(prefixedLoggerInjectable, "HOTBAR"),
+      onTooManyItems: () => broadcastMessage(hotbarTooManyItemsChannel),
     };
 
     return (data) => new Hotbar(deps, data);

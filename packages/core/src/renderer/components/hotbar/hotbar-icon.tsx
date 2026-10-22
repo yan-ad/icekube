@@ -6,14 +6,12 @@
 
 import { Icon } from "@freelensapp/icon";
 import { Tooltip } from "@freelensapp/tooltip";
-import { cssNames } from "@freelensapp/utilities";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import { useState } from "react";
 import normalizeCatalogEntityContextMenuInjectable from "../../catalog/normalize-menu-item.injectable";
-import { Avatar } from "../avatar";
 import { Menu, MenuItem } from "../menu";
-import styles from "./hotbar-icon.module.scss";
+import { HotbarIconView } from "./hotbar-icon-view";
 
 import type { CatalogEntityContextMenu } from "../../../common/catalog";
 import type { NormalizeCatalogEntityContextMenu } from "../../catalog/normalize-menu-item.injectable";
@@ -46,21 +44,21 @@ const NonInjectedHotbarIcon = observer(
     };
 
     return (
-      <div className={cssNames(styles.HotbarIcon, className, { [styles.contextMenuAvailable]: menuItems.length > 0 })}>
+      <HotbarIconView
+        {...rest}
+        uid={uid}
+        title={title}
+        source={source}
+        active={active}
+        contextMenuAvailable={menuItems.length > 0}
+        className={className}
+        disabled={disabled}
+        size={size}
+        src={src}
+        onClick={onClick}
+        materialIcon={material ? <Icon material={material} /> : undefined}
+      >
         {tooltip && <Tooltip targetId={id}>{tooltip}</Tooltip>}
-        <Avatar
-          {...rest}
-          id={id}
-          title={title}
-          colorHash={source ? `${title}-${source}` : title}
-          className={cssNames(styles.avatar, { [styles.active]: active, [styles.hasImage]: !!src })}
-          disabled={disabled}
-          size={size}
-          src={src}
-          onClick={(event) => !disabled && onClick?.(event)}
-        >
-          {material && <Icon material={material} />}
-        </Avatar>
         {children}
         <Menu
           usePortal
@@ -80,7 +78,7 @@ const NonInjectedHotbarIcon = observer(
             </MenuItem>
           ))}
         </Menu>
-      </div>
+      </HotbarIconView>
     );
   },
 );

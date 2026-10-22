@@ -51,6 +51,12 @@ export function createRuntimeHost(request: RequestFromChannel): RuntimeHost {
   return {
     status: () => request(runtimeStatusChannel),
     catalogSnapshot: () => request(catalogSnapshotChannel),
+    dragWindow: async () => {
+      await invoke("window_drag");
+    },
+    toggleMaximize: async () => {
+      await invoke("window_toggle_maximize");
+    },
     ready: async () => {
       await invoke("runtime_ready");
     },

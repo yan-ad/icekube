@@ -23,6 +23,50 @@ const compiled = await build({
   write: false,
 });
 
+test("opens a cluster SOON landing without starting authentication and returns to Catalog", async (t) => {
+  const calls = [];
+  const app = boot(
+    t,
+    async (command) => {
+      calls.push(command);
+      if (command === "runtime_status") return status;
+      if (command === "catalog_snapshot") return catalogSnapshot;
+      assert.equal(command, "runtime_ready");
+    },
+    false,
+    "#/catalog",
+  );
+  await waitFor(() => app.document.querySelector(`[data-testid="catalog-entity-${cluster.id}"]`));
+  app.document.querySelector(`[aria-label="Open ${cluster.name}"]`).click();
+  await waitFor(() => app.document.querySelector('[aria-label="Cluster connection"]'));
+  assert.equal(app.window.location.hash, `#/cluster/${encodeURIComponent(cluster.id)}`);
+  assert.match(app.document.body.textContent, /SOON/);
+  assert.match(app.document.body.textContent, /No connection has been started/);
+  assert.doesNotMatch(app.document.body.textContent, /Authentication proxy started|Starting connection|Connecting…/);
+  assert.ok(
+    [...app.document.querySelectorAll("button")].find((button) => button.textContent.startsWith("Connect")).disabled,
+  );
+  [...app.document.querySelectorAll("button")].find((button) => button.textContent === "Back to Catalog").click();
+  await waitFor(() => app.document.querySelector('[aria-label="Catalog entities"]'));
+  assert.equal(app.window.location.hash, "#/catalog");
+  assert.ok(calls.every((command) => ["runtime_status", "catalog_snapshot", "runtime_ready"].includes(command)));
+  assert.deepEqual(app.errors, []);
+});
+
+test("readiness does not depend on animation frames in an unfocused webview", async (t) => {
+  let ready = false;
+  const app = boot(t, async (command) => {
+    if (command === "runtime_status") return status;
+    if (command === "catalog_snapshot") return catalogSnapshot;
+    if (command === "runtime_ready") {
+      assert.ok(app.document.querySelector('[data-testid="welcome-page"]'));
+      ready = true;
+    }
+  });
+  app.window.requestAnimationFrame = () => 1;
+  await waitFor(() => ready);
+});
+
 for (const light of [false, true]) {
   test(`navigates Welcome → real backend Catalog → Home (${light ? "light" : "dark"})`, async (t) => {
     const app = boot(
@@ -41,6 +85,8 @@ for (const light of [false, true]) {
     await waitFor(() => app.document.querySelector('[data-testid="catalog-entity-catalog-entity"]'));
     assert.equal(app.window.location.hash, "#/catalog");
     assert.match(app.document.body.textContent, /Welcome Page/);
+    assert.match(app.document.body.textContent, /fixture-cluster/);
+    assert.match(app.document.body.textContent, /Preferences/);
     app.document.querySelector('[data-testid="entity.k8slens.dev/General-tab"]').click();
     assert.match(app.document.body.textContent, /Welcome Page/);
     const input = app.document.querySelector('[aria-label="Search catalog"]');
@@ -121,7 +167,17 @@ const backend = spawnSync(process.execPath, [process.env.FREELENS_TAURI_BACKEND]
 });
 assert.equal(backend.status, 0, backend.stderr);
 const catalogSnapshot = JSON.parse(backend.stdout.trim().split("\n")[1]).result;
-assert.equal(catalogSnapshot.entities.length, 2);
+assert.equal(catalogSnapshot.protocolVersion, 2);
+assert.equal(catalogSnapshot.scope, "local");
+assert.equal(catalogSnapshot.categories.length, 3);
+assert.deepEqual(
+  new Set(catalogSnapshot.entities.filter(({ source }) => source === "app").map(({ id }) => id)),
+  new Set(["welcome-page-entity", "catalog-entity", "preferences-entity"]),
+);
+const cluster = catalogSnapshot.entities.find(({ kind }) => kind === "KubernetesCluster");
+assert.equal(cluster?.name, "fixture-cluster");
+assert.equal(cluster.status, "disconnected");
+assert.doesNotMatch(backend.stdout + backend.stderr, /tauri-discovery-sentinel|writeFileSync/);
 
 const boot = (t, invoke, light = false, hash = "") => {
   const dom = new JSDOM(html, {
@@ -170,11 +226,10 @@ for (const light of [false, true]) {
     );
     document = app.document;
     await waitFor(() => calls.includes("runtime_ready"));
-    assert.deepEqual(calls, ["runtime_status", "runtime_ready"]);
+    assert.deepEqual(calls, ["runtime_status", "catalog_snapshot", "runtime_ready"]);
     assert.deepEqual(app.errors, []);
     assert.equal(document.body.classList.contains("theme-light"), light);
     assert.equal(document.documentElement.style.getPropertyValue("--mainBackground"), light ? "#f1f1f1" : "#1e2124");
-    assert.match(document.body.textContent, /Built-in catalog only/);
     assert.ok(document.querySelector(".ClusterManager .HotbarMenu"));
     assert.ok(document.querySelector('[data-testid="status-bar"]'));
     app.preference.matches = !light;

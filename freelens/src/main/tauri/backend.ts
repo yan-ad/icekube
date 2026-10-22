@@ -18,7 +18,7 @@ type BackendResponse = { id: number; result: RuntimeStatus | CatalogSnapshot } |
 const maximumRequestBytes = 16 * 1024;
 let initializationStarted = false;
 let status: RuntimeStatus | undefined;
-let catalogSnapshot: (() => CatalogSnapshot) | undefined;
+let catalogSnapshot: (() => Promise<CatalogSnapshot>) | undefined;
 
 // This host only computes paths in memory. It never asks the OS for a profile,
 // opens credentials, or creates the userData/sessionData directories.
@@ -56,7 +56,18 @@ const initialize = async (appData: string): Promise<RuntimeStatus> => {
     },
     startApplication: async () => {
       // Only the explicitly composed, in-memory built-ins are started.
-      catalogSnapshot = createBuiltInCatalog();
+      let roots: unknown = [];
+      try {
+        if (process.env.FREELENS_TAURI_KUBECONFIG_ROOTS !== undefined) {
+          roots = JSON.parse(process.env.FREELENS_TAURI_KUBECONFIG_ROOTS);
+        }
+      } catch {
+        throw new Error("Invalid catalog discovery roots configuration");
+      }
+      if (!Array.isArray(roots) || roots.some((root) => typeof root !== "string")) {
+        throw new Error("Invalid catalog discovery roots configuration");
+      }
+      catalogSnapshot = createBuiltInCatalog({ roots, homeDirectory: process.env.HOME });
       phases.push("application-started");
     },
   });
@@ -136,7 +147,11 @@ const handleRequest = async (line: string): Promise<BackendResponse> => {
           throw new Error("Backend has not been initialized");
         }
 
-        return { id, result: catalogSnapshot() };
+        try {
+          return { id, result: await catalogSnapshot() };
+        } catch {
+          return { id, error: "Catalog snapshot unavailable" };
+        }
       }
       default:
         throw new Error("Unknown method");
@@ -194,8 +209,12 @@ async function* readRequestLines(): AsyncGenerator<string | null> {
 
 const writeResponse = (response: BackendResponse): Promise<void> =>
   new Promise((resolve, reject) => {
+    let serialized = JSON.stringify(response);
+    if (Buffer.byteLength(serialized) + 1 > 1024 * 1024) {
+      serialized = JSON.stringify({ id: response.id, error: "Response exceeds the 1 MiB limit" });
+    }
     // Awaiting the write callback bounds pending output even under backpressure.
-    process.stdout.write(`${JSON.stringify(response)}\n`, (error) => {
+    process.stdout.write(`${serialized}\n`, (error) => {
       if (error) {
         reject(error);
       } else {

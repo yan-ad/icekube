@@ -5,7 +5,8 @@
 
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { lstat, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -22,6 +23,19 @@ if (process.argv.length > 3 || !modes.has(mode)) {
 }
 
 const temporary = await mkdtemp(join(tmpdir(), "freelens-tauri-dev-"));
+const kubeconfigRoot = join(temporary, "kube");
+if (mode) {
+  await mkdir(kubeconfigRoot, { recursive: true, mode: 0o700 });
+  const execArguments = [
+    "-e",
+    `require('node:fs').writeFileSync(${JSON.stringify(join(temporary, "exec-must-not-run"))}, 'ran')`,
+  ];
+  await writeFile(
+    join(kubeconfigRoot, "fixture.yaml"),
+    `apiVersion: v1\nkind: Config\nclusters:\n  - name: fixture-cluster\n    cluster:\n      server: https://fixture.invalid\nusers:\n  - name: fixture-user\n    user:\n      token: tauri-discovery-sentinel\n      exec:\n        command: ${JSON.stringify(process.execPath)}\n        args: ${JSON.stringify(execArguments)}\ncontexts:\n  - name: fixture-cluster\n    context:\n      cluster: fixture-cluster\n      user: fixture-user\n`,
+    { mode: 0o600 },
+  );
+}
 const cacheKey = createHash("sha256").update(root).digest("hex").slice(0, 16);
 const cache = join(homedir(), ".cache", "freelens-tauri");
 await mkdir(cache, { recursive: true, mode: 0o700 });
@@ -45,6 +59,7 @@ const environment = {
   FREELENS_TAURI_PROFILE: join(temporary, "profile"),
   FREELENS_TAURI_FRONTEND: frontend,
   TAURI_CONFIG: JSON.stringify({ build: { frontendDist: frontend } }),
+  FREELENS_TAURI_KUBECONFIG_ROOTS: JSON.stringify(mode ? [kubeconfigRoot] : [join(homedir(), ".kube")]),
 };
 
 delete environment.NODE_OPTIONS;
@@ -125,7 +140,7 @@ try {
       {
         name: "explicit-node-catalog-dependencies",
         setup(build) {
-          const permitted = new Set(["@ogre-tools/injectable", "mobx", "es-toolkit", "uuid"]);
+          const permitted = new Set(["@ogre-tools/injectable", "mobx", "es-toolkit", "uuid", "joi", "js-yaml"]);
           build.onResolve({ filter: /^[^./]/ }, (args) => {
             if (args.path.startsWith("node:")) return { path: args.path, external: true };
             if (args.path.startsWith("@freelensapp/")) return;
@@ -157,7 +172,7 @@ try {
   const unexpected = Object.keys(bundle.metafile.inputs).filter(
     (path) =>
       (!path.startsWith("pinned-commonjs:") && path.includes("node_modules/")) ||
-      /electron|kubeconfig|terminal|extensions/i.test(path) ||
+      /electron|terminal|extensions/i.test(path) ||
       !(
         path.startsWith("pinned-commonjs:") ||
         path.startsWith("freelens/src/main/tauri/") ||
@@ -165,6 +180,12 @@ try {
         path.startsWith("packages/core/src/common/catalog-entities/") ||
         path.startsWith("packages/core/src/main/catalog/") ||
         path.startsWith("packages/core/src/common/front-end-routing/") ||
+        path === "packages/core/src/common/kube-config-document.ts" ||
+        path === "packages/core/src/common/kubeconfig-file-ignore.ts" ||
+        ["preferences-catalog-entity", "preferences-route"].some(
+          (leaf) => path === `packages/core/src/features/preferences/common/${leaf}.injectable.ts`,
+        ) ||
+        path.startsWith("packages/core/src/common/front-end-routing/routes/preferences/") ||
         path === "packages/core/src/main/app-paths/initialize-app-paths.ts" ||
         path === "packages/core/src/common/app-paths/app-path-names.ts" ||
         ["iter", "typed-event-emitter", "type-narrowing", "buildUrl", "collection-functions"].some(
@@ -196,6 +217,9 @@ try {
     }
   }
 
+  if (existsSync(join(temporary, "exec-must-not-run"))) {
+    throw new Error("Read-only catalog discovery executed a credential plugin");
+  }
   process.exitCode = interrupted ? 130 : code;
 } finally {
   process.off("SIGINT", interrupt);

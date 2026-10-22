@@ -7,16 +7,25 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 const script = process.env.FREELENS_TAURI_BACKEND;
 const profile = process.env.FREELENS_TAURI_PROFILE;
 
-assert.ok(script && profile, "Run through pnpm test:tauri so the backend is built and isolated");
+assert.ok(
+  script && profile && process.env.FREELENS_TAURI_KUBECONFIG_ROOTS,
+  "Run through pnpm test:tauri so the backend is built and isolated",
+);
 
-const exchange = async (input) => {
-  const child = spawn(process.execPath, [script], { stdio: ["pipe", "pipe", "pipe"], timeout: 5000 });
+const exchange = async (input, env = {}) => {
+  const child = spawn(process.execPath, [script], {
+    stdio: ["pipe", "pipe", "pipe"],
+    timeout: 5000,
+    env: { ...process.env, ...env },
+  });
   const output = [];
   const errors = [];
 
@@ -32,7 +41,10 @@ const exchange = async (input) => {
   assert.equal(code, 0, Buffer.concat(errors).toString());
   assert.equal(Buffer.concat(errors).toString(), "");
 
+  assert.equal(existsSync(join(dirname(profile), "exec-must-not-run")), false);
+
   return {
+    wire: Buffer.concat(output).toString(),
     pid: child.pid,
     responses: Buffer.concat(output)
       .toString()
@@ -117,7 +129,7 @@ test("accepts an unterminated final request and exits without a shutdown command
   assert.equal(responses[0].result.runtime, "node");
 });
 
-test("snapshots only the real built-in catalog providers as plain data", async () => {
+test("snapshots real built-ins and synthetic local discovery as plain data", async () => {
   const { responses } = await exchange(
     line({ id: 7, method: "catalog.snapshot" }) +
       line(initialize) +
@@ -127,40 +139,83 @@ test("snapshots only the real built-in catalog providers as plain data", async (
   );
   assert.match(responses[0].error, /not been initialized/);
   assert.match(responses[2].error, /unsupported keys/);
-  const expected = {
-    protocolVersion: 1,
-    scope: "built-in",
-    categories: [
-      {
-        id: "entity.k8slens.dev/General",
-        name: "General",
-        kind: "General",
-        group: "entity.k8slens.dev",
-        icon: "settings",
-      },
-    ],
-    entities: [
-      {
-        id: "welcome-page-entity",
-        name: "Welcome Page",
-        kind: "General",
-        group: "entity.k8slens.dev",
-        source: "app",
-        status: "active",
-        labels: {},
-      },
-      {
-        id: "catalog-entity",
-        name: "Catalog",
-        kind: "General",
-        group: "entity.k8slens.dev",
-        source: "app",
-        status: "active",
-        labels: {},
-      },
-    ],
-  };
-  assert.deepEqual(responses[3], { id: 9, result: expected });
-  assert.deepEqual(responses[4], { id: 10, result: expected });
+  const snapshot = responses[3].result;
+  assert.equal(snapshot.protocolVersion, 2);
+  assert.equal(snapshot.scope, "local");
+  assert.equal(snapshot.categories.length, 3);
+  assert.deepEqual(
+    new Set(snapshot.categories.map(({ kind }) => kind)),
+    new Set(["General", "KubernetesCluster", "WebLink"]),
+  );
+  assert.deepEqual(
+    new Set(snapshot.entities.filter(({ source }) => source === "app").map(({ id }) => id)),
+    new Set(["welcome-page-entity", "catalog-entity", "preferences-entity"]),
+  );
+  const clusters = snapshot.entities.filter(({ kind }) => kind === "KubernetesCluster");
+  assert.equal(clusters.length, 1);
+  assert.equal(clusters[0].name, "fixture-cluster");
+  assert.equal(clusters[0].status, "disconnected");
+  assert.equal(clusters[0].source, "local");
+  assert.equal(clusters[0].action, null);
+  assert.deepEqual(snapshot.warnings, []);
+  assert.deepEqual(responses[4], { id: 10, result: snapshot });
+  assert.doesNotMatch(
+    JSON.stringify(snapshot),
+    /tauri-discovery-sentinel|fixture-user|fixture\.invalid|exec-must-not-run/,
+  );
   assert.equal(existsSync(profile), false, "catalog composition must never read or create a profile");
+});
+
+const syntheticConfig = (name, marker) => `apiVersion: v1
+kind: Config
+clusters:
+  - name: cluster
+    cluster:
+      server: https://private-endpoint.invalid
+users:
+  - name: private-user
+    user:
+      token: private-token-sentinel
+      password: private-password-sentinel
+      exec:
+        command: ${JSON.stringify(process.execPath)}
+        args: ${JSON.stringify(["-e", `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`])}
+contexts:
+  - name: ${name}
+    context:
+      cluster: cluster
+      user: private-user
+`;
+
+test("discovery is read-only, refreshed, and never sends credentials or parser details over the protocol", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "tauri-protocol-discovery-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const config = join(root, "config.yaml");
+  const marker = join(root, "executed");
+  const env = { FREELENS_TAURI_KUBECONFIG_ROOTS: JSON.stringify([root]), HOME: root };
+  const request =
+    line(initialize) + line({ id: 2, method: "catalog.snapshot" }) + line({ id: 3, method: "catalog.snapshot" });
+  for (const name of ["first-context", "changed-context"]) {
+    const content = syntheticConfig(name, marker);
+    await writeFile(config, content, { mode: 0o600 });
+    const { responses, wire } = await exchange(request, env);
+    const snapshot = responses[1].result;
+    assert.deepEqual(responses[2].result, snapshot);
+    assert.deepEqual(
+      snapshot.entities.filter(({ source }) => source === "local").map(({ name }) => name),
+      [name],
+    );
+    assert.equal(snapshot.entities.find(({ source }) => source === "local").status, "disconnected");
+    assert.doesNotMatch(
+      wire,
+      /private-token-sentinel|private-password-sentinel|private-user|private-endpoint|writeFileSync/,
+    );
+    assert.equal(existsSync(marker), false, "credential exec must never run");
+    assert.equal(await readFile(config, "utf8"), content);
+  }
+  await writeFile(config, "token: private-token-sentinel\ninvalid: [\n");
+  const { responses, wire } = await exchange(request, env);
+  assert.equal(responses[1].result.entities.filter(({ source }) => source === "local").length, 0);
+  assert.ok(responses[1].result.warnings.includes("KUBECONFIG_READ_OR_PARSE_FAILED"));
+  assert.doesNotMatch(wire, /private-token-sentinel|YAMLException|unexpected end/);
 });

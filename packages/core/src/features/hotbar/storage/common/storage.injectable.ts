@@ -16,7 +16,7 @@ import activeHotbarIdInjectable from "./active-id.injectable";
 import createHotbarInjectable from "./create-hotbar.injectable";
 import { hotbarStoreMigrationInjectionToken } from "./migrations-token";
 import hotbarsStateInjectable from "./state.injectable";
-import { defaultHotbarCells } from "./types";
+import { createDefaultHotbarItems, defaultHotbarCells } from "./types";
 
 import type { Hotbar, HotbarData } from "./hotbar";
 
@@ -48,20 +48,20 @@ const hotbarsPersistentStorageInjectable = getInjectable({
           const hotbar = createHotbar({
             name: "Default",
           });
-          hotbar.items[0] = {
-            entity: {
-              uid: welcomeCatalogEntity.metadata.uid,
-              name: welcomeCatalogEntity.metadata.name,
-              source: welcomeCatalogEntity.metadata.source,
-            },
-          };
-          hotbar.items[1] = {
-            entity: {
-              uid: catalogCatalogEntity.metadata.uid,
-              name: catalogCatalogEntity.metadata.name,
-              source: catalogCatalogEntity.metadata.source,
-            },
-          };
+          hotbar.items.replace(
+            createDefaultHotbarItems(
+              {
+                uid: welcomeCatalogEntity.metadata.uid,
+                name: welcomeCatalogEntity.metadata.name,
+                source: welcomeCatalogEntity.metadata.source,
+              },
+              {
+                uid: catalogCatalogEntity.metadata.uid,
+                name: catalogCatalogEntity.metadata.name,
+                source: catalogCatalogEntity.metadata.source,
+              },
+            ),
+          );
           state.replace([[hotbar.id, hotbar]]);
         } else {
           state.replace(data.hotbars.map((hotbar) => [hotbar.id, createHotbar(hotbar)]));

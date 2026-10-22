@@ -5,17 +5,30 @@
 
 import { useEffect, useRef, useState } from "react";
 import { ClusterManagerView } from "../../../../packages/core/src/renderer/components/cluster-manager/cluster-manager-view";
+import { HotbarCell } from "../../../../packages/core/src/renderer/components/hotbar/hotbar-cell";
+import { HotbarIconView } from "../../../../packages/core/src/renderer/components/hotbar/hotbar-icon-view";
 import { HotbarMenuView } from "../../../../packages/core/src/renderer/components/hotbar/hotbar-menu-view";
+import selectorStyles from "../../../../packages/core/src/renderer/components/hotbar/hotbar-selector.module.scss";
 import topBarStyles from "../../../../packages/core/src/renderer/components/layout/top-bar/top-bar.module.scss";
 import { TopBarView } from "../../../../packages/core/src/renderer/components/layout/top-bar/top-bar-view";
 import { StatusBarView } from "../../../../packages/core/src/renderer/components/status-bar/status-bar-view";
+import { CatalogAction, CatalogActions } from "./catalog-controls";
 import styles from "./shell.module.scss";
+import { Soon } from "./soon";
 
 import type { ReactNode } from "react";
 
+import type { CatalogSnapshot } from "../../common/tauri/protocol";
+import type { CatalogHotbar } from "./hotbar";
+
 export interface TauriShellProps {
   children: ReactNode;
+  catalog?: CatalogSnapshot;
+  hotbar: CatalogHotbar;
+  onRunEntity: (id: string) => void;
   onNavigateHome: () => void;
+  onDragWindow?: () => void;
+  onToggleMaximize?: () => void;
 }
 
 const historyKey = "freelensTauriLauncherIndex";
@@ -112,6 +125,7 @@ function UnavailableApplicationMenu() {
           <path fill="currentColor" d="M0,5.5h12v1H0V5.5z" />
           <path fill="currentColor" d="M0,2.5h12v1H0V2.5z" />
         </svg>
+        <Soon />
       </div>
     </div>
   );
@@ -122,10 +136,18 @@ function UnavailableApplicationMenu() {
  * Catalog/Preferences are catalog entities in Electron, not extra topbar buttons.
  * No hotbar profile or status items are invented for this host.
  */
-export function TauriShell({ children, onNavigateHome }: TauriShellProps) {
+export function TauriShell({
+  children,
+  onNavigateHome,
+  catalog,
+  hotbar,
+  onRunEntity,
+  onDragWindow,
+  onToggleMaximize,
+}: TauriShellProps) {
   const { canGoBack, canGoForward } = useLauncherHistory();
   const isMac = /Mac/.test(window.navigator.platform);
-  const atHome = window.location.hash !== "#/catalog";
+  const atHome = window.location.hash === "" || window.location.hash === "#/welcome";
 
   // Original built-in registration priorities: menu 10 (non-mac), home 20,
   // back 30, forward 40. Native decorations already supply window controls.
@@ -166,8 +188,100 @@ export function TauriShell({ children, onNavigateHome }: TauriShellProps) {
   return (
     <ClusterManagerView
       className={styles.shell}
-      topBar={<TopBarView itemsOnLeft={itemsOnLeft} itemsOnRight={[]} />}
-      hotbar={<HotbarMenuView />}
+      topBar={
+        <TopBarView
+          itemsOnLeft={itemsOnLeft}
+          itemsOnRight={[]}
+          onDoubleClick={(event) => {
+            if (!(event.target as HTMLElement).closest("button, [role='button'], input, a")) onToggleMaximize?.();
+          }}
+          onMouseDown={(event) => {
+            if (
+              event.button === 0 &&
+              event.detail === 1 &&
+              !(event.target as HTMLElement).closest("button, [role='button'], input, a")
+            )
+              onDragWindow?.();
+          }}
+        />
+      }
+      hotbar={
+        <HotbarMenuView
+          selector={
+            <div className={selectorStyles.HotbarSelector}>
+              <span className={styles.unavailable} aria-disabled="true" title={unavailable}>
+                ◂
+              </span>
+              <div className={selectorStyles.HotbarIndex}>
+                <span
+                  className={`${selectorStyles.Badge} ${styles.unavailable}`}
+                  aria-disabled="true"
+                  title={`Default · Hotbar switching: ${unavailable}`}
+                >
+                  1
+                  <Soon title="Hotbar switching is not implemented in Tauri yet." />
+                </span>
+              </div>
+              <span className={styles.unavailable} aria-disabled="true" title={unavailable}>
+                ▸
+              </span>
+            </div>
+          }
+        >
+          {hotbar.items.map((item, index) => {
+            const entity = catalog?.entities.find((entry) => entry.id === item?.entity.uid);
+            return (
+              <HotbarCell key={index} index={index}>
+                {item && (
+                  <CatalogActions
+                    label={`Hotbar actions for ${entity?.name ?? item.entity.name}`}
+                    contextTrigger={
+                      <div
+                        role="button"
+                        aria-label={entity?.name ?? item.entity.name}
+                        aria-disabled={!entity || undefined}
+                        tabIndex={entity ? 0 : -1}
+                        title={
+                          entity ? `${entity.name} (${entity.source})` : `${item.entity.name} · Not in current catalog`
+                        }
+                        onKeyDown={(event) => {
+                          if (entity && (event.key === "Enter" || event.key === " ")) {
+                            event.preventDefault();
+                            onRunEntity(entity.id);
+                          }
+                        }}
+                      >
+                        <HotbarIconView
+                          uid={item.entity.uid}
+                          title={entity?.name ?? item.entity.name}
+                          source={entity?.source ?? item.entity.source}
+                          background={entity?.icon?.background}
+                          disabled={!entity}
+                          active={
+                            entity?.action ===
+                              (atHome ? "welcome" : window.location.hash === "#/catalog" ? "catalog" : undefined) ||
+                            window.location.hash === `#/cluster/${encodeURIComponent(entity?.id ?? "")}`
+                          }
+                          onClick={() => entity && onRunEntity(entity.id)}
+                          materialIcon={
+                            entity?.icon?.material ? (
+                              <i className="Icon material" aria-hidden>
+                                <span className="icon">{entity.icon.material}</span>
+                              </i>
+                            ) : undefined
+                          }
+                        />
+                      </div>
+                    }
+                  >
+                    <CatalogAction onClick={() => hotbar.remove(item.entity.uid)}>Remove from Hotbar</CatalogAction>
+                  </CatalogActions>
+                )}
+              </HotbarCell>
+            );
+          })}
+        </HotbarMenuView>
+      }
       statusBar={
         <StatusBarView
           items={{
@@ -175,8 +289,8 @@ export function TauriShell({ children, onNavigateHome }: TauriShellProps) {
               {
                 origin: "tauri",
                 component: () => (
-                  <span title="Cluster discovery, catalog actions, terminals, hotbar persistence, and extensions are not connected yet. Your existing Freelens profile has not been opened.">
-                    Tauri development · Built-in catalog only · Read-only
+                  <span title="Terminals, cluster activation, hotbar switching, settings badges, and extensions are not available yet. Your existing Freelens profile has not been opened.">
+                    Local catalog · Connections not started · Pins: session only
                   </span>
                 ),
               },
@@ -187,6 +301,11 @@ export function TauriShell({ children, onNavigateHome }: TauriShellProps) {
       }
       lensViews={null}
     >
+      {hotbar.message && (
+        <div role="status" className={styles.hotbarMessage}>
+          {hotbar.message}
+        </div>
+      )}
       {children}
     </ClusterManagerView>
   );

@@ -54,7 +54,7 @@ export function computeDefaultShortName(name: string) {
   return [first[0], second[0], third[0]].filter(Boolean).join("");
 }
 
-export function getShortName(entity: CatalogEntity): string {
+export function getShortName(entity: Pick<CatalogEntity, "getName" | "metadata">): string {
   return entity.metadata.shortName || computeDefaultShortName(entity.getName());
 }
 

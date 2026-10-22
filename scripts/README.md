@@ -6,10 +6,13 @@ Repository scripts that the build, the checks or a developer run directly.
 
 Builds the isolated Node bootstrap and browser-only launcher/Catalog frontend,
 then runs the Tauri development host. The Catalog snapshot uses the existing
-built-in application providers; it does not discover clusters. The host uses a
+built-in application providers and read-only local kubeconfig context discovery.
+Normal development scans immediate files under `~/.kube`; it never executes auth
+plugins or starts connections. Test, smoke and backend-check modes use synthetic
+temporary kubeconfigs instead of the real home directory. The host uses a
 temporary profile and does not start cluster services or load extensions. Frontend assets and the profile are built
 outside the working tree. The browser build rejects Node and Electron imports.
-See [the migration guide](../TAURI_MIGRATION.md#running-the-development-runtime)
+See [the migration guide](../TAURI_MIGRATION.md#catalog-comparison-boundary)
 for prerequisites, limitations and the smoke-test commands.
 
 ```sh

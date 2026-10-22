@@ -13,6 +13,7 @@ import { CatalogCategory, CatalogEntity, categoryVersion } from "../catalog/cata
 import { broadcastMessage } from "../ipc";
 import { IpcRendererNavigationEvents } from "../ipc/navigation-events";
 import KubeClusterCategoryIcon from "./icons/kubernetes.svg?raw";
+import { kubernetesClusterCatalogCategory } from "./kubernetes-cluster-category";
 
 import type {
   CatalogCategorySpec,
@@ -149,14 +150,14 @@ export class KubernetesClusterCategory extends CatalogCategory {
   public readonly apiVersion = "catalog.k8slens.dev/v1alpha1";
   public readonly kind = "CatalogCategory";
   public metadata = {
-    name: "Clusters",
+    name: kubernetesClusterCatalogCategory.name,
     icon: KubeClusterCategoryIcon,
   };
   public spec: CatalogCategorySpec = {
-    group: "entity.k8slens.dev",
+    group: kubernetesClusterCatalogCategory.group,
     versions: [categoryVersion("v1alpha1", KubernetesCluster as CatalogEntityConstructor<KubernetesCluster>)],
     names: {
-      kind: "KubernetesCluster",
+      kind: kubernetesClusterCatalogCategory.kind,
     },
   };
 }

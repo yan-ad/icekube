@@ -18,7 +18,7 @@ export const defaultWidth = 320;
 
 export interface WelcomeViewProps {
   productName: string;
-  menuItems: (WelcomeMenuRegistration & { disabled?: boolean; unavailableReason?: string })[];
+  menuItems: (WelcomeMenuRegistration & { disabled?: boolean; unavailableReason?: string; badge?: ReactNode })[];
   renderIcon: (props: IconProps) => ReactNode;
   introduction?: ReactNode;
   keyboardNavigation?: boolean;
@@ -76,7 +76,10 @@ export const WelcomeView = observer(function WelcomeView({
                   }}
                 >
                   {renderIcon({ material: item.icon, className: "col-1" })}
-                  <a className="col-10">{typeof item.title === "string" ? item.title : item.title()}</a>
+                  <a className="col-10">
+                    {typeof item.title === "string" ? item.title : item.title()}
+                    {item.badge}
+                  </a>
                   {renderIcon({ material: "navigate_next", className: "col-1" })}
                 </li>
               ))}

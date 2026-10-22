@@ -12,3 +12,12 @@
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+.hotbarMessage {
+  position: absolute;
+  bottom: 28px;
+  left: calc(var(--hotbar-width) + 12px);
+  padding: 8px;
+  background: var(--layoutBackground);
+  z-index: 10;
+}

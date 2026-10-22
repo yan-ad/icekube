@@ -8,7 +8,7 @@
 @use "../mixins";
 @use "../vars" as *;
 
-@include mixins.theme-light {
+body.theme-light {
   .Checkbox {
     --checkbox-color-active: var(--blue);
     --checkbox-bgc-active: none;
@@ -31,7 +31,15 @@
   }
 
   input[type="checkbox"] {
-    display: none;
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    opacity: 0;
+
+    &:focus-visible ~ .check-icon {
+      outline: 2px solid var(--textColorAccent);
+      outline-offset: 2px;
+    }
 
     &:checked {
       ~ .check-icon {

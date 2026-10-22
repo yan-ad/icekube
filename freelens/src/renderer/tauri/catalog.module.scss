@@ -24,3 +24,88 @@
 .empty {
   padding: calc(var(--padding) * 2);
 }
+
+.iconButton {
+  border: 0;
+  padding: 0;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.actionsMenu {
+  min-width: 220px;
+}
+.menuItem {
+  width: 100%;
+  text-align: left;
+  background: none;
+  font: inherit;
+}
+.disabledReason {
+  display: block;
+  padding: 0 var(--padding) var(--padding);
+  font-size: var(--font-size-small);
+  white-space: normal;
+  max-width: 240px;
+  color: var(--textColorSecondary);
+}
+.labelBadge {
+  border: 0;
+  color: inherit;
+  font: inherit;
+  flex-shrink: 0;
+  &:not(:first-child) {
+    margin-left: 0.5em;
+  }
+  &:hover {
+    color: var(--textColorAccent);
+  }
+}
+.rowActivation {
+  position: absolute;
+  inset: 0 32px 0 0;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  &:not(:focus-visible) {
+    outline: none;
+  }
+}
+.catalog :global(.TableRow) :global(.Icon[role="button"]) {
+  position: relative;
+  z-index: 1;
+  &:focus-visible {
+    opacity: 1;
+  }
+}
+.details {
+  padding: calc(var(--padding) * 2);
+  border-top: 1px solid var(--borderColor);
+  overflow: auto;
+  max-height: 45%;
+  flex-shrink: 0;
+}
+.detailsHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.warnings {
+  flex-shrink: 0;
+  max-height: 100px;
+  overflow: auto;
+  padding: var(--padding);
+  color: var(--textColorSecondary);
+}

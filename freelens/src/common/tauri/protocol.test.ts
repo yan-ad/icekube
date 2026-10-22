@@ -7,11 +7,22 @@ import { describe, expect, it } from "vitest";
 import { type CatalogSnapshot, parseCatalogSnapshot, parseRuntimeStatus } from "./protocol";
 
 const snapshot: CatalogSnapshot = {
-  protocolVersion: 1,
-  scope: "built-in",
+  protocolVersion: 2,
+  scope: "local",
+  warnings: [],
   categories: [{ id: "example/General", group: "example", kind: "General", name: "General", icon: "settings" }],
   entities: [
-    { id: "welcome", name: "Welcome", group: "example", kind: "General", source: "app", status: "active", labels: {} },
+    {
+      id: "welcome",
+      name: "Welcome",
+      group: "example",
+      kind: "General",
+      source: "app",
+      status: "active",
+      labels: {},
+      icon: null,
+      action: null,
+    },
   ],
 };
 
@@ -23,11 +34,19 @@ describe("runtime wire contracts", () => {
 
   it.each([
     null,
-    { ...snapshot, protocolVersion: 2 },
+    { ...snapshot, protocolVersion: 1 },
     { ...snapshot, scope: "clusters" },
     { ...snapshot, unknown: true },
+    { ...snapshot, warnings: [42] },
+    { ...snapshot, warnings: ["x".repeat(4097)] },
+    { ...snapshot, entities: [{ ...snapshot.entities[0], action: "execute" }] },
+    {
+      ...snapshot,
+      entities: [{ ...snapshot.entities[0], icon: { material: "home", background: "blue", unknown: true } }],
+    },
+    { ...snapshot, entities: [{ ...snapshot.entities[0], name: "x".repeat(4097) }] },
     { ...snapshot, categories: Array(33).fill(snapshot.categories[0]) },
-    { ...snapshot, entities: Array(101).fill(snapshot.entities[0]) },
+    { ...snapshot, entities: Array(1001).fill(snapshot.entities[0]) },
     { ...snapshot, entities: [snapshot.entities[0], snapshot.entities[0]] },
     { ...snapshot, categories: [{ ...snapshot.categories[0], id: "wrong" }] },
     { ...snapshot, entities: [{ ...snapshot.entities[0], kind: "Missing" }] },

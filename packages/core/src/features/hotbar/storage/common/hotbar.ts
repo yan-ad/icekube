@@ -4,12 +4,10 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { tuple } from "@freelensapp/utilities";
 import { type IObservableArray, type IObservableValue, observable, runInAction, toJS } from "mobx";
 import * as uuid from "uuid";
+import { tuple } from "../../../../../../utility-features/utilities/src/tuple";
 import { getShortName } from "../../../../common/catalog/helpers";
-import { broadcastMessage } from "../../../../common/ipc";
-import { hotbarTooManyItemsChannel } from "../../../../common/ipc/hotbar";
 import { defaultHotbarCells } from "./types";
 
 import type { Logger } from "@freelensapp/logger";
@@ -19,7 +17,11 @@ import type { CreateHotbarData, HotbarItem } from "./types";
 
 export interface HotbarDependencies {
   readonly logger: Logger;
+  readonly onTooManyItems?: () => void;
 }
+
+/** The model only needs catalog identity, not a host-specific entity instance. */
+export type HotbarEntity = Pick<CatalogEntity, "getId" | "getName" | "metadata">;
 
 export interface HotbarData {
   readonly id: string;
@@ -90,7 +92,7 @@ export class Hotbar {
     });
   }
 
-  toggleEntity(item: CatalogEntity) {
+  toggleEntity(item: HotbarEntity) {
     runInAction(() => {
       if (this.hasEntity(item.getId())) {
         this.removeEntity(item.getId());
@@ -112,7 +114,7 @@ export class Hotbar {
     });
   }
 
-  addEntity(item: CatalogEntity, cellIndex?: number) {
+  addEntity(item: HotbarEntity, cellIndex?: number) {
     const uid = item.getId();
     const name = item.getName();
     const shortName = getShortName(item);
@@ -150,7 +152,7 @@ export class Hotbar {
           this.items[emptyCellIndex] = newItem;
         });
       } else {
-        broadcastMessage(hotbarTooManyItemsChannel);
+        this.dependencies.onTooManyItems?.();
       }
     } else if (0 <= cellIndex && cellIndex < this.items.length) {
       runInAction(() => {

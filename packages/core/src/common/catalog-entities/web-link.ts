@@ -8,6 +8,7 @@ import { getEnvironmentSpecificDiForExtensionApi } from "../../extensions/extens
 import removeWeblinkInjectable from "../../features/weblinks/common/remove.injectable";
 import { CatalogCategory, CatalogEntity, categoryVersion } from "../catalog/catalog-entity";
 import productNameInjectable from "../vars/product-name.injectable";
+import { webLinkCatalogCategory } from "./web-link-category";
 
 import type { CatalogEntityContextMenuContext, CatalogEntityMetadata, CatalogEntityStatus } from "../catalog";
 
@@ -55,14 +56,14 @@ export class WebLinkCategory extends CatalogCategory {
   public readonly apiVersion = "catalog.k8slens.dev/v1alpha1";
   public readonly kind = "CatalogCategory";
   public metadata = {
-    name: "Web Links",
-    icon: "public",
+    name: webLinkCatalogCategory.name,
+    icon: webLinkCatalogCategory.icon,
   };
   public spec = {
-    group: "entity.k8slens.dev",
+    group: webLinkCatalogCategory.group,
     versions: [categoryVersion("v1alpha1", WebLink)],
     names: {
-      kind: "WebLink",
+      kind: webLinkCatalogCategory.kind,
     },
   };
 }

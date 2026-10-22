@@ -2,7 +2,6 @@
  * Copyright (c) Freelens Authors. All rights reserved.
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
-
 import { getRequestChannel } from "@freelensapp/messaging";
 
 export interface RuntimeStatus {
@@ -16,8 +15,8 @@ export interface RuntimeStatus {
 }
 
 export interface CatalogSnapshot {
-  protocolVersion: 1;
-  scope: "built-in";
+  protocolVersion: 2;
+  scope: "local";
   categories: { id: string; name: string; kind: string; group: string; icon: string }[];
   entities: {
     id: string;
@@ -25,13 +24,17 @@ export interface CatalogSnapshot {
     kind: string;
     group: string;
     source: string;
-    labels: Record<string, string>;
     status: string;
+    labels: Record<string, string>;
+    icon: { material: string; background: string } | null;
+    action: "welcome" | "catalog" | null;
   }[];
+  warnings: string[];
 }
 
 export const maxCatalogCategories = 32;
-export const maxCatalogEntities = 100;
+export const maxCatalogEntities = 1000;
+export const maxCatalogWarnings = 256;
 export const runtimeStatusChannel = getRequestChannel<void, RuntimeStatus>("runtime.status");
 export const catalogSnapshotChannel = getRequestChannel<void, CatalogSnapshot>("catalog.snapshot");
 
@@ -43,12 +46,19 @@ function record(value: unknown, keys: string[]): Record<string, unknown> {
     Object.keys(value).length !== keys.length ||
     keys.some((key) => !Object.hasOwn(value, key))
   ) {
-    throw new Error("Invalid runtime response fields");
+    throw new Error("Invalid response fields");
   }
   return value as Record<string, unknown>;
 }
-
-const text = (value: unknown): value is string => typeof value === "string" && value.length > 0;
+const text = (value: unknown): value is string => typeof value === "string" && value.length > 0 && value.length <= 4096;
+const labels = (value: unknown): value is Record<string, string> =>
+  typeof value === "object" &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.keys(value).length <= 256 &&
+  Object.entries(value).every(
+    ([key, item]) => key.length > 0 && key.length <= 256 && typeof item === "string" && item.length <= 4096,
+  );
 
 export function parseRuntimeStatus(value: unknown): RuntimeStatus {
   const data = record(value, [
@@ -63,61 +73,69 @@ export function parseRuntimeStatus(value: unknown): RuntimeStatus {
   if (
     data.protocolVersion !== 1 ||
     data.runtime !== "node" ||
-    !text(data.nodeVersion) ||
+    !(typeof data.nodeVersion === "string" && data.nodeVersion.length > 0) ||
     !Number.isSafeInteger(data.processId) ||
     (data.processId as number) <= 0 ||
-    !text(data.userData) ||
+    !(typeof data.userData === "string" && data.userData.length > 0) ||
     data.sessionData !== data.userData ||
     !Array.isArray(data.phases) ||
     JSON.stringify(data.phases) !==
       JSON.stringify(["before-anything", "before-host-ready", "host-ready", "application-started"])
-  ) {
+  )
     throw new Error("Invalid runtime status");
-  }
   return data as unknown as RuntimeStatus;
 }
 
 export function parseCatalogSnapshot(value: unknown): CatalogSnapshot {
-  const data = record(value, ["protocolVersion", "scope", "categories", "entities"]);
+  const data = record(value, ["protocolVersion", "scope", "categories", "entities", "warnings"]);
   if (
-    data.protocolVersion !== 1 ||
-    data.scope !== "built-in" ||
+    data.protocolVersion !== 2 ||
+    data.scope !== "local" ||
     !Array.isArray(data.categories) ||
     !Array.isArray(data.entities) ||
+    !Array.isArray(data.warnings) ||
     data.categories.length > maxCatalogCategories ||
-    data.entities.length > maxCatalogEntities
-  ) {
+    data.entities.length > maxCatalogEntities ||
+    data.warnings.length > maxCatalogWarnings ||
+    !data.warnings.every(text)
+  )
     throw new Error("Invalid catalog snapshot");
-  }
-  const categories = new Set<string>();
+  const categoryIds = new Set<string>();
   for (const item of data.categories) {
-    const category = record(item, ["id", "name", "kind", "group", "icon"]);
+    const c = record(item, ["id", "name", "kind", "group", "icon"]);
     if (
-      ![category.id, category.name, category.kind, category.group].every(text) ||
-      typeof category.icon !== "string" ||
-      category.id !== `${category.group}/${category.kind}` ||
-      categories.has(category.id as string)
-    ) {
+      ![c.id, c.name, c.kind, c.group, c.icon].every(text) ||
+      !["settings", "kubernetes", "public"].includes(c.icon as string) ||
+      c.id !== `${c.group}/${c.kind}` ||
+      categoryIds.has(c.id as string)
+    )
       throw new Error("Invalid catalog category");
-    }
-    categories.add(category.id as string);
+    categoryIds.add(c.id as string);
   }
-  const entities = new Set<string>();
+  const entityIds = new Set<string>();
   for (const item of data.entities) {
-    const entity = record(item, ["id", "name", "kind", "group", "source", "labels", "status"]);
+    const e = record(item, ["id", "name", "kind", "group", "source", "status", "labels", "icon", "action"]);
     if (
-      ![entity.id, entity.name, entity.kind, entity.group, entity.status].every(text) ||
-      typeof entity.source !== "string" ||
-      !categories.has(`${entity.group}/${entity.kind}`) ||
-      entities.has(entity.id as string) ||
-      typeof entity.labels !== "object" ||
-      entity.labels === null ||
-      Array.isArray(entity.labels) ||
-      !Object.values(entity.labels).every((label) => typeof label === "string")
-    ) {
+      ![e.id, e.name, e.kind, e.group, e.source, e.status].every(text) ||
+      !categoryIds.has(`${e.group}/${e.kind}`) ||
+      entityIds.has(e.id as string) ||
+      !labels(e.labels) ||
+      (e.action !== null && e.action !== "welcome" && e.action !== "catalog")
+    )
       throw new Error("Invalid catalog entity");
+    if (
+      e.action !== null &&
+      (e.group !== "entity.k8slens.dev" ||
+        e.kind !== "General" ||
+        e.source !== "app" ||
+        e.id !== (e.action === "welcome" ? "welcome-page-entity" : "catalog-entity"))
+    )
+      throw new Error("Invalid catalog action relation");
+    if (e.icon !== null) {
+      const i = record(e.icon, ["material", "background"]);
+      if (!text(i.material) || !text(i.background)) throw new Error("Invalid catalog icon");
     }
-    entities.add(entity.id as string);
+    entityIds.add(e.id as string);
   }
   return data as unknown as CatalogSnapshot;
 }

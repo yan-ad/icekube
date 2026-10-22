@@ -1025,7 +1025,7 @@ developers:
 ## Porting Step Rules
 1. Pick a menu and ask developer for latest freelens tauri page (include screenshot file should be nice)
 2. Mapping the ui and the backend possibility
-3. Start the porting and unit testing
+3. Start the porting and unit testing and dont forget to fill up the "Progress" report at the TAURI_MIGRATION.md
 4. Tell user to see the page that implemented
 5. If it's okay so ask user to do next by back to point no.1
 

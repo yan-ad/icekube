@@ -23,6 +23,7 @@ const mountApplication = getInjectable({
   instantiate: (di) => ({
     run: () => {
       const preference = matchMedia("(prefers-color-scheme: light)");
+      document.body.classList.toggle("is-mac", /Mac/.test(navigator.platform));
       const applyTheme = () => {
         const theme = di.inject(preference.matches ? lightTheme : darkTheme);
         for (const [name, value] of Object.entries(theme.colors)) {

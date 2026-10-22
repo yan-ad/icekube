@@ -26,3 +26,14 @@ export interface CreateHotbarOptions {
 }
 
 export const defaultHotbarCells = 12; // Number is chosen to easy hit any item with keyboard
+
+/** The default layout shared by hosts; identities come from the built-in catalog. */
+export function createDefaultHotbarItems(
+  welcome: HotbarItem["entity"],
+  catalog: HotbarItem["entity"],
+): (HotbarItem | null)[] {
+  const items: (HotbarItem | null)[] = Array(defaultHotbarCells).fill(null);
+  items[0] = { entity: welcome };
+  items[1] = { entity: catalog };
+  return items;
+}

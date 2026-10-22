@@ -12,7 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const MAX_RESPONSE_BYTES: u64 = 16 * 1024;
+const MAX_RESPONSE_BYTES: u64 = 1024 * 1024;
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -34,6 +34,7 @@ pub struct CatalogSnapshot {
     pub scope: String,
     pub categories: Vec<CatalogCategory>,
     pub entities: Vec<CatalogEntity>,
+    pub warnings: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -56,27 +57,86 @@ pub struct CatalogEntity {
     pub source: String,
     pub status: String,
     pub labels: std::collections::BTreeMap<String, String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub icon: Option<CatalogIcon>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub action: Option<CatalogAction>,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct CatalogIcon {
+    pub material: String,
+    pub background: String,
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum CatalogAction {
+    Welcome,
+    Catalog,
+}
+
+fn bounded_text(value: &str) -> bool {
+    !value.is_empty() && value.encode_utf16().count() <= 4096
 }
 
 fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
     let mut category_ids = std::collections::HashSet::new();
     let mut entity_ids = std::collections::HashSet::new();
-    if snapshot.protocol_version != 1
-        || snapshot.scope != "built-in"
+    if snapshot.protocol_version != 2
+        || snapshot.scope != "local"
         || snapshot.categories.len() > 32
-        || snapshot.entities.len() > 100
+        || snapshot.entities.len() > 1000
+        || snapshot.warnings.len() > 256
+        || snapshot
+            .warnings
+            .iter()
+            .any(|warning| !bounded_text(warning))
         || snapshot.categories.iter().any(|category| {
             category.id != format!("{}/{}", category.group, category.kind)
-                || category.name.is_empty()
-                || category.group.is_empty()
-                || category.kind.is_empty()
+                || [
+                    &category.id,
+                    &category.name,
+                    &category.group,
+                    &category.kind,
+                    &category.icon,
+                ]
+                .iter()
+                .any(|s| !bounded_text(s))
+                || !["settings", "kubernetes", "public"].contains(&category.icon.as_str())
                 || !category_ids.insert(&category.id)
         })
         || snapshot.entities.iter().any(|entity| {
-            entity.id.is_empty()
-                || entity.name.is_empty()
-                || entity.source.is_empty()
-                || entity.status.is_empty()
+            [
+                &entity.id,
+                &entity.name,
+                &entity.kind,
+                &entity.group,
+                &entity.source,
+                &entity.status,
+            ]
+            .iter()
+            .any(|s| !bounded_text(s))
+                || entity.action.as_ref().is_some_and(|action| {
+                    entity.group != "entity.k8slens.dev"
+                        || entity.kind != "General"
+                        || entity.source != "app"
+                        || entity.id
+                            != match action {
+                                CatalogAction::Welcome => "welcome-page-entity",
+                                CatalogAction::Catalog => "catalog-entity",
+                            }
+                })
+                || entity.labels.len() > 256
+                || entity.labels.iter().any(|(key, value)| {
+                    key.is_empty()
+                        || key.encode_utf16().count() > 256
+                        || value.encode_utf16().count() > 4096
+                })
+                || entity.icon.as_ref().is_some_and(|icon| {
+                    !bounded_text(&icon.material) || !bounded_text(&icon.background)
+                })
                 || !entity_ids.insert(&entity.id)
                 || !snapshot
                     .categories
@@ -120,14 +180,48 @@ mod tests {
         let (node, script, profile) = node_paths();
         let mut backend = Backend::start(&node, &script, &profile).unwrap();
         let snapshot = backend.catalog_snapshot().unwrap();
-        assert_eq!(snapshot.categories.len(), 1);
+        assert_eq!(snapshot.protocol_version, 2);
+        assert_eq!(snapshot.scope, "local");
+        assert!(snapshot.warnings.is_empty());
+        assert_eq!(snapshot.categories.len(), 3);
+        assert_eq!(
+            snapshot.categories[1].id,
+            "entity.k8slens.dev/KubernetesCluster"
+        );
+        assert_eq!(snapshot.categories[1].icon, "kubernetes");
+        assert_eq!(snapshot.categories[2].id, "entity.k8slens.dev/WebLink");
         assert_eq!(snapshot.categories[0].id, "entity.k8slens.dev/General");
-        assert_eq!(snapshot.entities.len(), 2);
-        assert_eq!(snapshot.entities[0].id, "welcome-page-entity");
-        assert_eq!(snapshot.entities[1].id, "catalog-entity");
-        assert!(snapshot.entities.iter().all(|entity| entity.source == "app"
-            && entity.status == "active"
-            && entity.labels.is_empty()));
+        assert!(snapshot.entities.len() >= 3);
+        let welcome = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id == "welcome-page-entity")
+            .unwrap();
+        let catalog = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id == "catalog-entity")
+            .unwrap();
+        let preferences = snapshot
+            .entities
+            .iter()
+            .find(|entity| entity.id == "preferences-entity")
+            .unwrap();
+        assert_eq!(welcome.action, Some(CatalogAction::Welcome));
+        assert_eq!(catalog.action, Some(CatalogAction::Catalog));
+        assert_eq!(preferences.action, None);
+        assert!(snapshot
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == "General")
+            .all(|entity| entity.source == "app"
+                && entity.status == "active"
+                && entity.labels.is_empty()));
+        assert!(snapshot
+            .entities
+            .iter()
+            .filter(|entity| entity.kind == "KubernetesCluster")
+            .all(|entity| entity.source == "local" && entity.status == "disconnected"));
         assert!(!profile.exists());
         let value = serde_json::to_value(&snapshot).unwrap();
         for location in ["root", "category", "entity"] {
@@ -140,8 +234,25 @@ mod tests {
             target["unknown"] = json!(true);
             assert!(serde_json::from_value::<CatalogSnapshot>(invalid).is_err());
         }
+        for field in ["icon", "action"] {
+            let mut invalid = value.clone();
+            invalid["entities"][0]
+                .as_object_mut()
+                .unwrap()
+                .remove(field);
+            assert!(serde_json::from_value::<CatalogSnapshot>(invalid).is_err());
+        }
+        let mut invalid_enum = value.clone();
+        invalid_enum["entities"][0]["action"] = json!("execute");
+        assert!(serde_json::from_value::<CatalogSnapshot>(invalid_enum).is_err());
+        let mut invalid_length = snapshot.clone();
+        invalid_length.entities[0].name = "x".repeat(4097);
+        assert!(validate_catalog(&invalid_length).is_err());
+        let mut invalid_warnings = snapshot.clone();
+        invalid_warnings.warnings = vec!["warning".into(); 257];
+        assert!(validate_catalog(&invalid_warnings).is_err());
         let mut invalid = snapshot.clone();
-        invalid.entities = vec![snapshot.entities[0].clone(); 101];
+        invalid.entities = vec![snapshot.entities[0].clone(); 1001];
         assert!(validate_catalog(&invalid).is_err());
         invalid = snapshot.clone();
         invalid.categories = vec![snapshot.categories[0].clone(); 33];
@@ -165,6 +276,67 @@ mod tests {
         sender.send(Ok(json!({ "id": 2, "result": { "protocolVersion": 1, "scope": "built-in", "categories": [], "entities": [], "unknown": true } }))).unwrap();
         backend.responses = responses;
         assert!(backend.catalog_snapshot().is_err());
+        assert!(backend.child.try_wait().unwrap().is_some());
+    }
+
+    #[test]
+    fn catalog_rejection_is_recoverable_and_preserves_response_sequence() {
+        let (node, script, profile) = node_paths();
+        let mut backend = Backend::start(&node, &script, &profile).unwrap();
+        let (sender, responses) = mpsc::sync_channel(1);
+        sender
+            .send(Ok(json!({ "id": 2, "error": "Snapshot unavailable" })))
+            .unwrap();
+        let real_responses = std::mem::replace(&mut backend.responses, responses);
+        assert_eq!(
+            backend.catalog_snapshot().unwrap_err(),
+            "Backend rejected request"
+        );
+        assert!(backend.child.try_wait().unwrap().is_none());
+        // The injected rejection substitutes for request 2. Drain its real reply
+        // before restoring the transport, so request 3 must match a fresh response.
+        let real_reply = real_responses
+            .recv_timeout(RESPONSE_TIMEOUT)
+            .unwrap()
+            .unwrap();
+        assert_eq!(real_reply["id"], 2);
+        backend.responses = real_responses;
+        assert_eq!(backend.status().unwrap().process_id, backend.child.id());
+        assert!(backend.catalog_snapshot().is_ok());
+    }
+
+    #[test]
+    fn malformed_catalog_error_envelopes_are_terminal() {
+        for response in [
+            json!({ "id": 2, "error": "unavailable", "result": null }),
+            json!({ "id": 2, "error": "unavailable", "extra": true }),
+            json!({ "id": 2, "error": null }),
+            json!({ "id": 2, "error": { "message": "synthetic-secret" } }),
+            json!({ "id": 2, "error": "" }),
+            json!({ "id": 2, "error": "x".repeat(4097) }),
+            json!({ "id": 999, "error": "unavailable" }),
+        ] {
+            let (node, script, profile) = node_paths();
+            let mut backend = Backend::start(&node, &script, &profile).unwrap();
+            let (sender, responses) = mpsc::sync_channel(1);
+            sender.send(Ok(response)).unwrap();
+            backend.responses = responses;
+            let error = backend.catalog_snapshot().unwrap_err();
+            assert!(!error.contains("synthetic-secret"));
+            assert!(backend.child.try_wait().unwrap().is_some());
+        }
+    }
+
+    #[test]
+    fn status_rejection_remains_terminal() {
+        let (node, script, profile) = node_paths();
+        let mut backend = Backend::start(&node, &script, &profile).unwrap();
+        let (sender, responses) = mpsc::sync_channel(1);
+        sender
+            .send(Ok(json!({ "id": 2, "error": "Status unavailable" })))
+            .unwrap();
+        backend.responses = responses;
+        assert!(backend.status().is_err());
         assert!(backend.child.try_wait().unwrap().is_some());
     }
 
@@ -313,12 +485,15 @@ impl Backend {
         method: &str,
         app_data: Option<&Path>,
     ) -> Result<BackendStatus, String> {
-        let result = self.exchange(method, app_data).and_then(|value| {
-            let status: BackendStatus = serde_json::from_value(value)
-                .map_err(|error| format!("Invalid backend status: {error}"))?;
-            validate_status(&status, self.child.id())?;
-            Ok(status)
-        });
+        let result = self
+            .exchange(method, app_data)
+            .and_then(|value| value)
+            .and_then(|value| {
+                let status: BackendStatus = serde_json::from_value(value)
+                    .map_err(|error| format!("Invalid backend status: {error}"))?;
+                validate_status(&status, self.child.id())?;
+                Ok(status)
+            });
         if result.is_err() {
             self.stop();
         }
@@ -326,19 +501,33 @@ impl Backend {
     }
 
     pub fn catalog_snapshot(&mut self) -> Result<CatalogSnapshot, String> {
-        let result = self.exchange("catalog.snapshot", None).and_then(|value| {
+        let response = match self.exchange("catalog.snapshot", None) {
+            Ok(Ok(value)) => value,
+            // A well-formed application rejection does not poison the transport.
+            Ok(Err(error)) => return Err(error),
+            Err(error) => {
+                self.stop();
+                return Err(error);
+            }
+        };
+        let result = (|| {
+            let value = response;
             let snapshot: CatalogSnapshot = serde_json::from_value(value)
                 .map_err(|error| format!("Invalid backend catalog snapshot: {error}"))?;
             validate_catalog(&snapshot)?;
             Ok(snapshot)
-        });
+        })();
         if result.is_err() {
             self.stop();
         }
         result
     }
 
-    fn exchange(&mut self, method: &str, app_data: Option<&Path>) -> Result<Value, String> {
+    fn exchange(
+        &mut self,
+        method: &str,
+        app_data: Option<&Path>,
+    ) -> Result<Result<Value, String>, String> {
         if self
             .child
             .try_wait()
@@ -363,16 +552,21 @@ impl Backend {
         if response.get("id").and_then(Value::as_u64) != Some(id) {
             return Err("Backend response ID mismatch".into());
         }
-        if let Some(error) = response.get("error") {
-            return Err(format!("Backend rejected request: {error}"));
-        }
         let fields = response
             .as_object()
             .ok_or("Backend response must be an object")?;
+        if fields.len() == 2 && fields.contains_key("error") {
+            fields["error"]
+                .as_str()
+                .filter(|error| bounded_text(error))
+                .ok_or("Backend response contains an invalid error")?;
+            // Do not relay backend exception details or credential-bearing text.
+            return Ok(Err("Backend rejected request".into()));
+        }
         if fields.len() != 2 || !fields.contains_key("result") {
             return Err("Backend response contains unsupported fields".into());
         }
-        Ok(response["result"].clone())
+        Ok(Ok(response["result"].clone()))
     }
 
     pub fn stop(&mut self) {
