@@ -73,6 +73,7 @@
       "entry": [
         "build/notarize.cjs",
         "electron.vite.config.ts",
+        "tauri.vite.config.ts",
         "integration/**/*.tests.ts",
         // the renderer is fully bundled at build time, so only the main
         // process side is the production surface: its bundle's imports must
@@ -81,8 +82,8 @@
         "src/main/index.ts!",
         // Bundled by scripts/run-tauri.mjs through an esbuild entry path.
         "src/main/tauri/backend.ts",
-        // Embedded by Tauri's frontendDist rather than imported by TypeScript.
-        "tauri-runtime/runtime.js",
+        // The Tauri browser entry is reached through its HTML build input.
+        "src/renderer/tauri/index.tsx",
         "src/renderer/index.ts",
         // the ambient type of the FreelensExtensionApi global: tsconfig.json
         // includes it, and nothing imports it

@@ -84,9 +84,12 @@ not establish that every API in that directory is exercised at runtime.
 
 ### Running the development runtime
 
-The Tauri development target runs a native window and an owned Node metadata
-bootstrap using the host-neutral startup and app-path helpers. It does not yet run
-the Freelens Kubernetes UI, cluster services, terminal services or extensions.
+The Tauri development target renders Freelens's shared Welcome view in a native
+window and runs an owned Node metadata bootstrap using the host-neutral startup
+and app-path helpers. The browser entry uses the existing theme declarations,
+styles, fonts and logo without importing Electron or Node modules. It does not run
+the catalog, cluster services, terminal services or extensions. The Welcome view
+identifies those unavailable services rather than offering actions that cannot run.
 It uses a distinct application identity and an isolated temporary profile; it does
 not open an existing Freelens profile. Node is the development machine's runtime,
 not a bundled release runtime, so this is not release-package parity.
@@ -101,19 +104,25 @@ pnpm test:tauri
 pnpm smoke:tauri
 ```
 
-`dev:tauri` opens the diagnostics window. `check:tauri` exercises Rust-to-Node
-startup and status without a window. `test:tauri` runs the Node protocol and Rust
-tests. `smoke:tauri` requires the real webview to render backend status and signal
-readiness, then exits; a timeout is a failure. Each command builds its Node entry
-into a system temporary directory and cleans up the temporary profile on normal
-exit. Rust build output is cached outside the repository. Cargo dependencies are
-locked in `freelens/src-tauri/Cargo.lock`.
+`dev:tauri` opens the Welcome view with expandable runtime diagnostics.
+`check:tauri` exercises Rust-to-Node startup and status without a window.
+`test:tauri` runs the Node protocol, compiled browser-entry and Rust tests.
+`smoke:tauri` requires the real webview to commit the Welcome view after backend
+readiness, then exits; a timeout is a failure. Startup failures are shown in the
+window and do not signal readiness. Each command builds its Node entry and Vite
+frontend into a system temporary directory and cleans up the temporary profile on
+normal exit. The script passes that frontend directory to Tauri through
+`TAURI_CONFIG`; direct Cargo builds need an equivalent compiled frontend. Rust
+build output is cached outside the repository. Cargo dependencies are locked in
+`freelens/src-tauri/Cargo.lock`.
 
 The bootstrap uses private stdin/stdout pipes, bounded messages, correlated
 requests and explicit startup failures. It exposes only runtime status to the
 embedded document. No general shell, filesystem, cluster or extension IPC is
-available. A green runtime status proves this development bootstrap only, not the
-remaining parity register.
+available. The CSP allows bundled styles, fonts and images; inline styles are
+needed by existing React layout and runtime theme variables. Scripts remain local,
+and frames and remote resources remain disabled. A rendered Welcome view proves
+this development bootstrap only, not the remaining parity register.
 
 ### Application layout
 

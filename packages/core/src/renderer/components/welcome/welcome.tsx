@@ -4,22 +4,20 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import "./welcome.scss";
-
 import { Icon } from "@freelensapp/icon";
 import { withInjectables } from "@ogre-tools/injectable-react";
 import { observer } from "mobx-react";
 import { useEffect } from "react";
-import { forumsUrl } from "../../../common/vars";
 import productNameInjectable from "../../../common/vars/product-name.injectable";
 import newVersionNotificationInjectable from "./new-version-notification.injectable";
 import welcomeMenuItemsInjectable from "./welcome-menu-items/welcome-menu-items.injectable";
+import { WelcomeView } from "./welcome-view";
 
 import type { IComputedValue } from "mobx";
 
 import type { WelcomeMenuRegistration } from "./welcome-menu-items/welcome-menu-registration";
 
-export const defaultWidth = 320;
+export { defaultWidth } from "./welcome-view";
 
 interface Dependencies {
   welcomeMenuItems: IComputedValue<WelcomeMenuRegistration[]>;
@@ -33,39 +31,11 @@ const NonInjectedWelcome = observer(({ welcomeMenuItems, productName, newVersion
   }, []);
 
   return (
-    <div className="flex justify-center Welcome items-center" data-testid="welcome-page">
-      <div style={{ width: `${defaultWidth}px` }} data-testid="welcome-banner-container">
-        <Icon svg="logo-lens" className="logo" welcomeLogo={true} data-testid="no-welcome-banners-icon" />
-
-        <div className="flex justify-center">
-          <div style={{ width: `${defaultWidth}px` }} data-testid="welcome-text-container">
-            <h2>{`Welcome to ${productName}!`}</h2>
-
-            <p>
-              To get you started we have auto-detected your clusters in your kubeconfig file and added them to the
-              catalog, your centralized view for managing all your cloud-native resources.
-              <br />
-              <br />
-              {"If you have any questions or feedback, please join us on our "}
-              <a href={forumsUrl} target="_blank" rel="noreferrer" className="link">
-                Github repository
-              </a>
-              .
-            </p>
-
-            <ul className="block" style={{ width: `${defaultWidth}px` }} data-testid="welcome-menu-container">
-              {welcomeMenuItems.get().map((item, index) => (
-                <li key={index} className="flex grid-12" onClick={() => item.click()}>
-                  <Icon material={item.icon} className="col-1" />
-                  <a className="col-10">{typeof item.title === "string" ? item.title : item.title()}</a>
-                  <Icon material="navigate_next" className="col-1" />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
-      </div>
-    </div>
+    <WelcomeView
+      productName={productName}
+      menuItems={welcomeMenuItems.get()}
+      renderIcon={(props) => <Icon {...props} />}
+    />
   );
 });
 

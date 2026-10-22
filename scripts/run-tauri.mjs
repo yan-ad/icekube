@@ -10,6 +10,7 @@ import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { build as buildFrontend } from "vite";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const mode = process.argv[2];
@@ -34,12 +35,15 @@ if (
 const target = join(cache, cacheKey);
 const manifest = join(root, "freelens/src-tauri/Cargo.toml");
 const backend = join(temporary, "backend.mjs");
+const frontend = join(temporary, "frontend");
 const environment = {
   ...process.env,
   CARGO_TARGET_DIR: target,
   FREELENS_TAURI_NODE: process.execPath,
   FREELENS_TAURI_BACKEND: backend,
   FREELENS_TAURI_PROFILE: join(temporary, "profile"),
+  FREELENS_TAURI_FRONTEND: frontend,
+  TAURI_CONFIG: JSON.stringify({ build: { frontendDist: frontend } }),
 };
 
 delete environment.NODE_OPTIONS;
@@ -98,6 +102,11 @@ const run = async (executable, args) => {
 };
 
 try {
+  await buildFrontend({
+    configFile: join(root, "freelens/tauri.vite.config.ts"),
+    build: { outDir: frontend, emptyOutDir: true },
+  });
+
   const bundle = await build({
     absWorkingDir: root,
     entryPoints: ["freelens/src/main/tauri/backend.ts"],
@@ -120,7 +129,7 @@ try {
   let code;
 
   if (mode === "--test") {
-    code = await run(process.execPath, ["--test", "scripts/tauri-backend.test.mjs"]);
+    code = await run(process.execPath, ["--test", "scripts/tauri-backend.test.mjs", "scripts/tauri-frontend.test.mjs"]);
     if (code === 0) code = await run("cargo", ["test", "--locked", "--manifest-path", manifest]);
   } else {
     code = await run("cargo", ["build", "--locked", "--manifest-path", manifest]);
