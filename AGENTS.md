@@ -103,10 +103,10 @@ git log --follow --format= --name-only -- <path> | sort -u
 ```
 
 Never add the `OpenLens Authors` line to a file that does not already have it
-just because neighbouring files do. Do not touch legal or license text
+just because neighbouring files do. Do not modify without preserving original author touch legal or license text
 (`LICENSE`, `README.md`, `freelens/license-header.txt`,
 `freelens/static/build/license.txt`) or the upstream copyright notices of
-vendored third-party code, which are unrelated to either header variant.
+vendored third-party code, which are unrelated to either header variant. You can modify it but preserve the author information as a info and notice, use our own copy is allowed.
 
 See [#2352](https://github.com/freelensapp/freelens/issues/2352) for the
 cleanup that established this rule.

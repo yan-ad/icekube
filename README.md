@@ -1,312 +1,123 @@
-# Freelens
+# TauLens
 
-<!-- markdownlint-disable MD013 -->
+A Freelens-based Kubernetes app that aims to use less memory by ditching Electron
+for Tauri.
 
-[![Home](https://img.shields.io/badge/%F0%9F%8F%A0-freelens.app-02a7a0)](https://freelens.app)
-[![GitHub](https://img.shields.io/github/stars/freelensapp/freelens?style=flat&label=GitHub%20%E2%AD%90&logo=github)](https://github.com/freelensapp/freelens)
-[![Discord](https://img.shields.io/badge/dynamic/json?color=blue&label=Discord&style=flat&query=approximate_member_count&url=https%3A%2F%2Fdiscordapp.com%2Fapi%2Finvites%2F%2FNjKZERK95Y%3Fwith_counts%3Dtrue&logo=discord)](https://discord.gg/NjKZERK95Y)
-[![Subreddit](https://img.shields.io/reddit/subreddit-subscribers/freelens?style=flat&label=r%2Ffreelens&logo=reddit)](https://www.reddit.com/r/freelens/)
-[![Bounties on BountyHub](https://img.shields.io/badge/Bounties-on%20BountyHub-yellow)](https://bountyhub.dev/bounties?repo=freelens)
-[![DeepWiki](https://img.shields.io/badge/Ask-DeepWiki-blue)](https://deepwiki.com/freelensapp/freelens)
-[![LFX Health Score](https://insights.linuxfoundation.org/api/badge/health-score?project=freelens)](https://insights.linuxfoundation.org/project/freelens)
-[![license](https://img.shields.io/github/license/freelensapp/freelens.svg)](https://github.com/freelensapp/freelens?tab=MIT-1-ov-file#readme)
-[![release](https://img.shields.io/github/v/release/freelensapp/freelens?display_name=tag&sort=semver)](https://github.com/freelensapp/freelens/releases/latest)
-[![Homebrew Cask Version](https://img.shields.io/homebrew/cask/v/freelens?label=homebrew)](https://formulae.brew.sh/cask/freelens#default)
-[![WinGet Package Version](https://img.shields.io/winget/v/Freelensapp.Freelens)](https://winstall.app/apps/Freelensapp.Freelens)
-[![Scoop Package Version](https://img.shields.io/scoop/v/freelens?bucket=extras
-)](https://scoop.sh/#/apps?q=freelens&s=1&d=0)
-[![Flathub Version](https://img.shields.io/flathub/v/app.freelens.Freelens)](https://flathub.org/apps/app.freelens.Freelens)
-[![Snap Store Version](https://img.shields.io/snapcraft/v/freelens/latest/stable)](https://snapcraft.io/freelens)
-[![AUR Version](https://img.shields.io/aur/version/freelens-bin)](https://aur.archlinux.org/packages/freelens-bin)
-[![NPM Version](https://img.shields.io/npm/v/%40freelensapp%2Fcore)](https://www.npmjs.com/package/@freelensapp/core)
-[![Unit tests](https://github.com/freelensapp/freelens/actions/workflows/unit-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens/actions/workflows/unit-tests.yaml)
-[![Integration tests](https://github.com/freelensapp/freelens/actions/workflows/integration-tests.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens/actions/workflows/integration-tests.yaml)
-[![Trunk Check](https://github.com/freelensapp/freelens/actions/workflows/trunk-check.yaml/badge.svg?branch=main)](https://github.com/freelensapp/freelens/actions/workflows/trunk-check.yaml)
+TauLens builds on Freelens to bring a modern Lens-style desktop experience with a
+smaller memory footprint. The rewrite targets **Tauri** for the desktop shell,
+**Bun** for backend services, and **Astryx UI** for the interface.
 
-<!-- markdownlint-enable MD013 -->
+Lower memory usage is an engineering goal, not a benchmark claim. We will measure
+it against Freelens using comparable workloads, including the host, backend, and
+webview processes.
 
-[Freelens](https://freelens.app) is a free and open-source user interface
-designed for managing Kubernetes clusters. It provides a standalone
-application compatible with macOS, Windows, and Linux operating systems,
-making it accessible to a wide range of users. The application aims to
-simplify the complexities of Kubernetes management by offering an intuitive
-and user-friendly interface.
+## Apple Silicon first
 
-![Screenshot](freelens/build/screenshots/main.png)
+**macOS on Apple Silicon is the primary MVP target.** Development, testing, and
+performance work will focus on Apple Silicon Macs first.
 
-## Requirements
+After the Apple Silicon MVP, we plan to cover other desktop platforms, including
+Intel Macs, Windows, and Linux. Each platform needs its own packaging, integration
+tests, and performance validation before we claim support.
 
-Kubernetes 1.22 or later. Older clusters fall back to the bundled `kubectl`,
-which may not work correctly; a different one can be set in Preferences.
+## Engine rewrite objectives
 
-## Downloads
+### Tauri desktop shell
 
-See the [releases](https://github.com/freelensapp/freelens/releases) page and
-download the right package for your system.
+Replace Electron with [Tauri](https://v2.tauri.app/start/) and use the system
+webview instead of bundling Electron's Chromium runtime. Keep native window
+management and operating-system integration separate from application services.
 
-### macOS
+### Bun backend
 
-macOS 12 or later is required.
+Port backend services to [Bun](https://bun.com/) while preserving Kubernetes
+workflows and user data. Validate cluster connections, authentication helpers,
+filesystem access, child processes, terminal sessions, and extension integration
+against the new runtime.
 
-Download either the PKG (installer) or DMG (image) package from the
-[releases](https://github.com/freelensapp/freelens/releases) page. Both arm64
-(M1 chip or newer) and amd64 (Intel) variants are available.
+### Astryx UI
 
-All binary packages are built on macOS 15 and should be compatible with newer
-systems.
+Rebuild the interface with [Astryx UI](https://astryx.atmeta.com/docs/core) for a
+more modern React-based Kubernetes workspace. Use consistent components,
+keyboard-accessible navigation, and clear loading and error states.
 
-#### Homebrew
+Support the memory-efficiency goal through careful state management and
+rendering. A component-library change alone does not guarantee lower memory use.
 
-Run the following command:
+## Roadmap
 
-```sh
-brew install --cask freelens
-```
-
-### Linux
-
-Linux with GNU C Library 2.34 or later is required. It is provided ie. by
-Debian 12, Fedora 35, Mint 21, openSUSE Leap 15.4, Ubuntu 22.04 and by
-rolling release distributions like Arch, Manjaro or Tumbleweed.
-
-Download DEB or RPM (package) or AppImage (executable) from the
-[releases](https://github.com/freelensapp/freelens/releases) page. Both arm64
-(aarch64) and amd64 (x86_64) variants are available.
-
-All binary packages are built on Ubuntu 22.04 and should be compatible with
-new systems.
-
-#### AppImage
-
-The Linux AppImage file requires libz.so and libfuse.so.2. You can add them
-by running:
-
-```sh
-sudo apt install libfuse2 zlib1g-dev
-```
-
-Run the application with additional arguments:
-
-<!-- markdownlint-disable MD013 -->
-```sh
-./Freelens*.AppImage --no-sandbox --ozone-platform-hint=auto --enable-features=WebRTCPipeWireCapturer --enable-features=WaylandWindowDecorations --disable-gpu-compositing
-```
-<!-- markdownlint-enable MD013 -->
-
-#### Flatpak
-
-The package is available on the
-[Flathub](https://flathub.org/apps/app.freelens.Freelens) App Store for
-Linux.
-
-Use GNOME Software application or run the following commands:
-
-```sh
-flatpak install flathub app.freelens.Freelens
-flatpak run app.freelens.Freelens
-```
-
-The application is sandboxed. It includes bundled `kubectl` and `helm`
-commands and uses the `~/.kube/config` file by default.
-
-Flatpak adds wrappers for the `aws`, `doctl`, `gke-gcloud-auth-plugin`, and
-`kubelogin` tools, running them as commands from the host system.
-
-The terminal uses `/bin/sh` by default, but it can be switched to, for
-example, `/bin/bash` for a sandboxed environment or `/app/bin/host-spawn` for
-a host environment.
-
-#### Snap
-
-The package is available on the [Snap](https://snapcraft.io/freelens) Store
-for Linux.
-
-Use App Center application or run the following command:
-
-```sh
-snap install freelens --classic
-```
-
-#### APT repository
-
-Run the following commands:
-
-<!-- markdownlint-disable MD013 -->
-
-```sh
-curl -L https://raw.githubusercontent.com/freelensapp/freelens/refs/heads/main/freelens/build/apt/freelens.asc | sudo tee /etc/apt/keyrings/freelens.asc
-curl -L https://raw.githubusercontent.com/freelensapp/freelens/refs/heads/main/freelens/build/apt/freelens.sources | sudo tee /etc/apt/sources.list.d/freelens.sources
-sudo apt update
-sudo apt install freelens
-```
-
-#### Arch User Repository
-
-The package is available on the [Arch User Repository
-(AUR)](https://wiki.archlinux.org/title/Arch_User_Repository).
-
-Check the [freelens-bin](https://aur.archlinux.org/packages/freelens-bin)
-package page.
-
-### Windows
-
-Windows 10 or later is required.
-
-Download the EXE (NSIS) or MSI installers from the
-[releases](https://github.com/freelensapp/freelens/releases) page.
-
-Both the x64 (amd64) and arm64 versions of the Windows binaries are provided.
-However, an EXE installer (NSIS) itself is x86 binary only even if it installs
-arm64 application and then installs to `C:\Program Files (x86)\Freelens` path
-by default.
-
-The version of the MSI package has the last 4th digit always `0` and this is a
-limitation of this package format.
-
-#### Portable
-
-Download the Portable EXE from the
-[releases](https://github.com/freelensapp/freelens/releases) page. It is a
-self-contained executable that can be run without installation.
-
-#### WinGet
-
-The package is available in
-[WinGet](https://winstall.app/apps/Freelensapp.Freelens) Community
-[repository](https://github.com/microsoft/winget-pkgs).
-
-Run the following command:
-
-```powershell
-winget install Freelensapp.Freelens
-```
-
-The `--silent` option is supported to suppress all UI.
-
-The `--scope user` or `--scope machine` option can be used to install it
-either to local user directory or to `C:\Program Files`.
-
-WinGet installs the application from EXE installer (NSIS).
-
-#### Scoop
-
-The package is available in the
-[Scoop](https://scoop.sh/#/apps?q=freelens&s=1&d=0) command-line installer for
-Windows.
-
-Run the following command:
-
-```powershell
-scoop bucket add extras
-scoop install freelens
-```
-
-Scoop uses MSI package to install the application.
+- Establish the Tauri desktop runtime on Apple Silicon.
+- Port backend services to Bun and verify core Kubernetes workflows.
+- Rebuild the interface with Astryx UI.
+- Validate the Apple Silicon MVP, including startup, cluster interactions,
+  shutdown, and total application memory usage.
+- Expand platform coverage after the Apple Silicon MVP.
 
 ## Development
 
-Visit the [Development](DEVELOPMENT.md) document to see how to build the
-application from source.
-Check out the [Freelens Docs](https://freelensapp.github.io/docs/) to contribute to development or create your own extension.
+The repository contains Electron-era code alongside the Tauri migration. The
+Tauri development path uses a Node.js backend bootstrap; Bun and Astryx UI are
+rewrite objectives, not requirements for that development path.
 
-## Extensions
+See [DEVELOPMENT.md](DEVELOPMENT.md) for repository setup and
+[TAURI_MIGRATION.md](TAURI_MIGRATION.md) for the Node-backed Tauri migration plan
+and validation commands. That plan covers the runtime migration, not the broader
+Bun and Astryx UI rewrite described here.
 
-Anyone can develop extensions for Freelens and many extensions previously used
-with Open Lens have already been converted.
-Visit the [Extensions](https://github.com/freelensapp/freelens/discussions/2291)
-discussion to see them and write in the [appropriate
-discussion](https://github.com/freelensapp/freelens/discussions/117) if you
-also want to propose yours.
+With repository dependencies, Node.js, and the Rust toolchain installed, follow
+the [Tauri platform prerequisites](https://v2.tauri.app/start/prerequisites/), then
+run:
 
-## Community
+```sh
+pnpm dev:tauri
+```
 
-Get updates about Freelens & keep in touch with our community
+Validate the Tauri development runtime with:
 
-- Follow us on [LinkedIn](https://www.linkedin.com/company/freelensapp/)
-- Follow us on [Bluesky](https://bsky.app/profile/freelensapp.bsky.social)
-- Follow us on [X](https://x.com/freelensapp)
-- Join our [Discussions](https://github.com/freelensapp/freelens/discussions)
-- Chat on [Discord](https://discord.gg/NjKZERK95Y)
-- Discuss on [Reddit](https://www.reddit.com/r/freelens/)
-- Watch us on [YouTube](https://www.youtube.com/@Freelensapp)
-- Open an [Issue](https://github.com/freelensapp/freelens/issues)
+```sh
+pnpm check:tauri
+pnpm test:tauri
+pnpm smoke:tauri
+```
 
-## Adopters
-
-Freelens is used by many individuals, companies, and organizations.
-
-We have created the [adopters](https://github.com/freelensapp/freelens/blob/main/ADOPTERS.md) file for anyone who would like to be part of the official list.
-
-Anyone is welcome to request to be added to the official list by opening a dedicated Pull Request.
+Existing `freelens/` directories and `@freelensapp/*` package names reflect the
+upstream foundation. Freelens installers and package-manager entries install
+Freelens, not TauLens.
 
 ## Contributing
 
-Anyone is welcome to collaborate to advance the Freelens project. Read
-[CONTRIBUTING.md](CONTRIBUTING.md) to see how you can help.
+Contributions should focus on the Apple Silicon MVP, runtime compatibility,
+Kubernetes workflows, the UI rewrite, and reproducible memory measurements.
 
-![Star History Chart](https://api.star-history.com/svg?repos=freelensapp/freelens&type=Date)
+Read [CONTRIBUTING.md](CONTRIBUTING.md) for the inherited contribution guidelines.
+Check runtime and extension compatibility explicitly rather than assuming that
+Electron or Node.js integrations carry over unchanged.
 
-## Expenses and Donations
+## Authors and acknowledgments
 
-Anyone can support the Freelens project by making donations to cover
-maintenance costs and invest in its development.
+TauLens project work is credited to **TauLens Authors**.
 
-For more information, see our dedicated discussion: [Expenses and
-Donations](https://github.com/freelensapp/freelens/discussions/2292)
+TauLens is based on **Freelens**, with its **OpenLens** heritage. We retain the
+upstream authors' copyright notices and acknowledge their Kubernetes management,
+extension, and desktop application work.
 
-## Fund an issue or earn money by developing
-
-Anyone who wishes can also make targeted donations, funding their preferred issues alone or with others via [BountyHub](https://www.bountyhub.dev/en/bounties?repo=freelens).
-
-At the same time, anyone who wishes can apply by doing PR to earn the bounty.
-
-Features are, in any case, decided democratically according to the community's wishes and overseen by the Freelens core team.
-
-For more information, see our dedicated discussion: [Fund an issue or earn money by developing](https://github.com/freelensapp/freelens/discussions/2293)
-
-## The Freelens Teams
-
-### Core Team
-
-Each member of the core team is focused on specific roles. You can contact us
-at any time according to them.
-
-- [Roberto Bandini](https://www.linkedin.com/in/bandiniroberto/) - [@robertobandini](https://github.com/robertobandini) - Founder<br/>
-General organization management, relationships, product management, community, marketing, extensions ecosystem (review, catalog, strategy and development)
-- [Piotr Roszatycki](https://www.linkedin.com/in/piotr.roszatycki) - [@dex4er](https://github.com/dex4er) - Maintainer<br/>
-Development direction, architecture and release management, extensions development
-- [Mario Offertucci](https://www.linkedin.com/in/mario-offertucci-703113b6/) - [@mariomamo](https://github.com/mariomamo) - Maintainer<br/>
-UI, docs, extensions development
-- [Leopoldo Capuano](https://www.linkedin.com/in/leo-capuano/) - [@leo-capvano](https://github.com/leo-capvano) - Maintainer<br/>
-GenAI solutions, extensions development
-
-### Release Engineering Team
-
-This team is responsible for driving Freelens releases forward, reviewing PRs, and making decisions about the architecture and technical roadmap under the supervision of the core team.
-
-- [Piotr Roszatycki](https://www.linkedin.com/in/piotr.roszatycki) - [@dex4er](https://github.com/dex4er) - Maintainer<br/>
-Release Engineering Team Lead
-- [Omar Alani](https://www.linkedin.com/in/omarluq/) - [@omarluq](https://github.com/omarluq) - Maintainer<br/>
-Release Engineering Team Member
-- [Matías Roje](https://www.linkedin.com/in/matias-roje-carrasco/) - [@MatiasRoje](https://github.com/MatiasRoje) - Maintainer<br/>
-Release Engineering Team Member
-
-The project is growing very quickly and everyone is welcome!
-
-If you also want to be part of it, visit the [We want
-you!](https://github.com/freelensapp/freelens/discussions/2297) discussion.
-
-Or contact us at <freelens@freelens.app> for any questions or suggestions!
+The upstream Freelens README credits Roberto Bandini, Piotr Roszatycki, Mario
+Offertucci, Leopoldo Capuano, Omar Alani, and Matías Roje. These are upstream
+credits, not a list of TauLens maintainers.
 
 ## License
 
-This repository is a fork of [Open
-Lens](https://github.com/lensapp/lens/tree/master), the core of [Lens
-Desktop](https://k8slens.dev), with the aim of carrying forward its
-open-source version.
+TauLens is licensed under the [MIT License](LICENSE).
+
+Its upstream foundation is Freelens, a fork of OpenLens, the open-source core of
+Lens Desktop.
+
+Copyright (c) 2026-Present TauLens Authors.
 
 Copyright (c) 2024-2026 Freelens Authors.
 
 Copyright (c) 2022 OpenLens Authors.
 
-[MIT License](https://opensource.org/licenses/MIT)
+Preserve the copyright and permission notices when distributing this software or
+substantial portions of it. See [LICENSE](LICENSE) for the complete terms and
+warranty disclaimer.
