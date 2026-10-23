@@ -76,6 +76,14 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   const table = page.getByRole("table", { name: "All Categories", exact: true });
   await table.getByRole("button", { name: "Pin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  const pinnedLink = page.getByRole("link", { name: "Development", exact: true });
+  await expect(pinnedLink).toBeVisible();
+  await expect(pinnedLink.locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
+  await pinnedLink.click();
+  await expect(page).toHaveURL(/catalog\/clusters\?item=cluster-fixture$/);
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await page.reload();
   await expect(table.getByRole("button", { name: "Unpin Development", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("link", { name: "Development", exact: true }).click();
@@ -83,7 +91,7 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Show all clusters", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog\/clusters$/);
-  await page.getByRole("button", { name: "Home", exact: true }).click();
+  await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await table.getByRole("button", { name: "Unpin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true })).toHaveCount(0);
   for (const name of ["All Categories", "Clusters", "Web Links"]) await expect(page.getByRole("button", { name: `Pin ${name}`, exact: true })).toHaveCount(0);
@@ -187,7 +195,7 @@ test("default discovery is built in without a visible title, switch, or informat
   await expect(page.getByRole("switch")).toHaveCount(0);
   await expect(page.getByText("Imported clusters stay disconnected.", { exact: false })).toHaveCount(0);
   const heading = page.getByRole("heading", { level: 1, name: "All Categories", exact: true });
-  expect(await heading.evaluate((element) => element.closest(".astryx-visually-hidden") !== null || getComputedStyle(element.parentElement!).clipPath === "inset(50%)")).toBe(true);
+  expect(await heading.evaluate((element) => element.parentElement!.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
   const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
   for (const name of ["Search", "Add config", "Add web link", "Refresh catalog"]) await expect(toolbar.getByRole("button", { name, exact: true })).toBeVisible();
   await expect(page.getByRole("main").getByRole("button", { name: "Add config", exact: true })).toHaveCount(0);

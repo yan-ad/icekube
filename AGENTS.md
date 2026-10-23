@@ -12,7 +12,7 @@ Project-specific guidance for AI coding agents.
   interaction, Rust owner, UI states, and acceptance test. Preserve relevant
   notices if adapting upstream code. Do not claim extension compatibility.
 - Current state: Catalog-first navigation/search, Rust-owned catalog persistence,
-  explicit kubeconfig metadata import, opt-in default-file discovery, SQLite,
+  explicit kubeconfig metadata import, built-in default-file discovery, SQLite,
   web links, persisted record colors, individual item pins, and a
   Rust-owned seamless frame. All Categories combines clusters and web links;
   category pages are never pinnable. Connections/background watching/live Kubernetes
@@ -45,16 +45,22 @@ Project-specific guidance for AI coding agents.
 
 ## Design and seamless layout
 
-- Preserve the current section-style shell, app rail, contextual sidebar, compact
+- Preserve the current section-style shell, single collapsible sidebar, compact
   tables, token spacing, and Astryx theme. Add features inside the existing shell.
-- Catalog is home and uses the existing Home icon; do not restore the Welcome
-  screen or category-page pin controls. Pinning belongs to list entries only.
+- Catalog is home. Do not restore the Welcome screen, separate app rail, or
+  category-page pin controls. The toolbar sidebar toggle replaces Home; pinning
+  belongs to list entries only. Keep collapsed icons accessible and preserve the
+  independent full-width narrow-window drawer and desktop collapse preference.
+- Keep category headings visually hidden and omit routine discovery information
+  or controls. Place Add config, Add web link, and Refresh beside Search in the
+  existing toolbar, using an accessible overflow menu when space is limited.
+  Do not suppress real loading, empty, or error states to make the UI look clean.
 - All Categories replaces General and shows both entity kinds, not a setup page.
   Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
   checkout, not `taulens`; record the commit before implementing another workflow.
 - Catalog import stays metadata-only until authentication/connection lifecycle
-  support is separately approved. Default-file discovery is off by default and
-  requires the persisted user opt-in; it reads only `~/.kube/config` on load/Refresh,
+  support is separately approved. Default-file discovery is built in and
+  reads only `~/.kube/config` on catalog load/Refresh,
   never `KUBECONFIG` or a directory scan. Never read real kubeconfigs in agent tests,
   execute auth plugins, or claim a context is connected from an import.
 - Kubeconfig paths may be symbolic links. Resolve before opening and enforce

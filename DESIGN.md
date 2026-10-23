@@ -23,14 +23,14 @@ These are objectives, not a shipped-feature list. Today the app implements the
 shell, Catalog as the home screen, category search, navigation history, and the
 seamless window frame. The first Rust catalog engine persists imported cluster
 context metadata, web links, individual item pins, and random record colors in SQLite.
-Opt-in discovery imports `~/.kube/config` on catalog load/Refresh. Cluster connections,
+Built-in discovery imports `~/.kube/config` on catalog load/Refresh. Cluster connections,
 background file watching, live resource operations, and opening web links are not implemented.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
 ## Existing visual direction
 
 The interface is a restrained operational workspace, not a marketing dashboard.
-Its recognizable structure is a narrow app rail beside contextual navigation,
+Its recognizable structure is one collapsible sidebar with categories and pinned items,
 with compact, aligned resource rows as the main working surface.
 
 | Decision | Direction and reason |
@@ -55,17 +55,27 @@ unused starter CSS, not design authority. The active brand theme lives in
 
 1. **Window frame:** device insets and a single toolbar with automatic native-control
    clearance when seamless is enabled. No app-name strip or extra title-bar row.
-2. **Toolbar:** Home, back/forward history, and Search directly in that top row.
+2. **Toolbar:** Sidebar toggle, back/forward history, and Search directly in that top row.
    History controls disable when unavailable. Search opens from its icon button
-   or Cmd/Ctrl+K. Empty space between actions is draggable in native seamless mode.
-3. **App rail:** Catalog uses the existing Home icon. There is no separate
-   Welcome destination. `/` redirects to `/catalog`, and Home returns there.
+   or Cmd/Ctrl+K. Add config, Add web link, and Refresh sit beside Search; at narrow
+   widths these actions share a keyboard-accessible Catalog actions menu.
+   Empty space between actions is draggable in native seamless mode.
+3. **Single sidebar:** No separate app rail, Home button, or Welcome destination.
+   `/` redirects to `/catalog`. The first toolbar control collapses/expands the
+   sidebar on desktop and opens the navigation drawer on narrow windows. Desktop
+   collapse preference is saved in non-sensitive localStorage; drawer navigation
+   stays fully expanded and does not change that preference.
    Pinned shortcuts identify individual clusters or web links, never
    All Categories, Clusters, or Web Links category pages.
-4. **Context sidebar:** Catalog categories and a pinned-items area, present only
-   within Catalog. Categories are navigation only; pin actions belong to loaded
-   list entries. Use text actions, not bookmark/pin icons. No invented records.
-5. **Content:** one main landmark and page heading. Resource inventories use
+4. **Sidebar content:** Catalog categories and a pinned-items area share one
+   navigation landmark. Collapsed mode keeps named category and pinned-entry
+   icons usable, with labels available to assistive technology and tooltips.
+   Categories are navigation only; pin actions belong to loaded list entries.
+5. **Content:** one main landmark and an accessible, visually hidden page heading.
+   No category title bar, discovery switch, or routine explanatory information
+   block; the normal view begins with the filter and table. Keep actionable errors
+   and loading/empty states visible rather than hiding failures for appearance.
+   Resource inventories use
    compact tables; explanatory/empty states use text and specific actions.
    Every category uses `Name | Kind | Source | Labels | Status | Actions`.
    Kind uses the category name and matching sidebar icon; Source identifies
@@ -153,10 +163,10 @@ stores fail closed and are never silently reset. The original `catalog.json`
 migrates once, preserving IDs/pins/revision and adding colors; its original bytes
 and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afterward.
 
-- `catalog_list` returns a revision, metadata-only clusters/web links, persisted
-  `autoDiscover`, and a safe `discoveryError` code if an enabled scan failed.
+- `catalog_list` returns a revision, metadata-only clusters/web links, and a safe
+  nullable `discoveryError` code if the built-in default-file scan failed.
 - `catalog_import_kubeconfig` accepts an explicit absolute regular-file path.
-  There is no automatic file read while discovery is disabled, and no `KUBECONFIG`
+  Default-file discovery is separate from explicit imports; there is no `KUBECONFIG`
   environment or directory scan. Files are capped at
   1 MiB; only valid named contexts and cluster references enter the catalog.
   Imports reconcile that source, preserve surviving pins/colors, and remove stale contexts.
@@ -177,14 +187,17 @@ and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afte
   upgrade transactionally without losing IDs, revision, preferences, pins, or colors.
   Database, lock, sidecar, and legacy-storage symlinks remain rejected. File metadata
   checks are best-effort replacement detection, not a hostile-filesystem race guarantee.
-- `catalog_set_discovery` persists an explicit opt-in, off by default. Enabling
-  immediately loads metadata from `~/.kube/config`; subsequent catalog loads and
-  Refresh retry it, including after app restart. The home path is supplied by Rust,
-  not by the renderer or shell expansion. This is not a background file watcher.
-  Missing/invalid files preserve the preference and previous rows, showing an
-  actionable warning. Switching it off stops reads but keeps imported entries.
-  Removing an auto-discovered record is local only: it returns on the next refresh
-  if still in the file while discovery is enabled; the removal dialog explains this.
+- Default-file discovery is built in, with no setting or routine information UI.
+  Every catalog load and Refresh imports metadata from `~/.kube/config`, including
+  after restart and for catalogs that previously had discovery disabled. Legacy
+  SQLite preference data is retained for compatibility but no longer controls reads;
+  there is no `catalog_set_discovery` command or `autoDiscover` response field.
+  The home path is supplied by Rust, not the renderer or shell expansion. This is
+  not a background file watcher. An absent default file with no previously discovered
+  rows is normal and silent. Broken/unreadable/invalid files or disappearance of a
+  previously imported default source preserve previous rows and show an actionable
+  warning. Mutations do not rescan. Removing an auto-discovered record is local only:
+  it returns on the next load/Refresh if still in the file; the dialog explains this.
 - `catalog_add_web_link` validates names and HTTP(S) URLs without contacting them.
   Userinfo, query strings, and fragments are rejected to reduce accidental secret
   persistence. This is deliberately narrower than Freelens's URL support.
@@ -217,7 +230,7 @@ No upstream source code was copied. `taulens` is not the reference checkout.
 
 Default-path discovery and the six-column table/colors are Icekube requirements,
 not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/
-color fixtures and browser opt-in, warning, column/icon, and reload tests.
+color fixtures and browser built-in discovery, warning, column/icon, and reload tests.
 Connecting clusters, invoking auth helpers, live watches, URL opening, and Freelens
 extensions are outside this slice. Tests use synthetic fixtures and mocked IPC;
 they do not prove production-cluster or native OS integration.

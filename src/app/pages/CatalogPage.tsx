@@ -140,8 +140,7 @@ export default function CatalogPage() {
       renderCell: (item) => (
         <HStack gap={1} wrap="wrap">
           <IconButton
-            label={item.pinned ? "Unpin" : "Pin"}
-            aria-label={`${item.pinned ? "Unpin" : "Pin"} ${item.name}`}
+            label={`${item.pinned ? "Unpin" : "Pin"} ${item.name}`}
             tooltip={item.pinned ? 'Unpin from Sidebar' : 'Pin to Sidebar'}
             aria-pressed={item.pinned}
             icon={<Icon icon={item.pinned ? IconPinnedOff : IconPin} />}
@@ -153,8 +152,7 @@ export default function CatalogPage() {
           />
           <IconButton
             tooltip="Remove this config"
-            label="Remove"
-            aria-label={`Remove ${item.name}`}
+            label={`Remove ${item.name}`}
             variant="destructive"
             icon={<Icon icon={IconTrash} />}
             isDisabled={busy}

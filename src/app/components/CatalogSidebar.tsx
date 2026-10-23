@@ -8,7 +8,7 @@ import { useCatalog } from "../catalog/CatalogProvider";
 import { RecordIcon } from "../catalog/RecordIcon";
 import { NavLink } from "./NavLink";
 
-export function CatalogSidebar({ onNavigate }: { onNavigate: () => void }) {
+export function CatalogSidebar({ onNavigate, isCollapsed = false, id = "catalog-sidebar" }: { onNavigate: () => void; isCollapsed?: boolean; id?: string }) {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -21,7 +21,9 @@ export function CatalogSidebar({ onNavigate }: { onNavigate: () => void }) {
   return (
     <SideNav
       aria-label="Catalog navigation"
-      style={{ width: "clamp(11rem, 18vw, 16rem)" }}
+      id={id}
+      collapsible={{ isCollapsed, hasButton: false }}
+      style={isCollapsed ? undefined : { width: "clamp(11rem, 18vw, 16rem)" }}
     >
       <SideNavSection title="Categories">
         {categories.map((category) => (
@@ -38,7 +40,7 @@ export function CatalogSidebar({ onNavigate }: { onNavigate: () => void }) {
       <Divider />
       <SideNavSection title="Pinned items">
         {pinned.length ? pinned.map((item) => <NavLink key={item.id} to={item.path} search={{ item: item.id }} label={item.name} icon={<RecordIcon kind={item.kind} color={item.color} />} onClick={onNavigate} />)
-          : <VStack paddingInline={4} paddingBlock={2} gap={2}>
+          : !isCollapsed && <VStack paddingInline={4} paddingBlock={2} gap={2}>
             <Text type="supporting">{loading ? "Loading pinned items…" : "No pinned items."}</Text>
             <Text type="supporting">Pin individual clusters or web links from their list rows.</Text>
           </VStack>}

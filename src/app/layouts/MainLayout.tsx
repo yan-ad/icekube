@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
-import { Divider } from "@astryxdesign/core/Divider";
-import { HStack } from "@astryxdesign/core/Stack";
 import { MobileNav } from "@astryxdesign/core/MobileNav";
-import { AppRail } from "../components/AppRail";
 import { AppSearch } from "../components/AppSearch";
 import { AppToolbar } from "../components/AppToolbar";
 import { CatalogSidebar } from "../components/CatalogSidebar";
@@ -17,7 +14,17 @@ export default function MainLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [isSearchOpen, setSearchOpen] = useState(false);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
-  const isCatalog = pathname === "/catalog" || pathname.startsWith("/catalog/");
+  const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    try { return localStorage.getItem("icekube.sidebar-collapsed.v1") === "true"; }
+    catch { return false; }
+  });
+  function toggleSidebar() {
+    setSidebarCollapsed((previous) => !previous);
+  }
+  useEffect(() => {
+    try { localStorage.setItem("icekube.sidebar-collapsed.v1", String(isSidebarCollapsed)); }
+    catch { /* Collapse remains available when preference storage is blocked. */ }
+  }, [isSidebarCollapsed]);
 
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
   useEffect(() => {
@@ -41,19 +48,10 @@ export default function MainLayout() {
         variant="section"
         contentPadding={0}
         mobileNav={{ isOpen: isMobileNavOpen, onOpenChange: setMobileNavOpen, content: <MobileNav header="Catalog navigation">
-          <AppRail onNavigate={closeNavigation} />
-          {isCatalog && <CatalogSidebar onNavigate={closeNavigation} />}
+          <CatalogSidebar id="catalog-sidebar-drawer" onNavigate={closeNavigation} />
         </MobileNav> }}
-        topNav={<AppToolbar onSearch={() => setSearchOpen(true)} />}
-        sideNav={
-          <HStack gap={0} height="100%">
-            <AppRail onNavigate={closeNavigation} />
-            {isCatalog && <>
-              <Divider orientation="vertical" />
-              <CatalogSidebar onNavigate={closeNavigation} />
-            </>}
-          </HStack>
-        }
+        topNav={<AppToolbar onSearch={() => setSearchOpen(true)} isSidebarCollapsed={isSidebarCollapsed} onToggleSidebar={toggleSidebar} />}
+        sideNav={<CatalogSidebar onNavigate={closeNavigation} isCollapsed={isSidebarCollapsed} />}
       >
         <Outlet />
       </AppShell>

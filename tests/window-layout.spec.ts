@@ -36,14 +36,14 @@ for (const platform of ["macos", "windows", "linux"]) {
     await expect(toolbar.locator("[data-tauri-drag-region]").first()).toBeVisible();
     for (const width of [1100, 800, 360]) {
       await page.setViewportSize({ width, height: 600 });
-      await expect(page.getByRole("button", { name: "Open navigation", exact: true })).toHaveCount(width < 768 ? 1 : 0);
+      await expect(page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true })).toBeVisible();
       await expect(toolbar).toBeVisible();
       const chrome = await toolbar.boundingBox();
       const main = await page.getByRole("main").boundingBox();
       expect(chrome!.height).toBeGreaterThanOrEqual(44);
       expect(chrome!.y).toBe(0);
       expect(chrome!.height).toBeLessThanOrEqual(48);
-      for (const name of ["Home", "Go back", "Go forward", "Search"]) {
+      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Search"]) {
         const action = page.getByRole("button", { name, exact: true });
         await expect(action).toBeVisible();
         const bounds = await action.boundingBox();
@@ -52,7 +52,7 @@ for (const platform of ["macos", "windows", "linux"]) {
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
         expect(await action.evaluate((element) => element.closest("[data-tauri-drag-region]") === null)).toBe(true);
       }
-      const home = await page.getByRole("button", { name: "Home", exact: true }).boundingBox();
+      const home = await page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true }).boundingBox();
       if (platform === "macos") expect(home!.x).toBeGreaterThanOrEqual(80);
       expect(main!.y).toBeGreaterThanOrEqual(chrome!.y + chrome!.height);
       expect(main!.y).toBeLessThanOrEqual(chrome!.y + chrome!.height + 1);
@@ -84,8 +84,8 @@ test("browser preview opens Catalog and preserves history and search without nat
   await expect(page).toHaveURL(/#\/catalog$/);
   await page.getByRole("button", { name: "Go forward", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog\/clusters$/);
-  await page.getByRole("button", { name: "Home", exact: true }).click();
-  await expect(page).toHaveURL(/#\/catalog$/);
+  await page.getByRole("link", { name: "All Categories", exact: true }).click();
+  await expect(page).toHaveURL(/#\/catalog\/all$/);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("dialog").getByText("Welcome Page", { exact: true })).toHaveCount(0);
@@ -121,7 +121,7 @@ test("compact toolbar keeps narrow-window navigation accessible", async ({ page 
   await page.setViewportSize({ width: 360, height: 600 });
   await page.goto("/");
   await expect(page).toHaveURL(/#\/catalog$/);
-  const toggle = page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button").last();
+  const toggle = page.getByRole("button", { name: "Open sidebar", exact: true });
   await toggle.click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -129,16 +129,17 @@ test("compact toolbar keeps narrow-window navigation accessible", async ({ page 
   await expect(toggle).toBeFocused();
 });
 
-test("categories cannot be pinned and legacy page pins do not populate the rail", async ({ page }) => {
+test("categories cannot be pinned and there is only one sidebar", async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("icekube.pinned-pages.v1", JSON.stringify([
     "/catalog/general", "/catalog/clusters", "/catalog/web-links",
   ])));
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/");
-  const rail = page.getByRole("navigation", { name: "Apps", exact: true });
-  await expect(rail.getByRole("link")).toHaveCount(1);
-  const catalogIcon = await rail.getByRole("link", { name: "Catalog", exact: true }).locator("svg").innerHTML();
-  expect(catalogIcon).toBe(await page.getByRole("button", { name: "Home", exact: true }).locator("svg").innerHTML());
+  const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
+  await expect(sidebar).toHaveCount(1);
+  await expect(sidebar.getByRole("link")).toHaveCount(3);
+  await expect(page.getByRole("navigation", { name: "Apps", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveCount(0);
   for (const category of ["All Categories", "Clusters", "Web Links"]) {
     await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: category, exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: category, exact: true })).toBeVisible();
@@ -146,9 +147,50 @@ test("categories cannot be pinned and legacy page pins do not populate the rail"
   }
   await expect(page.getByRole("table", { name: "Web links", exact: true })).toBeVisible();
   await page.reload();
-  await expect(rail.getByRole("link")).toHaveCount(1);
+  await expect(sidebar.getByRole("link")).toHaveCount(3);
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("toolbar toggle collapses one sidebar and persists the desktop preference", async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await page.goto("/");
+  const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
+  await expect(sidebar).toHaveCount(1);
+  const expanded = await sidebar.boundingBox();
+  const toggle = page.getByRole("button", { name: "Collapse sidebar", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "true");
+  await expect(toggle).toHaveAttribute("aria-controls", "catalog-sidebar");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeLessThan(expanded!.width);
+  await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
+  await sidebar.getByRole("link", { name: "Clusters", exact: true }).click();
+  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("sidebar-collapsed.png") });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeGreaterThan(expanded!.width - 1);
+  await expect(sidebar.getByText("Categories", { exact: true })).toBeVisible();
+  await page.screenshot({ path: testInfo.outputPath("sidebar-expanded.png") });
+});
+
+test("narrow sidebar drawer ignores desktop collapse and closes after navigation", async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem("icekube.sidebar-collapsed.v1", "true"));
+  await page.setViewportSize({ width: 360, height: 700 });
+  await page.goto("/");
+  const toggle = page.getByRole("button", { name: "Open sidebar", exact: true });
+  await toggle.click();
+  const drawer = page.getByRole("dialog");
+  await expect(drawer.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveCount(1);
+  await expect(drawer.getByRole("link", { name: "Web Links", exact: true })).toBeVisible();
+  await drawer.getByRole("link", { name: "Web Links", exact: true }).click();
+  await expect(drawer).toBeHidden();
+  await expect(page.getByRole("table", { name: "Web links", exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 1100, height: 700 });
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
 });

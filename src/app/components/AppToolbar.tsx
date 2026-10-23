@@ -1,10 +1,11 @@
-import { useNavigate, useRouterState } from "@tanstack/react-router";
+import { useRouterState } from "@tanstack/react-router";
+import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
-import { MobileNavToggle } from "@astryxdesign/core/MobileNav";
 import {
-  IconCategory2,
+  IconLayoutSidebarLeftCollapse,
+  IconLayoutSidebarLeftExpand,
   IconArrowLeft,
   IconArrowRight,
   IconSearch,
@@ -14,12 +15,14 @@ import { WindowToolbar } from "../layouts/WindowFrame";
 import { getWindowLayout } from "../layouts/window-layout";
 import { CatalogForms } from "../catalog/CatalogForms";
 
-export function AppToolbar({ onSearch }: { onSearch: () => void }) {
-  const navigate = useNavigate();
+export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const history = useNavigationHistory();
   const layout = getWindowLayout();
   const draggable = layout.seamless && layout.platform !== "browser";
   const isCatalog = useRouterState({ select: (state) => state.location.pathname.startsWith("/catalog") });
+  const mobile = useAppShellMobile();
+  const expanded = mobile.isMobile ? mobile.isMobileNavOpen : !isSidebarCollapsed;
+  const toggleLabel = mobile.isMobile ? "Open sidebar" : isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
 
   return (
     <WindowToolbar {...layout}>
@@ -30,13 +33,14 @@ export function AppToolbar({ onSearch }: { onSearch: () => void }) {
         style={{ flexShrink: 0 }}
       >
         <IconButton
-          label="Home"
-          tooltip="Home"
+          label={toggleLabel}
+          tooltip={toggleLabel}
+          aria-expanded={expanded}
+          aria-controls={mobile.isMobile ? mobile.mobileNavId : "catalog-sidebar"}
           variant="ghost"
-          icon={<Icon icon={IconCategory2} />}
-          onClick={() => void navigate({ to: "/catalog" })}
+          icon={<Icon icon={expanded ? IconLayoutSidebarLeftCollapse : IconLayoutSidebarLeftExpand} />}
+          onClick={mobile.isMobile ? mobile.toggleMobileNav : onToggleSidebar}
         />
-      {isCatalog && <CatalogForms />}
         <IconButton
           label="Go back"
           tooltip="Go back"
@@ -68,7 +72,7 @@ export function AppToolbar({ onSearch }: { onSearch: () => void }) {
         onClick={onSearch}
         aria-keyshortcuts="Control+k Meta+k"
       />
-      <MobileNavToggle />
+      {isCatalog && <CatalogForms />}
     </WindowToolbar>
   );
 }
