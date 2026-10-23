@@ -1,3 +1,6 @@
+<img width="64" height="64" alt="icon-iOS-Default-64@1x" src="https://github.com/user-attachments/assets/717ea184-42d7-48dc-b0ca-e606f122623d" />
+
+
 # IceKube
 
 [IceKube](https://icekube.yan.ad) is a fast, light, and easy way to manage your Kubernetes cluster easily. It's a supercharged version of FreelensApp
