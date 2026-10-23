@@ -9,6 +9,6 @@ export default function NotFoundPage() {
   return <VStack padding={6} gap={4}>
     <Heading level={1}>Page not found</Heading>
     <Text>This destination is not part of Icekube.</Text>
-    <Button label="Go to Welcome Page" onClick={() => void navigate({ to: "/" })} />
+    <Button label="Go to Catalog" onClick={() => void navigate({ to: "/catalog" })} />
   </VStack>;
 }

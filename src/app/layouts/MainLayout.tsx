@@ -4,17 +4,17 @@ import { useEffect, useState } from "react";
 import { Outlet, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Divider } from "@astryxdesign/core/Divider";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Text } from "@astryxdesign/core/Text";
+import { HStack } from "@astryxdesign/core/Stack";
+import { MobileNav } from "@astryxdesign/core/MobileNav";
 import { AppRail } from "../components/AppRail";
 import { AppSearch } from "../components/AppSearch";
 import { AppToolbar } from "../components/AppToolbar";
 import { CatalogSidebar } from "../components/CatalogSidebar";
-import { useShellState } from "./shell-state";
+import { WindowFrame } from "./WindowFrame";
+import { getWindowLayout } from "./window-layout";
 
 export default function MainLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
-  const { storageWarning } = useShellState();
   const [isSearchOpen, setSearchOpen] = useState(false);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
   const isCatalog = pathname === "/catalog" || pathname.startsWith("/catalog/");
@@ -35,10 +35,15 @@ export default function MainLayout() {
 
   return (
     <>
+      <WindowFrame {...getWindowLayout()}>
       <AppShell
+        style={{ height: "100%", minHeight: 0 }}
         variant="section"
         contentPadding={0}
-        mobileNav={{ isOpen: isMobileNavOpen, onOpenChange: setMobileNavOpen }}
+        mobileNav={{ isOpen: isMobileNavOpen, onOpenChange: setMobileNavOpen, content: <MobileNav header="Catalog navigation">
+          <AppRail onNavigate={closeNavigation} />
+          {isCatalog && <CatalogSidebar onNavigate={closeNavigation} />}
+        </MobileNav> }}
         topNav={<AppToolbar onSearch={() => setSearchOpen(true)} />}
         sideNav={
           <HStack gap={0} height="100%">
@@ -49,10 +54,10 @@ export default function MainLayout() {
             </>}
           </HStack>
         }
-        banner={storageWarning ? <VStack padding={2}><Text role="status">Shortcuts cannot be saved on this device. Pins will last for this session only.</Text></VStack> : undefined}
       >
         <Outlet />
       </AppShell>
+      </WindowFrame>
       <AppSearch isOpen={isSearchOpen} onOpenChange={setSearchOpen} />
     </>
   );

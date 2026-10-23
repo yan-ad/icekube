@@ -1,26 +1,28 @@
-import { createHashHistory, createRootRoute, createRoute, createRouter } from "@tanstack/react-router";
+import { createHashHistory, createRootRoute, createRoute, createRouter, redirect } from "@tanstack/react-router";
 import MainLayout from "./layouts/MainLayout";
-import WelcomePage from "./pages/WelcomePage";
 import CatalogPage from "./pages/CatalogPage";
 import NotFoundPage from "./pages/NotFoundPage";
-import { ShellStateProvider } from "./layouts/shell-state";
+import { CatalogProvider } from "./catalog/CatalogProvider";
 
 const rootRoute = createRootRoute({
-  component: () => <ShellStateProvider><MainLayout /></ShellStateProvider>,
+  component: () => <CatalogProvider><MainLayout /></CatalogProvider>,
   notFoundComponent: NotFoundPage,
 });
-const welcomeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: WelcomePage });
-const catalogRoute = createRoute({ getParentRoute: () => rootRoute, path: "catalog" });
+const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/catalog", replace: true }); } });
+const catalogRoute = createRoute({ getParentRoute: () => rootRoute, path: "catalog", validateSearch: (search: Record<string, unknown>): { item?: string } => ({
+  item: typeof search.item === "string" && search.item.length <= 256 ? search.item : undefined,
+}) });
 const catalogIndexRoute = createRoute({ getParentRoute: () => catalogRoute, path: "/", component: CatalogPage });
-const generalRoute = createRoute({ getParentRoute: () => catalogRoute, path: "general", component: CatalogPage });
+const generalRoute = createRoute({ getParentRoute: () => catalogRoute, path: "general", beforeLoad: () => { throw redirect({ to: "/catalog/all", replace: true }); } });
+const allRoute = createRoute({ getParentRoute: () => catalogRoute, path: "all", component: CatalogPage });
 const clustersRoute = createRoute({ getParentRoute: () => catalogRoute, path: "clusters", component: CatalogPage });
 const webLinksRoute = createRoute({ getParentRoute: () => catalogRoute, path: "web-links", component: CatalogPage });
 
 export const router = createRouter({
   history: createHashHistory(),
   routeTree: rootRoute.addChildren([
-    welcomeRoute,
-    catalogRoute.addChildren([catalogIndexRoute, generalRoute, clustersRoute, webLinksRoute]),
+    homeRoute,
+    catalogRoute.addChildren([catalogIndexRoute, allRoute, generalRoute, clustersRoute, webLinksRoute]),
   ]),
   defaultPreload: "intent",
 });

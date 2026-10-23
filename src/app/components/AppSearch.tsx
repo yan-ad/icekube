@@ -18,7 +18,7 @@ export function AppSearch({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCha
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       searchSource={searchSource}
-      emptySearchText="No matching pages. Try Welcome, Catalog, or Clusters."
+      emptySearchText="No matching pages. Try All Categories, Clusters, or Web Links."
       onValueChange={(value) => {
         const destination = destinations.find((item) => item.path === value);
         if (destination) {

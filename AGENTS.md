@@ -2,6 +2,96 @@
 
 Project-specific guidance for AI coding agents.
 
+## Objective and sources of truth
+
+- Read `DESIGN.md` before UI, navigation, native-window, or architecture changes.
+- Build a Kubernetes desktop workspace with Freelens-like user workflows using
+  Icekube's existing Astryx design. Freelens is a behavioral reference, not an
+  instruction to copy Electron/Node architecture or claim feature parity.
+- For each reference workflow, record the upstream version/source, expected
+  interaction, Rust owner, UI states, and acceptance test. Preserve relevant
+  notices if adapting upstream code. Do not claim extension compatibility.
+- Current state: Catalog-first navigation/search, Rust-owned catalog persistence,
+  explicit kubeconfig metadata import, web links, individual item pins, and a
+  Rust-owned seamless frame. All Categories combines clusters and web links;
+  category pages are never pinnable. Connections/discovery/live Kubernetes
+  operations are not implemented. Keep disconnected states honest.
+
+## Non-negotiable runtime architecture
+
+- `src-tauri/src/` is the Rust backend engine. Rust owns Kubernetes connections,
+  discovery/authentication, kubeconfig and credentials, filesystem/domain
+  persistence, watches, subprocesses, proxies, terminals, logs, port forwards,
+  metrics, Helm, and native lifecycle.
+- `src/` is React/TypeScript presentation running in the system webview. It owns
+  routes, rendering, accessibility, ephemeral UI state, and typed IPC adapters.
+  Do not put Kubernetes clients, credential handling, host filesystem access,
+  or direct cluster networking in the renderer.
+- Node/Bun is allowed for frontend dependency management, Vite, build tools, and
+  development tests only. The frontend runs as browser JavaScript, not Node.
+  Never add a Node server, Electron runtime, JS backend, or Node/Bun sidecar.
+- Keep Rust commands thin over engine services. Define serializable request,
+  response, and error contracts; validate at the Rust boundary. Scope requests
+  and events to cluster/context/namespace, and reject stale cross-session work.
+- Every watch/session/process has an owner, bounded output/backpressure, and
+  cancellation/cleanup on disconnect, view disposal, and app shutdown.
+- Frontend localStorage is only for non-sensitive UI preferences. Secrets,
+  kubeconfig, item pins, and durable domain records stay in Rust-managed storage.
+  Never log or serialize secrets into renderer events.
+- Use least-privilege Tauri capabilities. Do not broaden CSP, shell, filesystem,
+  or remote-origin access to work around an implementation bug. Existing starter
+  configuration is not evidence that a permissive security setting is safe.
+
+## Design and seamless layout
+
+- Preserve the current section-style shell, app rail, contextual sidebar, compact
+  tables, token spacing, and Astryx theme. Add features inside the existing shell.
+- Catalog is home and uses the existing Home icon; do not restore the Welcome
+  screen or category-page pin controls. Pinning belongs to list entries only.
+- All Categories replaces General and shows both entity kinds, not a setup page.
+  Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
+  checkout, not `taulens`; record the commit before implementing another workflow.
+- Catalog import must stay explicit and metadata-only until authentication and
+  connection lifecycle support is separately approved. Never auto-read real
+  kubeconfigs, execute auth plugins, or claim a context is connected from an import.
+- `seamless` is an Icekube window mode, not an upstream Astryx prop/variant.
+  `src-tauri/src/window.rs` owns the flag, native window construction, and initial
+  layout metadata; `WindowFrame` owns device insets and `WindowToolbar` owns
+  native-control clearance, drag space, and controls in the existing toolbar row.
+  Do not add an app-name strip or a second title-bar/navigation row.
+- Keep native and renderer mode synchronized from that one Rust source. Keep
+  `create: false` for the Rust-created main window; never create a duplicate.
+- On macOS retain traffic lights using overlay/hidden-title behavior and reserve
+  their physical-left area. On Windows/Linux replace removed decorations with
+  working accessible controls. Browser preview and non-seamless mode must not
+  render fake desktop chrome or invoke native APIs.
+- Reserve safe area once at the frame, including device insets and native-control
+  budgets. Pages must not hardcode title-bar padding. Do not rely on CSS device
+  insets to measure desktop window controls. Keep controls outside drag targets.
+- Recheck narrow windows, internal scrolling, zoom, fullscreen, and window-action
+  errors whenever changing chrome. Never claim native OS checks from IPC mocks.
+- Do not edit generated `src/astryx-themes.ts` or `node_modules` by hand. The
+  unused starter `src/App.css` is not the visual specification. Reset/theme CSS
+  imports in the entry are required; avoid additional page-level CSS imports.
+
+## Work and verification
+
+- Inspect relevant files first. Make small changes and test before extending
+  scope. Do not refactor unrelated UI or add dependencies without a concrete need.
+- Use Bun for frontend commands. Keep dependencies in `package.json`/`bun.lock`
+  and Rust dependencies in `src-tauri/Cargo.toml`/`Cargo.lock`.
+- Frontend: `bun run build`; `bun run test:e2e` (first setup:
+  `bunx playwright install chromium`). Dev preview: `bun run dev`.
+- Rust: `cargo fmt --manifest-path src-tauri/Cargo.toml --check`,
+  `cargo test --manifest-path src-tauri/Cargo.toml`, and
+  `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`.
+- Native smoke test: `bun run tauri dev`. Verify window controls/drag/resize and
+  fullscreen on each claimed OS, plus browser fallback, navigation, search,
+  item pins when implemented, empty/loading/error states, keyboard focus, and overflow.
+- Prefer fixtures and mocked IPC for automation. Never mutate clusters, launch
+  exec sessions, open port forwards, or read real credentials without approval.
+- Report actual test results and platform limitations. Do not auto-commit.
+
 <!-- ASTRYX:START -->
 Astryx v0.7.3 · 173 components
 CLI: run every command as `bunx astryx <cmd>` (shown below as `astryx ...`).
