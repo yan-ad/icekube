@@ -91,11 +91,17 @@ pub(super) fn lock(directory: &Path) -> Result<File> {
     Ok(file)
 }
 fn connect(path: &Path) -> Result<Connection> {
+    connect_with_access(path, false)
+}
+fn connect_with_access(path: &Path, read_only: bool) -> Result<Connection> {
     let path = fs::canonicalize(path).map_err(|_| CatalogError::StoreUnavailable)?;
     let connection = Connection::open_with_flags(
         &path,
-        OpenFlags::SQLITE_OPEN_READ_WRITE
-            | OpenFlags::SQLITE_OPEN_NO_MUTEX
+        (if read_only {
+            OpenFlags::SQLITE_OPEN_READ_ONLY
+        } else {
+            OpenFlags::SQLITE_OPEN_READ_WRITE
+        }) | OpenFlags::SQLITE_OPEN_NO_MUTEX
             | OpenFlags::SQLITE_OPEN_NOFOLLOW,
     )
     .map_err(sql_error)?;
@@ -109,11 +115,60 @@ fn connect(path: &Path) -> Result<Connection> {
         )
         .map_err(sql_error)?;
     connection
-        .execute_batch(
-            "PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;",
-        )
+        .execute_batch(if read_only {
+            "PRAGMA trusted_schema=OFF; PRAGMA query_only=ON;"
+        } else {
+            "PRAGMA trusted_schema=OFF; PRAGMA synchronous=FULL; PRAGMA max_page_count=4096;"
+        })
         .map_err(sql_error)?;
     Ok(connection)
+}
+// Opening a saved link never initializes, migrates, discovers, or rewrites the catalog.
+pub(super) fn read_existing(directory: &Path) -> Result<Store> {
+    let path = directory.join(DATABASE);
+    for (candidate, is_directory) in [(directory.to_path_buf(), true), (path.clone(), false)] {
+        let metadata = fs::symlink_metadata(candidate).map_err(|error| {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                CatalogError::NotFound
+            } else {
+                CatalogError::StoreUnavailable
+            }
+        })?;
+        if metadata.file_type().is_symlink()
+            || (is_directory && !metadata.is_dir())
+            || (!is_directory
+                && (!metadata.is_file() || metadata.len() == 0 || metadata.len() > MAX_DATABASE))
+        {
+            return Err(CatalogError::StoreCorrupt);
+        }
+    }
+    for name in [
+        "catalog.lock",
+        "catalog.sqlite3-journal",
+        "catalog.sqlite3-wal",
+        "catalog.sqlite3-shm",
+    ] {
+        match fs::symlink_metadata(directory.join(name)) {
+            Ok(metadata) if !metadata.is_file() || metadata.file_type().is_symlink() => {
+                return Err(CatalogError::StoreCorrupt);
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+            Err(_) => return Err(CatalogError::StoreUnavailable),
+        }
+    }
+    let mut connection = connect_with_access(&path, true)?;
+    let transaction = connection.transaction().map_err(sql_error)?;
+    let check: String = transaction
+        .query_row("PRAGMA quick_check(1)", [], |row| row.get(0))
+        .map_err(|_| CatalogError::StoreCorrupt)?;
+    let journal: String = transaction
+        .query_row("PRAGMA journal_mode", [], |row| row.get(0))
+        .map_err(sql_error)?;
+    if check != "ok" || journal != "delete" {
+        return Err(CatalogError::StoreCorrupt);
+    }
+    load(&transaction)
 }
 pub(super) fn open(directory: &Path) -> Result<Connection> {
     let path = directory.join(DATABASE);

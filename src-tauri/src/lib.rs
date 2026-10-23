@@ -2,11 +2,12 @@ mod catalog;
 mod window;
 
 use catalog::{
-    AddWebLinkRequest, CatalogEngine, CatalogError, CatalogSnapshot, ImportRequest, PinRequest,
-    RemoveRequest,
+    AddWebLinkRequest, CatalogEngine, CatalogError, CatalogSnapshot, ImportRequest,
+    OpenWebLinkRequest, PinRequest, RemoveRequest,
 };
 use std::sync::Arc;
 use tauri::Manager;
+use tauri_plugin_opener::OpenerExt;
 
 async fn catalog_operation(
     engine: Arc<CatalogEngine>,
@@ -15,6 +16,20 @@ async fn catalog_operation(
     tauri::async_runtime::spawn_blocking(move || operation(&engine))
         .await
         .map_err(|_| CatalogError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn catalog_open_web_link(
+    app: tauri::AppHandle,
+    engine: tauri::State<'_, Arc<CatalogEngine>>,
+    request: OpenWebLinkRequest,
+) -> Result<(), CatalogError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        engine.open_web_link_with(request, |url| app.opener().open_url(url, None::<&str>))
+    })
+    .await
+    .map_err(|_| CatalogError::OpenFailed)?
 }
 
 #[tauri::command]
@@ -82,7 +97,8 @@ pub fn run() {
             catalog_import_kubeconfig,
             catalog_add_web_link,
             catalog_set_pin,
-            catalog_remove
+            catalog_remove,
+            catalog_open_web_link
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

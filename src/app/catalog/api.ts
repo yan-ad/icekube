@@ -25,12 +25,18 @@ const messages: Record<string, string> = {
   storeCorrupt: "The saved catalog is invalid or uses an unsupported version. It has not been overwritten.",
   unavailable: "The Rust catalog engine is available in the desktop app only. Browser preview does not read local files or save catalog records.",
   invalidResponse: "The catalog engine returned an unsupported response. Refresh or restart the app.",
+  openFailed: "The web link could not be opened in your default browser. Check your operating system's default browser setting and try again.",
 };
 
 export function catalogError(error: unknown): string {
   return typeof error === "string" && Object.prototype.hasOwnProperty.call(messages, error)
     ? messages[error]
     : "The catalog operation failed. Try again; no success has been assumed.";
+}
+
+export async function openSavedWebLink(id: string): Promise<void> {
+  if (!hasCatalogEngine()) throw "unavailable";
+  await invoke<void>("catalog_open_web_link", { request: { id } });
 }
 
 export function hasCatalogEngine() { return isTauri(); }

@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { catalogError, catalogRequest, hasCatalogEngine, type CatalogCommand, type CatalogSnapshot } from "./api";
+import { catalogError, catalogRequest, hasCatalogEngine, openSavedWebLink, type CatalogCommand, type CatalogSnapshot } from "./api";
 
 type CatalogState = {
   snapshot: CatalogSnapshot | null;
@@ -8,6 +8,7 @@ type CatalogState = {
   error: string | null;
   available: boolean;
   run: (command: CatalogCommand, request?: Record<string, unknown>) => Promise<boolean>;
+  openWebLink: (id: string) => Promise<boolean>;
 };
 const CatalogContext = createContext<CatalogState | null>(null);
 
@@ -21,16 +22,16 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
   const inFlight = useRef(false);
   const available = hasCatalogEngine();
 
-  const run = useCallback(async (command: CatalogCommand, request?: Record<string, unknown>) => {
+  const perform = useCallback(async (operation: () => Promise<CatalogSnapshot | void>) => {
     if (inFlight.current) return false;
     inFlight.current = true;
     const current = ++generation.current;
     setBusy(true);
     setError(null);
     try {
-      const result = await catalogRequest(command, request);
+      const result = await operation();
       if (!mounted.current || current !== generation.current) return false;
-      setSnapshot((previous) => previous && previous.revision > result.revision ? previous : result);
+      if (result) setSnapshot((previous) => previous && previous.revision > result.revision ? previous : result);
       return true;
     } catch (reason) {
       if (mounted.current && current === generation.current) setError(catalogError(reason));
@@ -42,6 +43,8 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
       }
     }
   }, []);
+  const run = useCallback((command: CatalogCommand, request?: Record<string, unknown>) => perform(() => catalogRequest(command, request)), [perform]);
+  const openWebLink = useCallback((id: string) => perform(() => openSavedWebLink(id)), [perform]);
 
   useEffect(() => {
     mounted.current = true;
@@ -53,7 +56,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     };
   }, [run]);
 
-  return <CatalogContext value={{ snapshot, loading, busy, error, available, run }}>{children}</CatalogContext>;
+  return <CatalogContext value={{ snapshot, loading, busy, error, available, run, openWebLink }}>{children}</CatalogContext>;
 }
 export function useCatalog() {
   const state = useContext(CatalogContext);

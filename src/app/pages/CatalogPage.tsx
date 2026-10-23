@@ -17,6 +17,7 @@ import {
   Table,
   proportional,
   type TableColumn,
+  type TablePlugin,
 } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
@@ -45,7 +46,7 @@ export default function CatalogPage() {
     select: (state) => state.location.search.item,
   });
   const navigate = useNavigate();
-  const { snapshot, loading, busy, error, available, run } = useCatalog();
+  const { snapshot, loading, busy, error, available, run, openWebLink } = useCatalog();
   const [query, setQuery] = useState("");
   const [remove, setRemove] = useState<CatalogRow | null>(null);
   const kind =
@@ -75,6 +76,29 @@ export default function CatalogPage() {
         .toLowerCase()
         .includes(query.toLowerCase()),
   );
+  function activate(item: CatalogRow) {
+    if (busy) return;
+    if (item.category === "Clusters") void navigate({ to: "/cluster/$clusterId", params: { clusterId: item.id }, search: {} });
+    else void openWebLink(item.id);
+  }
+  const activation: TablePlugin<CatalogRow> = {
+    transformBodyRow: (props, item) => ({ ...props, htmlProps: {
+      ...props.htmlProps,
+      tabIndex: 0,
+      "aria-label": `Open ${item.category === "Clusters" ? "cluster" : "web link"} ${item.name}`,
+      "aria-disabled": busy,
+      style: { ...props.htmlProps.style, cursor: busy ? "wait" : "pointer" },
+      onClick: (event) => {
+        if (!(event.target as Element).closest("button, a, input, select, textarea, [role='button']")) activate(item);
+      },
+      onKeyDown: (event) => {
+        if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ") && !event.repeat) {
+          event.preventDefault();
+          activate(item);
+        }
+      },
+    } }),
+  };
   const columns: TableColumn<CatalogRow>[] = [
     {
       key: "name",
@@ -218,6 +242,8 @@ export default function CatalogPage() {
                 columns={columns}
                 idKey="id"
                 density="compact"
+                hasHover
+                plugins={{ activation }}
                 aria-label={kind === "Web Links" ? "Web links" : kind}
                 aria-busy={busy}
                 emptyState={

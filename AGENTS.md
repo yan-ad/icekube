@@ -17,6 +17,13 @@ Project-specific guidance for AI coding agents.
   Rust-owned seamless frame. All Categories combines clusters and web links;
   category pages are never pinnable. Connections/background watching/live Kubernetes
   operations are not implemented. Keep disconnected states honest.
+- Cluster rows/pins open an ID-scoped disconnected workspace with inset navigation,
+  temporarily auto-collapsing main navigation without overwriting its Catalog
+  preference. Do not confuse opening that route with connecting/authenticating.
+- Web-link rows/pins open only saved links through Rust `catalog_open_web_link`.
+  Keep URLs resolved/validated in Rust; do not add renderer `window.open`, direct
+  external networking, or arbitrary opener permissions. Pin/Remove must not trigger
+  row activation. Preserve keyboard activation and missing/stale/error states.
 
 ## Non-negotiable runtime architecture
 

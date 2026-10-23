@@ -24,7 +24,9 @@ shell, Catalog as the home screen, category search, navigation history, and the
 seamless window frame. The first Rust catalog engine persists imported cluster
 context metadata, web links, individual item pins, and random record colors in SQLite.
 Built-in discovery imports `~/.kube/config` on catalog load/Refresh. Cluster connections,
-background file watching, live resource operations, and opening web links are not implemented.
+background file watching and live resource operations are not implemented. Cluster
+rows open a disconnected workspace with inset navigation; saved web links open
+in the default OS browser through a Rust-owned saved-ID command.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
 ## Existing visual direction
@@ -67,6 +69,9 @@ unused starter CSS, not design authority. The active brand theme lives in
    stays fully expanded and does not change that preference.
    Pinned shortcuts identify individual clusters or web links, never
    All Categories, Clusters, or Web Links category pages.
+   Opening `/cluster/<id>` temporarily auto-collapses this main navigation; it
+   does not overwrite the Catalog collapse preference. The toolbar can expand it
+   for the current workspace. Returning to Catalog restores its saved preference.
 4. **Sidebar content:** Catalog categories and a pinned-items area share one
    navigation landmark. Collapsed mode keeps named category and pinned-entry
    icons usable, with labels available to assistive technology and tooltips.
@@ -89,6 +94,34 @@ unused starter CSS, not design authority. The active brand theme lives in
    This runtime data color is a deliberate exception to static theme-token colors.
    All Categories combines both kinds. `/catalog` and `/catalog/all` show this view; `/catalog/general` redirects
    to `/catalog/all`. Clusters and Web Links filter the shared snapshot.
+
+### Cluster workspace and row activation
+
+Catalog rows activate with a click, Enter, or Space. Cluster rows and pinned
+cluster shortcuts open `/cluster/<saved-id>`; no activation creates a Kubernetes
+connection. Pin/Remove buttons and other nested controls never activate their row.
+The selected cluster is resolved exactly from the loaded catalog, never guessed
+from a name or nearby record. Unknown/deleted IDs show a missing-cluster state.
+
+The workspace adds a cluster-specific inset sidebar beside the collapsed main
+sidebar, preserving the Astryx section shell. Its header shows the saved cluster
+name, context, persisted icon color, and Disconnected status. The sidebar routes
+between Cluster, Nodes, Workloads, Config, Network, Storage, Namespaces, Events,
+Helm, Access Control, and Custom Resources. These are navigable workspace sections
+with explicit disconnected/not-implemented states, not live resource pages.
+The Cluster section shows saved context/source/labels; no fake metrics, events,
+resource counts, terminals, or connection controls are rendered.
+
+Section identity is scoped to the cluster route through the validated `section`
+search field. History back/forward and direct links retain cluster/section scope.
+Switching clusters resets the temporary sidebar expansion. On narrow windows the
+shared drawer contains Catalog and Cluster navigation; choosing a section closes
+it. Back to Catalog remains available without requiring the drawer.
+
+Web-link rows and pinned web-link actions call `catalog_open_web_link` with only
+the saved entry ID. Browser preview never uses `window.open` or directly requests
+an external URL. OS handoff errors are shown as safe actionable messages without
+changing the current route. Repeat actions are serialized with other catalog work.
 
 Hash routing works in packaged webviews. Navigation state is separate from the
 engine's connection state. On narrow windows Astryx moves navigation into its
@@ -204,6 +237,15 @@ and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afte
 - `catalog_set_pin` accepts an existing entry ID, never a category route.
 - `catalog_remove` removes local metadata and its pin after UI confirmation;
   it does not delete source files or change clusters/websites.
+- `catalog_open_web_link` accepts only a saved ID, resolves/revalidates its HTTP(S)
+  URL from existing SQLite records, then uses the Rust opener integration with the
+  OS-default browser. It does not accept a renderer-supplied URL, migrate/create
+  storage, rescan kubeconfig, change pins, or increment catalog revision. Invalid,
+  missing, removed, cluster, or tampered-link IDs fail closed. Opener failures map
+  to `openFailed`, without emitting underlying platform error details.
+  Renderer `opener:default` permission is removed; JS cannot use the opener plugin
+  as an arbitrary-URL escape hatch. No application-side website fetch occurs;
+  the launched browser handles its own network activity.
 
 The catalog is bounded to 1,000 entries, 4 MiB serialized metadata, and a 16 MiB
 SQLite database. Rust generates a random `#RRGGBB` color once for each new entry
@@ -226,12 +268,14 @@ No upstream source code was copied. `taulens` is not the reference checkout.
 | --- | --- | --- |
 | `renderer/components/catalog/catalog.tsx`, `columns/browse-all.injectable.tsx` | Combined entity inventory with kind/category, category filters; `CatalogEngine::list` | Loading, empty, loaded, filtered-empty, unavailable/error; `tests/catalog.spec.ts` aggregation and legacy redirect |
 | `common/catalog/catalog-entity.ts`, `common/catalog-entities/web-link.ts` | Explicit local entities, web-link name/URL, local-only removal; `import_kubeconfig`, `add_web_link`, `remove` | Entry forms, safe validation, saved, confirmed removal; Rust catalog fixtures plus browser import/link/remove tests |
-| `renderer/components/catalog/hotbar-toggle-menu-item.tsx` | Toggle shortcuts for entities, not categories; `set_pin` | Persisted pinned/unpinned, pinned item route with ID; Rust restart/dedup tests plus browser row-pin tests |
+| `renderer/components/catalog/hotbar-toggle-menu-item.tsx` | Toggle shortcuts for entities, not categories; `set_pin` | Persisted pinned/unpinned, item-specific workspace or browser activation; Rust restart/dedup tests plus browser row-pin tests |
+| `common/catalog-entities/kubernetes-cluster.ts` (`onRun`), `renderer/components/layout/sidebar.tsx`, `sidebar-cluster.tsx`, `common/sidebar-menu-items-starting-order.ts` | Cluster-ID route, scoped inset navigation, temporary Catalog collapse; Rust remains owner of catalog metadata, connection engine not implemented | Loading, disconnected section, missing cluster, refresh errors; `tests/catalog-activation.spec.ts` row/keyboard, sections, history and drawer cases |
+| `common/catalog-entities/web-link.ts` (`onRun`) | Open the selected saved link externally; `CatalogEngine::open_web_link_with` and Rust `OpenerExt` replace upstream `window.open` | Success/error without route change; Rust `catalog/open_tests.rs` validates saved IDs/URLs and injected opener, browser activation tests verify IPC-only handoff |
 
 Default-path discovery and the six-column table/colors are Icekube requirements,
 not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/
 color fixtures and browser built-in discovery, warning, column/icon, and reload tests.
-Connecting clusters, invoking auth helpers, live watches, URL opening, and Freelens
+Connecting clusters, invoking auth helpers, live watches, and Freelens
 extensions are outside this slice. Tests use synthetic fixtures and mocked IPC;
 they do not prove production-cluster or native OS integration.
 

@@ -3,6 +3,8 @@ import MainLayout from "./layouts/MainLayout";
 import CatalogPage from "./pages/CatalogPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { CatalogProvider } from "./catalog/CatalogProvider";
+import ClusterWorkspacePage from "./cluster/ClusterWorkspacePage";
+import { clusterSections, type ClusterSectionId } from "./cluster/navigation";
 
 const rootRoute = createRootRoute({
   component: () => <CatalogProvider><MainLayout /></CatalogProvider>,
@@ -17,12 +19,21 @@ const generalRoute = createRoute({ getParentRoute: () => catalogRoute, path: "ge
 const allRoute = createRoute({ getParentRoute: () => catalogRoute, path: "all", component: CatalogPage });
 const clustersRoute = createRoute({ getParentRoute: () => catalogRoute, path: "clusters", component: CatalogPage });
 const webLinksRoute = createRoute({ getParentRoute: () => catalogRoute, path: "web-links", component: CatalogPage });
+const clusterWorkspaceRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "cluster/$clusterId",
+  component: ClusterWorkspacePage,
+  validateSearch: (search: Record<string, unknown>): { section?: ClusterSectionId } => ({
+    section: clusterSections.find((item) => item.id === search.section)?.id,
+  }),
+});
 
 export const router = createRouter({
   history: createHashHistory(),
   routeTree: rootRoute.addChildren([
     homeRoute,
     catalogRoute.addChildren([catalogIndexRoute, allRoute, generalRoute, clustersRoute, webLinksRoute]),
+    clusterWorkspaceRoute,
   ]),
   defaultPreload: "intent",
 });

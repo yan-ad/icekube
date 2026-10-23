@@ -2,7 +2,7 @@
 //! common/catalog/catalog-entity.ts and common/catalog-entities/web-link.ts (behavior only).
 //! CatalogEngine owns imported disconnected contexts, local links, and entry-only pins.
 //! Snapshot results cover empty/loaded states; sanitized errors cover rejected/unavailable states.
-//! Acceptance fixtures live in catalog/tests.rs; connecting and opening links are not implemented.
+//! Acceptance fixtures live in catalog/tests.rs and catalog/open_tests.rs; connections are not implemented.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -32,6 +32,7 @@ pub enum CatalogError {
     NotFound,
     StoreUnavailable,
     StoreCorrupt,
+    OpenFailed,
 }
 type Result<T> = std::result::Result<T, CatalogError>;
 
@@ -86,6 +87,11 @@ pub struct PinRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoveRequest {
+    pub id: String,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenWebLinkRequest {
     pub id: String,
 }
 
@@ -207,6 +213,30 @@ impl CatalogEngine {
     }
     pub fn list(&self) -> Result<CatalogSnapshot> {
         self.change_inner(|_| Ok(false), true)
+    }
+    pub(crate) fn open_web_link_with<E>(
+        &self,
+        request: OpenWebLinkRequest,
+        open: impl FnOnce(&str) -> std::result::Result<(), E>,
+    ) -> Result<()> {
+        if !valid_name(&request.id) {
+            return Err(CatalogError::InvalidInput);
+        }
+        let url = {
+            let _guard = self
+                .operations
+                .lock()
+                .map_err(|_| CatalogError::StoreUnavailable)?;
+            let store = storage::read_existing(&self.directory)?;
+            let link = store
+                .web_links
+                .iter()
+                .find(|link| link.id == request.id)
+                .ok_or(CatalogError::NotFound)?;
+            normalize_url(&link.url).map_err(|_| CatalogError::StoreCorrupt)?
+        };
+        // Do not hold catalog locks while the OS hands off to the default browser.
+        open(&url).map_err(|_| CatalogError::OpenFailed)
     }
     fn change(&self, update: impl FnOnce(&mut Store) -> Result<bool>) -> Result<CatalogSnapshot> {
         self.change_inner(update, false)
@@ -582,3 +612,6 @@ mod discovery_tests;
 
 #[cfg(test)]
 mod symlink_tests;
+
+#[cfg(test)]
+mod open_tests;
