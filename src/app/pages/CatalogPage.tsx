@@ -64,7 +64,7 @@ export default function CatalogPage() {
                 <Text type="supporting">{item.description}</Text>
               </VStack></StackItem>
               <Button label={`Open ${item.label}`} variant="ghost" onClick={() => void navigate({ to: item.path })} />
-              <IconButton label={`${pinnedPages.includes(item.path) ? "Unpin" : "Pin"} ${item.label} page`} tooltip="Toggle app rail shortcut" variant="ghost" aria-pressed={pinnedPages.includes(item.path)} icon={<Icon icon={BookmarkIcon} />} onClick={() => togglePin(item.path)} />
+              <IconButton label={`${pinnedPages.includes(item.path) ? "Unpin" : "Pin"} ${item.label} page`} tooltip="Toggle app rail shortcut" variant="ghost" aria-pressed={pinnedPages.includes(item.path)} icon={<Icon icon={IconPin} />} onClick={() => togglePin(item.path)} />
             </HStack>
             <Divider />
           </VStack>)}
