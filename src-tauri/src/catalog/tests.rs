@@ -1,19 +1,26 @@
+pub(super) fn save_fixture(engine: &CatalogEngine, store: &Store) {
+    let _lock = storage::lock(&engine.directory).unwrap();
+    let mut connection = storage::open(&engine.directory).unwrap();
+    let transaction = connection.transaction().unwrap();
+    storage::save(&transaction, store).unwrap();
+    transaction.commit().unwrap();
+}
 use super::*;
 
-const CONFIG: &str = "apiVersion: v1\nkind: Config\nclusters:\n- name: fixture\n  cluster:\n    server: https://secret-server.invalid\n    certificate-authority-data: SECRET_CERT\ncontexts:\n- name: development\n  context:\n    cluster: fixture\n    user: secret-user\nusers:\n- name: secret-user\n  user:\n    token: SECRET_TOKEN\n    exec:\n      command: NEVER_EXECUTE\n";
-fn fixture() -> (tempfile::TempDir, CatalogEngine, PathBuf) {
+pub(super) const CONFIG: &str = "apiVersion: v1\nkind: Config\nclusters:\n- name: fixture\n  cluster:\n    server: https://secret-server.invalid\n    certificate-authority-data: SECRET_CERT\ncontexts:\n- name: development\n  context:\n    cluster: fixture\n    user: secret-user\nusers:\n- name: secret-user\n  user:\n    token: SECRET_TOKEN\n    exec:\n      command: NEVER_EXECUTE\n";
+pub(super) fn fixture() -> (tempfile::TempDir, CatalogEngine, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let input = dir.path().join("fixture.yaml");
     fs::write(&input, CONFIG).unwrap();
     let engine = CatalogEngine::new(dir.path().join("data"));
     (dir, engine, input)
 }
-fn import(engine: &CatalogEngine, path: &Path) -> Result<CatalogSnapshot> {
+pub(super) fn import(engine: &CatalogEngine, path: &Path) -> Result<CatalogSnapshot> {
     engine.import_kubeconfig(ImportRequest {
         path: path.to_str().unwrap().into(),
     })
 }
-fn add(engine: &CatalogEngine, url: &str) -> Result<CatalogSnapshot> {
+pub(super) fn add(engine: &CatalogEngine, url: &str) -> Result<CatalogSnapshot> {
     engine.add_web_link(AddWebLinkRequest {
         name: "Documentation".into(),
         url: url.into(),
@@ -24,9 +31,9 @@ fn add(engine: &CatalogEngine, url: &str) -> Result<CatalogSnapshot> {
 fn persistence_redaction_dedup_and_stale_reimport() {
     let (dir, engine, input) = fixture();
     assert_eq!(engine.list().unwrap().revision, 0);
-    assert!(!dir.path().join("data").exists());
+    assert!(dir.path().join("data/catalog.sqlite3").exists());
     let first = import(&engine, &input).unwrap();
-    assert_eq!(first.clusters[0].source, "fixture.yaml");
+    assert_eq!(first.clusters[0].source, "kubeconfig");
     assert_eq!(first.clusters[0].status, "disconnected");
     assert_eq!(import(&engine, &input).unwrap(), first);
     let id = first.clusters[0].id.clone();
@@ -40,7 +47,9 @@ fn persistence_redaction_dedup_and_stale_reimport() {
     let restarted = CatalogEngine::new(dir.path().join("data"));
     assert_eq!(restarted.list().unwrap(), pinned);
     let snapshot = serde_json::to_string(&pinned).unwrap();
-    let stored = fs::read_to_string(dir.path().join("data/catalog.json")).unwrap();
+    let stored =
+        String::from_utf8_lossy(&fs::read(dir.path().join("data/catalog.sqlite3")).unwrap())
+            .into_owned();
     for secret in [
         "SECRET_TOKEN",
         "SECRET_CERT",
@@ -51,7 +60,10 @@ fn persistence_redaction_dedup_and_stale_reimport() {
         assert!(!snapshot.contains(secret));
         assert!(!stored.contains(secret));
     }
-    assert!(!snapshot.contains(dir.path().to_str().unwrap()));
+    assert_eq!(
+        first.clusters[0].labels,
+        vec![format!("file={}", input.display())]
+    );
     fs::write(&input, CONFIG.replace("development", "production")).unwrap();
     let changed = import(&engine, &input).unwrap();
     assert_eq!(changed.clusters.len(), 1);
@@ -171,7 +183,7 @@ fn web_url_validation_and_entry_pins() {
 fn corrupt_store_is_never_replaced() {
     let (dir, engine, input) = fixture();
     add(&engine, "https://example.test").unwrap();
-    let path = dir.path().join("data/catalog.json");
+    let path = dir.path().join("data/catalog.sqlite3");
     for content in [
         "{SECRET",
         "{}",
@@ -184,27 +196,23 @@ fn corrupt_store_is_never_replaced() {
             add(&engine, "https://other.test"),
             Err(CatalogError::StoreCorrupt)
         );
-        assert_eq!(fs::read_to_string(&path).unwrap(), content);
+        assert_eq!(fs::read(&path).unwrap(), content.as_bytes());
     }
     fs::write(&path, vec![b'x'; MAX_STORE + 1]).unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
 }
 
 #[test]
-fn replacement_failure_keeps_previous_state() {
-    let (dir, engine, _) = fixture();
+fn transaction_failure_keeps_previous_state() {
+    let (_dir, engine, _) = fixture();
     let first = add(&engine, "https://example.test").unwrap();
-    let original = fs::read(dir.path().join("data/catalog.json")).unwrap();
-    let mut changed = engine.load().unwrap();
-    changed.revision += 1;
-    // A directory in place of the destination makes atomic replacement fail on every OS.
-    fs::remove_file(dir.path().join("data/catalog.json")).unwrap();
-    fs::create_dir(dir.path().join("data/catalog.json")).unwrap();
-    assert_eq!(engine.save(&changed), Err(CatalogError::StoreUnavailable));
-    fs::remove_dir(dir.path().join("data/catalog.json")).unwrap();
-    fs::write(dir.path().join("data/catalog.json"), original).unwrap();
+    let connection = rusqlite::Connection::open(engine.directory.join("catalog.sqlite3")).unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_insert BEFORE INSERT ON web_links BEGIN SELECT RAISE(ABORT, 'fixture'); END;").unwrap();
+    assert_eq!(
+        add(&engine, "https://other.test"),
+        Err(CatalogError::StoreUnavailable)
+    );
     assert_eq!(engine.list().unwrap(), first);
-    assert_eq!(fs::read_dir(dir.path().join("data")).unwrap().count(), 1);
 }
 
 #[test]
@@ -251,16 +259,18 @@ fn bounds_schema_and_wire_contract() {
     assert_eq!(import(&engine, &input), Err(CatalogError::LimitExceeded));
     fs::write(&input, CONFIG).unwrap();
     let value = serde_json::to_value(import(&engine, &input).unwrap()).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 3);
+    assert_eq!(value.as_object().unwrap().len(), 4);
+    assert!(value.get("autoDiscover").is_none());
+    assert!(value["discoveryError"].is_null());
     assert!(value.get("webLinks").is_some());
     let cluster = value["clusters"][0].as_object().unwrap();
-    assert_eq!(cluster.len(), 6);
+    assert_eq!(cluster.len(), 8);
     assert!(cluster.contains_key("contextName"));
 }
 
 #[cfg(unix)]
 #[test]
-fn private_permissions_and_symlink_rejection() {
+fn private_permissions_and_storage_symlink_rejection() {
     use std::os::unix::fs::{PermissionsExt, symlink};
     let (dir, engine, input) = fixture();
     import(&engine, &input).unwrap();
@@ -273,7 +283,7 @@ fn private_permissions_and_symlink_rejection() {
         0o700
     );
     assert_eq!(
-        fs::metadata(dir.path().join("data/catalog.json"))
+        fs::metadata(dir.path().join("data/catalog.sqlite3"))
             .unwrap()
             .permissions()
             .mode()
@@ -282,9 +292,9 @@ fn private_permissions_and_symlink_rejection() {
     );
     let link = dir.path().join("link.yaml");
     symlink(&input, &link).unwrap();
-    assert_eq!(import(&engine, &link), Err(CatalogError::InputUnavailable));
-    fs::remove_file(dir.path().join("data/catalog.json")).unwrap();
-    symlink(&input, dir.path().join("data/catalog.json")).unwrap();
+    assert!(import(&engine, &link).is_ok());
+    fs::remove_file(dir.path().join("data/catalog.sqlite3")).unwrap();
+    symlink(&input, dir.path().join("data/catalog.sqlite3")).unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
 }
 
@@ -315,21 +325,24 @@ fn catalog_capacity_and_revision_overflow_preserve_disk() {
             name: format!("Link {i}"),
             url,
             pinned: false,
+            color: format!("#{i:06X}"),
+            source: "local".into(),
+            labels: vec![],
         });
     }
-    engine.save(&store).unwrap();
-    let original = fs::read(dir.path().join("data/catalog.json")).unwrap();
+    save_fixture(&engine, &store);
+    let original = fs::read(dir.path().join("data/catalog.sqlite3")).unwrap();
     assert_eq!(
         add(&engine, "https://extra.test"),
         Err(CatalogError::LimitExceeded)
     );
     assert_eq!(
-        fs::read(dir.path().join("data/catalog.json")).unwrap(),
+        fs::read(dir.path().join("data/catalog.sqlite3")).unwrap(),
         original
     );
     store.web_links.clear();
     store.revision = u64::MAX;
-    engine.save(&store).unwrap();
+    save_fixture(&engine, &store);
     assert_eq!(
         add(&engine, "https://extra.test"),
         Err(CatalogError::LimitExceeded)
@@ -341,12 +354,11 @@ fn catalog_capacity_and_revision_overflow_preserve_disk() {
 fn tampered_store_identity_fails_closed() {
     let (_dir, engine, _) = fixture();
     add(&engine, "https://example.test").unwrap();
-    let mut store = engine.load().unwrap();
+    let connection = storage::open(&engine.directory).unwrap();
+    let mut store = storage::load(&connection).unwrap();
     store.web_links[0].id = "catalog".into();
-    fs::write(
-        engine.directory.join("catalog.json"),
-        serde_json::to_vec(&store).unwrap(),
-    )
-    .unwrap();
+    connection
+        .execute("UPDATE web_links SET id=?1", [&store.web_links[0].id])
+        .unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
 }

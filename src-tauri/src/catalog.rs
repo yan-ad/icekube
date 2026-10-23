@@ -9,7 +9,7 @@ use sha2::{Digest, Sha256};
 use std::{
     collections::HashSet,
     fs::{self, File},
-    io::{Read, Write},
+    io::Read,
     path::{Path, PathBuf},
     sync::Mutex,
 };
@@ -41,6 +41,7 @@ pub struct CatalogSnapshot {
     pub revision: u64,
     pub clusters: Vec<ClusterSummary>,
     pub web_links: Vec<WebLinkSummary>,
+    pub discovery_error: Option<CatalogError>,
 }
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -51,6 +52,8 @@ pub struct ClusterSummary {
     pub source: String,
     pub status: &'static str,
     pub pinned: bool,
+    pub labels: Vec<String>,
+    pub color: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -59,6 +62,9 @@ pub struct WebLinkSummary {
     pub name: String,
     pub url: String,
     pub pinned: bool,
+    pub source: String,
+    pub labels: Vec<String>,
+    pub color: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -90,6 +96,7 @@ struct Store {
     revision: u64,
     clusters: Vec<ClusterRecord>,
     web_links: Vec<WebLinkSummary>,
+    auto_discover: bool, // Legacy storage field; discovery no longer consults it.
 }
 #[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -97,16 +104,22 @@ struct ClusterRecord {
     id: String,
     context_name: String,
     source_path: String,
+    provenance_path: String,
     pinned: bool,
+    color: String,
 }
 impl Store {
     fn empty() -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             ..Self::default()
         }
     }
-    fn snapshot(&self) -> CatalogSnapshot {
+    fn snapshot(
+        &self,
+        home: Option<&Path>,
+        discovery_error: Option<CatalogError>,
+    ) -> CatalogSnapshot {
         let mut clusters: Vec<_> = self
             .clusters
             .iter()
@@ -114,11 +127,9 @@ impl Store {
                 id: c.id.clone(),
                 name: c.context_name.clone(),
                 context_name: c.context_name.clone(),
-                source: Path::new(&c.source_path)
-                    .file_name()
-                    .and_then(|s| s.to_str())
-                    .unwrap_or_default()
-                    .to_owned(),
+                source: "kubeconfig".into(),
+                labels: vec![source_label(&c.provenance_path, home)],
+                color: c.color.clone(),
                 status: "disconnected",
                 pinned: c.pinned,
             })
@@ -130,10 +141,11 @@ impl Store {
             revision: self.revision,
             clusters,
             web_links,
+            discovery_error,
         }
     }
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 1 || self.clusters.len() + self.web_links.len() > MAX_ENTRIES {
+        if self.schema_version != 2 || self.clusters.len() + self.web_links.len() > MAX_ENTRIES {
             return Err(CatalogError::StoreCorrupt);
         }
         let mut ids = HashSet::new();
@@ -147,7 +159,9 @@ impl Store {
                     .file_name()
                     .and_then(|s| s.to_str())
                     .is_some_and(valid_name)
+                || !valid_source_path(&c.provenance_path)
                 || c.id != cluster_id(&c.source_path, &c.context_name)
+                || !valid_color(&c.color)
                 || !ids.insert(&c.id)
             {
                 return Err(CatalogError::StoreCorrupt);
@@ -157,6 +171,9 @@ impl Store {
             if !valid_name(&l.name)
                 || normalize_url(&l.url).ok().as_ref() != Some(&l.url)
                 || l.id != link_id(&l.url)
+                || !valid_color(&l.color)
+                || l.source != "local"
+                || !l.labels.is_empty()
                 || !ids.insert(&l.id)
                 || !urls.insert(&l.url)
             {
@@ -167,94 +184,65 @@ impl Store {
     }
 }
 
-// No source files are read until an explicit import. The mutex serializes read/modify/replace.
+mod storage;
+
+// Home is injected by Tauri. Constructors never read it or infer a host HOME.
+// Discovery is a bounded metadata import on list, not a watcher or connection.
 pub struct CatalogEngine {
     directory: PathBuf,
+    home: Option<PathBuf>,
     operations: Mutex<()>,
 }
 impl CatalogEngine {
+    #[cfg(test)]
     pub fn new(directory: PathBuf) -> Self {
+        Self::new_with_home(directory, None)
+    }
+    pub fn new_with_home(directory: PathBuf, home: Option<PathBuf>) -> Self {
         Self {
             directory,
+            home,
             operations: Mutex::new(()),
         }
     }
     pub fn list(&self) -> Result<CatalogSnapshot> {
-        let _guard = self
-            .operations
-            .lock()
-            .map_err(|_| CatalogError::StoreUnavailable)?;
-        Ok(self.load()?.snapshot())
-    }
-    fn load(&self) -> Result<Store> {
-        match fs::symlink_metadata(&self.directory) {
-            Ok(m) if !m.is_dir() || m.file_type().is_symlink() => {
-                return Err(CatalogError::StoreUnavailable);
-            }
-            Ok(_) => {}
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Store::empty()),
-            Err(_) => return Err(CatalogError::StoreUnavailable),
-        }
-        let path = self.directory.join("catalog.json");
-        match fs::symlink_metadata(&path) {
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Store::empty()),
-            Err(_) => return Err(CatalogError::StoreUnavailable),
-            Ok(m) if !m.is_file() || m.file_type().is_symlink() => {
-                return Err(CatalogError::StoreCorrupt);
-            }
-            Ok(_) => {}
-        }
-        let bytes = bounded_read(&path, MAX_STORE).map_err(|_| CatalogError::StoreCorrupt)?;
-        let store: Store =
-            serde_json::from_slice(&bytes).map_err(|_| CatalogError::StoreCorrupt)?;
-        store.validate()?;
-        Ok(store)
-    }
-    fn save(&self, store: &Store) -> Result<()> {
-        store.validate()?;
-        let bytes = serde_json::to_vec(store).map_err(|_| CatalogError::StoreUnavailable)?;
-        if bytes.len() > MAX_STORE {
-            return Err(CatalogError::LimitExceeded);
-        }
-        fs::create_dir_all(&self.directory).map_err(|_| CatalogError::StoreUnavailable)?;
-        let metadata =
-            fs::symlink_metadata(&self.directory).map_err(|_| CatalogError::StoreUnavailable)?;
-        if !metadata.is_dir() || metadata.file_type().is_symlink() {
-            return Err(CatalogError::StoreUnavailable);
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            fs::set_permissions(&self.directory, fs::Permissions::from_mode(0o700))
-                .map_err(|_| CatalogError::StoreUnavailable)?;
-        }
-        let mut temp = tempfile::NamedTempFile::new_in(&self.directory)
-            .map_err(|_| CatalogError::StoreUnavailable)?;
-        temp.write_all(&bytes)
-            .and_then(|_| temp.as_file().sync_all())
-            .map_err(|_| CatalogError::StoreUnavailable)?;
-        // persist uses platform replacement semantics, including MoveFileEx on Windows.
-        temp.persist(self.directory.join("catalog.json"))
-            .map_err(|_| CatalogError::StoreUnavailable)?;
-        Ok(())
+        self.change_inner(|_| Ok(false), true)
     }
     fn change(&self, update: impl FnOnce(&mut Store) -> Result<bool>) -> Result<CatalogSnapshot> {
+        self.change_inner(update, false)
+    }
+    fn change_inner(
+        &self,
+        update: impl FnOnce(&mut Store) -> Result<bool>,
+        discover: bool,
+    ) -> Result<CatalogSnapshot> {
         let _guard = self
             .operations
             .lock()
             .map_err(|_| CatalogError::StoreUnavailable)?;
-        let mut store = self.load()?;
-        if update(&mut store)? {
+        let _file_lock = storage::lock(&self.directory)?;
+        let mut connection = storage::open(&self.directory)?;
+        let transaction = connection
+            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+            .map_err(storage::sql_error)?;
+        let mut store = storage::load(&transaction)?;
+        let mut changed = update(&mut store)?;
+        let mut discovery_error = None;
+        if discover && let Some(home) = &self.home {
+            match discover_default(&mut store, &home.join(".kube/config")) {
+                Ok(import_changed) => changed |= import_changed,
+                Err(error) => discovery_error = Some(error),
+            }
+        }
+        if changed {
             store.revision = store
                 .revision
                 .checked_add(1)
                 .ok_or(CatalogError::LimitExceeded)?;
-            if store.clusters.len() + store.web_links.len() > MAX_ENTRIES {
-                return Err(CatalogError::LimitExceeded);
-            }
-            self.save(&store)?;
+            storage::save(&transaction, &store)?;
         }
-        Ok(store.snapshot())
+        transaction.commit().map_err(storage::sql_error)?;
+        Ok(store.snapshot(self.home.as_deref(), discovery_error))
     }
     pub fn import_kubeconfig(&self, request: ImportRequest) -> Result<CatalogSnapshot> {
         if request.path.is_empty()
@@ -264,44 +252,7 @@ impl CatalogEngine {
         {
             return Err(CatalogError::InvalidInput);
         }
-        // Read and parse under the operation lock so concurrent imports cannot reorder updates.
-        self.change(|store| {
-            let path =
-                fs::canonicalize(&request.path).map_err(|_| CatalogError::InputUnavailable)?;
-            let source = path
-                .to_str()
-                .filter(|p| p.len() <= MAX_PATH)
-                .ok_or(CatalogError::InvalidInput)?
-                .to_owned();
-            if !path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .is_some_and(valid_name)
-            {
-                return Err(CatalogError::InvalidInput);
-            }
-            let bytes = bounded_read(Path::new(&request.path), MAX_INPUT)?;
-            let contexts = parse_metadata(&bytes)?;
-            let mut next = Vec::new();
-            for context in contexts {
-                let id = cluster_id(&source, &context);
-                let pinned = store.clusters.iter().any(|c| c.id == id && c.pinned);
-                next.push(ClusterRecord {
-                    id,
-                    context_name: context,
-                    source_path: source.clone(),
-                    pinned,
-                });
-            }
-            let before =
-                serde_json::to_vec(&store.clusters).map_err(|_| CatalogError::StoreUnavailable)?;
-            store.clusters.retain(|c| c.source_path != source);
-            store.clusters.extend(next);
-            store.clusters.sort_by(|a, b| a.id.cmp(&b.id));
-            Ok(before
-                != serde_json::to_vec(&store.clusters)
-                    .map_err(|_| CatalogError::StoreUnavailable)?)
-        })
+        self.change(|store| reconcile(store, Path::new(&request.path)))
     }
     pub fn add_web_link(&self, request: AddWebLinkRequest) -> Result<CatalogSnapshot> {
         if !valid_name(&request.name) {
@@ -317,6 +268,9 @@ impl CatalogEngine {
                 name: request.name,
                 url,
                 pinned: false,
+                source: "local".into(),
+                labels: vec![],
+                color: new_color(store)?,
             });
             Ok(true)
         })
@@ -352,6 +306,137 @@ impl CatalogEngine {
             Ok(true)
         })
     }
+}
+fn source_label(source: &str, home: Option<&Path>) -> String {
+    if home.is_some_and(|home| {
+        let default = home.join(".kube/config");
+        Path::new(source) == default
+    }) {
+        "file=~/.kube/config".into()
+    } else {
+        format!("file={source}")
+    }
+}
+fn valid_color(color: &str) -> bool {
+    color.len() == 7
+        && color.starts_with('#')
+        && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+}
+fn new_color(store: &Store) -> Result<String> {
+    color_with(store, |bytes| {
+        getrandom::fill(bytes).map_err(|_| CatalogError::StoreUnavailable)
+    })
+}
+fn color_with(store: &Store, mut fill: impl FnMut(&mut [u8]) -> Result<()>) -> Result<String> {
+    for _ in 0..128 {
+        let mut bytes = [0; 3];
+        fill(&mut bytes)?;
+        let color = format!("#{:02X}{:02X}{:02X}", bytes[0], bytes[1], bytes[2]);
+        if !store.clusters.iter().any(|c| c.color == color)
+            && !store.web_links.iter().any(|c| c.color == color)
+        {
+            return Ok(color);
+        }
+    }
+    Err(CatalogError::StoreUnavailable)
+}
+fn discover_default(store: &mut Store, input: &Path) -> Result<bool> {
+    match fs::symlink_metadata(input) {
+        Ok(_) => reconcile(store, input),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            if store
+                .clusters
+                .iter()
+                .any(|c| Path::new(&c.provenance_path) == input)
+            {
+                return Err(CatalogError::InputUnavailable);
+            }
+            // A missing default is normal; a broken directory alias or denied
+            // ancestor is not. Inspect only ancestors of this one default path.
+            for ancestor in input.ancestors().skip(1) {
+                match fs::symlink_metadata(ancestor) {
+                    Ok(_) => {
+                        return match fs::metadata(ancestor) {
+                            Ok(metadata) if metadata.is_dir() => Ok(false),
+                            _ => Err(CatalogError::InputUnavailable),
+                        };
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                    Err(_) => return Err(CatalogError::InputUnavailable),
+                }
+            }
+            Ok(false)
+        }
+        Err(_) => Err(CatalogError::InputUnavailable),
+    }
+}
+fn reconcile(store: &mut Store, input: &Path) -> Result<bool> {
+    // Resolve first, then open only the canonical target. Storage reads deliberately
+    // keep using bounded_read without resolution so storage symlinks stay rejected.
+    let alias = input
+        .to_str()
+        .filter(|path| valid_source_path(path))
+        .ok_or(CatalogError::InvalidInput)?;
+    let path = fs::canonicalize(input).map_err(|_| CatalogError::InputUnavailable)?;
+    let source = path
+        .to_str()
+        .filter(|p| p.len() <= MAX_PATH)
+        .ok_or(CatalogError::InvalidInput)?
+        .to_owned();
+    if !path
+        .file_name()
+        .and_then(|s| s.to_str())
+        .is_some_and(valid_name)
+    {
+        return Err(CatalogError::InvalidInput);
+    }
+    let bytes = bounded_read(&path, MAX_INPUT)?;
+    let contexts = parse_metadata(&bytes)?;
+    // Stage reconciliation so a rejected discovery never removes the last valid rows.
+    let mut staged = store.clone();
+    let mut next = Vec::new();
+    for context in contexts {
+        let id = cluster_id(&source, &context);
+        let previous = store.clusters.iter().find(|c| c.id == id);
+        let color = match previous {
+            Some(c) => c.color.clone(),
+            None => new_color(&staged)?,
+        };
+        let record = ClusterRecord {
+            id,
+            context_name: context,
+            source_path: source.clone(),
+            provenance_path: alias.to_owned(),
+            pinned: previous.is_some_and(|c| c.pinned),
+            color,
+        };
+        staged.clusters.push(record.clone());
+        next.push(record);
+    }
+    // One provenance alias per canonical source: the last successful import wins.
+    // Retargeting removes rows still owned by that alias, not independently selected
+    // sources. A direct reimport can therefore deliberately retain the old target.
+    staged
+        .clusters
+        .retain(|c| c.source_path != source && c.provenance_path != alias);
+    staged.clusters.extend(next);
+    staged.clusters.sort_by(|a, b| a.id.cmp(&b.id));
+    storage::validate_size(&staged)?;
+    let changed = serde_json::to_vec(&store.clusters)
+        .map_err(|_| CatalogError::StoreUnavailable)?
+        != serde_json::to_vec(&staged.clusters).map_err(|_| CatalogError::StoreUnavailable)?;
+    *store = staged;
+    Ok(changed)
+}
+fn valid_source_path(source: &str) -> bool {
+    let path = Path::new(source);
+    source.len() <= MAX_PATH
+        && !source.chars().any(char::is_control)
+        && path.is_absolute()
+        && path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .is_some_and(valid_name)
 }
 fn valid_name(s: &str) -> bool {
     !s.is_empty() && s.len() <= MAX_NAME && s.trim() == s && !s.chars().any(char::is_control)
@@ -408,12 +493,14 @@ fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>> {
         return Err(CatalogError::LimitExceeded);
     }
     let file = File::open(path).map_err(|_| CatalogError::InputUnavailable)?;
-    if !file
+    let opened = file
         .metadata()
-        .map_err(|_| CatalogError::InputUnavailable)?
-        .is_file()
-    {
+        .map_err(|_| CatalogError::InputUnavailable)?;
+    if !opened.is_file() || !same_file(&metadata, &opened) {
         return Err(CatalogError::InputUnavailable);
+    }
+    if opened.len() > limit as u64 {
+        return Err(CatalogError::LimitExceeded);
     }
     let mut bytes = Vec::new();
     file.take(limit as u64 + 1)
@@ -423,6 +510,18 @@ fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>> {
         return Err(CatalogError::LimitExceeded);
     }
     Ok(bytes)
+}
+// Best-effort replacement detection, not a hostile-filesystem race guarantee.
+fn same_file(before: &fs::Metadata, opened: &fs::Metadata) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        before.dev() == opened.dev() && before.ino() == opened.ino()
+    }
+    #[cfg(not(unix))]
+    {
+        before.len() == opened.len() && before.modified().ok() == opened.modified().ok()
+    }
 }
 #[derive(Deserialize)]
 struct KubeMetadata {
@@ -477,3 +576,9 @@ fn parse_metadata(bytes: &[u8]) -> Result<Vec<String>> {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod discovery_tests;
+
+#[cfg(test)]
+mod symlink_tests;

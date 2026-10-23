@@ -70,7 +70,10 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            app.manage(Arc::new(CatalogEngine::new(app.path().app_data_dir()?)));
+            app.manage(Arc::new(CatalogEngine::new_with_home(
+                app.path().app_data_dir()?,
+                app.path().home_dir().ok(),
+            )));
             window::create_main_window(app)?;
             Ok(())
         })

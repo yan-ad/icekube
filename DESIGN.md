@@ -22,8 +22,9 @@ Behavioral targets include:
 These are objectives, not a shipped-feature list. Today the app implements the
 shell, Catalog as the home screen, category search, navigation history, and the
 seamless window frame. The first Rust catalog engine persists imported cluster
-context metadata, web links, and individual item pins. Cluster connections,
-automatic discovery, live resource operations, and opening web links are not implemented.
+context metadata, web links, individual item pins, and random record colors in SQLite.
+Opt-in discovery imports `~/.kube/config` on catalog load/Refresh. Cluster connections,
+background file watching, live resource operations, and opening web links are not implemented.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
 ## Existing visual direction
@@ -38,7 +39,7 @@ with compact, aligned resource rows as the main working surface.
 | Color | Theme tokens for surfaces, dividers, text, focus, selection, and semantic state. No page-specific palette or root color overrides. |
 | Typography | Astryx theme typography for navigation and reading. Monospace is for YAML, logs, commands, and identifiers where character alignment matters. |
 | Structure | `AppShell variant="section"`, with dividers rather than floating cards, keeps navigation distinct without wasting working space. |
-| Density | Compact tables and row lists make cluster inventories scannable. Badges represent counts only; state uses text plus an appropriate icon/color. |
+| Density | Compact tables and row lists make cluster inventories scannable. Catalog Status cells use Astryx neutral badges as explicitly requested; Labels/source metadata stay plain text. |
 | Spacing | Preserve the existing token rhythm: tight toolbar groups, moderate navigation gaps, and roomier page headers/empty states. Current content uses padding step 6 and gaps 4/5. |
 | Icons | Tabler icons express concrete actions and resource categories. Icon-only controls always have accessible names and tooltips. |
 | Motion | Feedback and necessary transitions only; no decorative animation while users inspect live resources. |
@@ -66,8 +67,17 @@ unused starter CSS, not design authority. The active brand theme lives in
    list entries. Use text actions, not bookmark/pin icons. No invented records.
 5. **Content:** one main landmark and page heading. Resource inventories use
    compact tables; explanatory/empty states use text and specific actions.
-   All Categories combines clusters and web links in one table with a Category
-   column. `/catalog` and `/catalog/all` show this view; `/catalog/general` redirects
+   Every category uses `Name | Kind | Source | Labels | Status | Actions`.
+   Kind uses the category name and matching sidebar icon; Source identifies
+   `kubeconfig` or `local`; Labels show where metadata was loaded, such as
+   `file=~/.kube/config` or `file=/absolute/path/config`. Web links have no file
+   label and show their saved URL under the name. Status uses neutral Astryx badges
+   for Disconnected/Not checked, never an invented healthy/connected state.
+   Each entry has a category glyph on a random persisted hex-color background,
+   with a black/white glyph chosen by WCAG relative luminance for contrast. Colors
+   identify entries only, never health or category; category text remains visible.
+   This runtime data color is a deliberate exception to static theme-token colors.
+   All Categories combines both kinds. `/catalog` and `/catalog/all` show this view; `/catalog/general` redirects
    to `/catalog/all`. Clusters and Web Links filter the shared snapshot.
 
 Hash routing works in packaged webviews. Navigation state is separate from the
@@ -134,19 +144,47 @@ credentials or cluster domain state.
 
 ### First catalog engine slice
 
-`src-tauri/src/catalog.rs` owns the versioned `catalog.json` in Tauri's app-data
-directory. Commands in `lib.rs` delegate to serialized blocking engine operations.
-Atomic replacement preserves previous state on failure; Unix directories/files
-are private. Corrupt or unsupported stores fail closed and are never silently reset.
+`src-tauri/src/catalog.rs` and `catalog/storage.rs` own `catalog.sqlite3` in Tauri's
+app-data directory. Commands in `lib.rs` delegate to serialized blocking engine
+operations. Normalized metadata, clusters, and web_links tables are updated in
+SQLite transactions, with a cross-process lock and bounded storage. Unix
+directories/files are private; Windows inherits OS ACLs. Corrupt or unsupported
+stores fail closed and are never silently reset. The original `catalog.json`
+migrates once, preserving IDs/pins/revision and adding colors; its original bytes
+and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afterward.
 
-- `catalog_list` returns a revision plus metadata-only clusters and web links.
+- `catalog_list` returns a revision, metadata-only clusters/web links, persisted
+  `autoDiscover`, and a safe `discoveryError` code if an enabled scan failed.
 - `catalog_import_kubeconfig` accepts an explicit absolute regular-file path.
-  There is no automatic `$HOME/.kube` or `KUBECONFIG` read. Files are capped at
+  There is no automatic file read while discovery is disabled, and no `KUBECONFIG`
+  environment or directory scan. Files are capped at
   1 MiB; only valid named contexts and cluster references enter the catalog.
-  Imports reconcile that source, preserve surviving pins, and remove stale contexts.
+  Imports reconcile that source, preserve surviving pins/colors, and remove stale contexts.
   No credentials, server addresses, certificates, or auth/exec configuration are
-  retained or emitted. The private store keeps the canonical source path for identity;
-  the UI receives its basename only. Symbolic-link inputs are rejected.
+  retained or emitted. The store keeps the canonical source path for identity;
+  a separate persisted alias records the selected path for the file provenance
+  label, abbreviating the default path to `~/.kube/config`.
+  Symbolic links are supported for explicit imports and default discovery,
+  including relative/chained targets and paths through linked directories.
+  Resolve the target before opening, then require a readable regular file within
+  the same size bound. Broken/cyclic links, directories, and special files are
+  rejected without changing previous records. Link resolution never executes
+  auth plugins or reads any additional kubeconfig files.
+  Canonical identity deduplicates alias/direct imports and preserves pins/colors.
+  The last successful import selects the displayed alias for a canonical source.
+  Retargeting an alias reconciles its old rows; separately selected old targets
+  remain. Alias provenance is persisted in SQLite schema 2; schema-1 catalogs
+  upgrade transactionally without losing IDs, revision, preferences, pins, or colors.
+  Database, lock, sidecar, and legacy-storage symlinks remain rejected. File metadata
+  checks are best-effort replacement detection, not a hostile-filesystem race guarantee.
+- `catalog_set_discovery` persists an explicit opt-in, off by default. Enabling
+  immediately loads metadata from `~/.kube/config`; subsequent catalog loads and
+  Refresh retry it, including after app restart. The home path is supplied by Rust,
+  not by the renderer or shell expansion. This is not a background file watcher.
+  Missing/invalid files preserve the preference and previous rows, showing an
+  actionable warning. Switching it off stops reads but keeps imported entries.
+  Removing an auto-discovered record is local only: it returns on the next refresh
+  if still in the file while discovery is enabled; the removal dialog explains this.
 - `catalog_add_web_link` validates names and HTTP(S) URLs without contacting them.
   Userinfo, query strings, and fragments are rejected to reduce accidental secret
   persistence. This is deliberately narrower than Freelens's URL support.
@@ -154,8 +192,10 @@ are private. Corrupt or unsupported stores fail closed and are never silently re
 - `catalog_remove` removes local metadata and its pin after UI confirmation;
   it does not delete source files or change clusters/websites.
 
-The catalog is bounded to 1,000 entries and a 4 MiB store. Stable IDs deduplicate
-contexts by source/context and links by normalized URL. Revisions prevent stale
+The catalog is bounded to 1,000 entries, 4 MiB serialized metadata, and a 16 MiB
+SQLite database. Rust generates a random `#RRGGBB` color once for each new entry
+using OS randomness and persists it with pins; imports/reloads never reroll it.
+Stable IDs deduplicate contexts by source/context and links by normalized URL. Revisions prevent stale
 UI responses replacing newer ones. `CatalogProvider` shares snapshots with the
 table/sidebar, serializes UI actions, and ignores disposed requests. Errors use
 fixed codes mapped to safe messages, never parser output or credential excerpts.
@@ -175,6 +215,9 @@ No upstream source code was copied. `taulens` is not the reference checkout.
 | `common/catalog/catalog-entity.ts`, `common/catalog-entities/web-link.ts` | Explicit local entities, web-link name/URL, local-only removal; `import_kubeconfig`, `add_web_link`, `remove` | Entry forms, safe validation, saved, confirmed removal; Rust catalog fixtures plus browser import/link/remove tests |
 | `renderer/components/catalog/hotbar-toggle-menu-item.tsx` | Toggle shortcuts for entities, not categories; `set_pin` | Persisted pinned/unpinned, pinned item route with ID; Rust restart/dedup tests plus browser row-pin tests |
 
+Default-path discovery and the six-column table/colors are Icekube requirements,
+not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/
+color fixtures and browser opt-in, warning, column/icon, and reload tests.
 Connecting clusters, invoking auth helpers, live watches, URL opening, and Freelens
 extensions are outside this slice. Tests use synthetic fixtures and mocked IPC;
 they do not prove production-cluster or native OS integration.

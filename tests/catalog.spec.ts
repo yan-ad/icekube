@@ -1,8 +1,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function engineFixture(page: Page, options: { empty?: boolean; failList?: boolean; slow?: boolean } = {}) {
+async function engineFixture(page: Page, options: { empty?: boolean; failList?: boolean; slow?: boolean; discoveryFailure?: boolean; defaultConfig?: boolean } = {}) {
   await page.addInitScript((options) => {
-    const initial = { revision: 1, clusters: options.empty ? [] : [{ id: "cluster-fixture", name: "Development", contextName: "Development", source: "fixture.yaml", status: "disconnected", pinned: false }], webLinks: options.empty ? [] : [{ id: "link-fixture", name: "Documentation", url: "https://docs.example.test/", pinned: false }] };
+    const initial = { revision: 1, discoveryError: null, clusters: options.empty ? [] : [{ id: "cluster-fixture", name: "Development", contextName: "Development", source: "kubeconfig", labels: ["file=/fixtures/fixture.yaml"], color: "#476BA1", status: "disconnected", pinned: false }], webLinks: options.empty ? [] : [{ id: "link-fixture", name: "Documentation", url: "https://docs.example.test/", source: "local", labels: [], color: "#EAA40B", pinned: false }] };
     const read = () => JSON.parse(sessionStorage.getItem("test.catalog") ?? JSON.stringify(initial));
     const calls: { command: string; request: unknown }[] = [];
     Object.assign(window, {
@@ -18,10 +18,11 @@ async function engineFixture(page: Page, options: { empty?: boolean; failList?: 
           const state = read();
           if (command === "catalog_import_kubeconfig") {
             if (request.path === "/invalid.yaml") throw "invalidKubeconfig";
-            state.clusters.push({ id: "cluster-import", name: "Imported context", contextName: "Imported context", source: "import.yaml", status: "disconnected", pinned: false });
+            if (request.path === "/fixtures/broken-link") throw "inputUnavailable";
+            state.clusters.push({ id: "cluster-import", name: "Imported context", contextName: "Imported context", source: "kubeconfig", labels: [`file=${request.path}`], color: "#228877", status: "disconnected", pinned: false });
           } else if (command === "catalog_add_web_link") {
             if (String(request.url).includes("?")) throw "invalidInput";
-            state.webLinks.push({ id: "link-added", name: request.name, url: request.url, pinned: false });
+            state.webLinks.push({ id: "link-added", name: request.name, url: request.url, source: "local", labels: [], color: "#AC548D", pinned: false });
           } else if (command === "catalog_set_pin") {
             const item = [...state.clusters, ...state.webLinks].find((item: { id: string }) => item.id === request.id);
             if (!item) throw "notFound";
@@ -30,6 +31,10 @@ async function engineFixture(page: Page, options: { empty?: boolean; failList?: 
             state.clusters = state.clusters.filter((item: { id: string }) => item.id !== request.id);
             state.webLinks = state.webLinks.filter((item: { id: string }) => item.id !== request.id);
           } else if (command !== "catalog_list") throw "unsupported";
+          state.discoveryError = options.discoveryFailure ? "inputUnavailable" : null;
+          if (command === "catalog_list" && options.defaultConfig && !options.discoveryFailure && !state.clusters.some((item: { id: string }) => item.id === "cluster-discovered")) {
+            state.clusters.push({ id: "cluster-discovered", name: "Default context", contextName: "Default context", source: "kubeconfig", labels: ["file=~/.kube/config"], color: "#659040", status: "disconnected", pinned: false });
+          }
           if (command !== "catalog_list") state.revision++;
           sessionStorage.setItem("test.catalog", JSON.stringify(state));
           return state;
@@ -45,15 +50,20 @@ test("All Categories combines records; category filters and legacy redirect work
   await page.goto("/");
   const all = page.getByRole("table", { name: "All Categories", exact: true });
   await expect(all.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
-  await expect(all.getByRole("cell", { name: "Documentation", exact: true })).toBeVisible();
+  await expect(all.getByRole("cell").filter({ hasText: "Documentation" })).toBeVisible();
+  await expect(all.getByRole("columnheader")).toHaveText(["Name", "Kind", "Source", "Labels", "Status", "Actions"]);
+  await expect(all.getByRole("cell", { name: "file=/fixtures/fixture.yaml", exact: true })).toBeVisible();
+  await expect(all.getByRole("cell", { name: "Clusters", exact: true }).locator("svg")).toHaveCount(1);
+  await expect(all.getByRole("cell", { name: "Disconnected", exact: true }).locator(".astryx-badge")).toHaveCount(1);
   await expect(all.getByRole("cell", { name: "Disconnected", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("catalog-desktop.png") });
   await page.getByRole("link", { name: "Clusters", exact: true }).click();
   const clusters = page.getByRole("table", { name: "Clusters", exact: true });
   await expect(clusters.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
-  await expect(clusters.getByRole("cell", { name: "Documentation", exact: true })).toHaveCount(0);
+  await expect(clusters.getByRole("cell").filter({ hasText: "Documentation" })).toHaveCount(0);
+  await expect(clusters.getByRole("columnheader")).toHaveText(["Name", "Kind", "Source", "Labels", "Status", "Actions"]);
   await page.getByRole("link", { name: "Web Links", exact: true }).click();
-  await expect(page.getByRole("table", { name: "Web links", exact: true }).getByRole("cell", { name: "Documentation", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Web links", exact: true }).getByRole("cell").filter({ hasText: "Documentation" })).toBeVisible();
   await page.goto("/#/catalog/general");
   await expect(page).toHaveURL(/#\/catalog\/all$/);
   await expect(page.getByRole("heading", { name: "All Categories", level: 1, exact: true })).toBeVisible();
@@ -77,19 +87,20 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   await table.getByRole("button", { name: "Unpin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true })).toHaveCount(0);
   for (const name of ["All Categories", "Clusters", "Web Links"]) await expect(page.getByRole("button", { name: `Pin ${name}`, exact: true })).toHaveCount(0);
-  await expect(table.getByRole("button", { name: "Pin Development", exact: true }).locator("svg")).toHaveCount(0);
 });
 
 test("explicit import and add link populate the combined list; remove confirms local scope", async ({ page }) => {
   await engineFixture(page, { empty: true });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Your catalog is empty", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Import kubeconfig", exact: true }).click();
+  await page.getByRole("button", { name: "Add config", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Kubeconfig path Required", exact: true }).fill("/fixtures/import.yaml");
+  await expect(dialog).toContainText("kubeconfig file or symbolic link");
+  await dialog.getByRole("textbox", { name: "Kubeconfig path Required", exact: true }).fill("/fixtures/config-link");
   await dialog.getByRole("button", { name: "Import contexts", exact: true }).click();
   await expect(dialog).toHaveCount(0);
   await expect(page.getByRole("cell", { name: "Imported context", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "file=/fixtures/config-link", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add web link", exact: true }).click();
   await dialog.getByRole("textbox", { name: "Name Required", exact: true }).fill("Team dashboard");
   await dialog.getByRole("textbox", { name: "URL Required", exact: true }).fill("https://dashboard.example.test/");
@@ -101,10 +112,10 @@ test("explicit import and add link populate the combined list; remove confirms l
   await page.getByRole("button", { name: "Remove Team dashboard", exact: true }).click();
   await expect(dialog).toContainText("The kubeconfig, cluster, and website will not be changed.");
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(page.getByRole("cell", { name: "Team dashboard", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell").filter({ hasText: "Team dashboard" })).toBeVisible();
   await page.getByRole("button", { name: "Remove Team dashboard", exact: true }).click();
   await dialog.getByRole("button", { name: "Remove from catalog", exact: true }).click();
-  await expect(page.getByRole("cell", { name: "Team dashboard", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("cell").filter({ hasText: "Team dashboard" })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("cell", { name: "Imported context", exact: true })).toBeVisible();
 });
@@ -112,7 +123,7 @@ test("explicit import and add link populate the combined list; remove confirms l
 test("invalid imports stay in dialog with safe errors and preserve records", async ({ page }) => {
   await engineFixture(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Import kubeconfig", exact: true }).click();
+  await page.getByRole("button", { name: "Add config", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("textbox", { name: "Kubeconfig path Required", exact: true }).fill("/invalid.yaml");
   await dialog.getByRole("button", { name: "Import contexts", exact: true }).click();
@@ -128,11 +139,12 @@ test("loading and corrupt storage are distinct from an empty catalog", async ({ 
   await expect(page.getByRole("status").filter({ hasText: "Loading catalog…" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("has not been overwritten");
   await expect(page.getByRole("heading", { name: "Catalog unavailable", exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Import kubeconfig", exact: true })).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Add config", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Refresh catalog", exact: true })).toBeEnabled();
 });
 
 test("browser fallback disables persistence without inventing records", async ({ page }) => {
+  await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add web link", exact: true })).toBeDisabled();
@@ -165,4 +177,88 @@ test("populated catalog stays inside narrow and enlarged-text viewports", async 
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   }
   await page.screenshot({ path: testInfo.outputPath("catalog-enlarged.png") });
+});
+
+test("default discovery is built in without a visible title, switch, or information block", async ({ page }) => {
+  await engineFixture(page, { empty: true, defaultConfig: true });
+  await page.goto("/");
+  await expect(page.getByRole("cell", { name: "Default context", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "file=~/.kube/config", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch")).toHaveCount(0);
+  await expect(page.getByText("Imported clusters stay disconnected.", { exact: false })).toHaveCount(0);
+  const heading = page.getByRole("heading", { level: 1, name: "All Categories", exact: true });
+  expect(await heading.evaluate((element) => element.closest(".astryx-visually-hidden") !== null || getComputedStyle(element.parentElement!).clipPath === "inset(50%)")).toBe(true);
+  const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
+  for (const name of ["Search", "Add config", "Add web link", "Refresh catalog"]) await expect(toolbar.getByRole("button", { name, exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: "Add config", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(() => (window as unknown as { __catalogCalls: { command: string }[] }).__catalogCalls.every((call) => call.command === "catalog_list"))).toBe(true);
+  await page.reload();
+  await expect(page.getByRole("cell", { name: "Default context", exact: true })).toBeVisible();
+});
+
+test("discovery failures preserve records and show only an actionable error", async ({ page }) => {
+  await engineFixture(page, { discoveryFailure: true });
+  await page.goto("/");
+  await expect(page.getByRole("alert")).toContainText("Could not refresh file=~/.kube/config");
+  await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Refresh catalog", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Previously saved records are kept");
+  await expect(page.getByRole("switch")).toHaveCount(0);
+});
+
+test("record icons retain colors across reloads and pins; labels are searchable", async ({ page }) => {
+  await engineFixture(page);
+  await page.goto("/");
+  const row = page.getByRole("row").filter({ has: page.getByRole("button", { name: "Pin Development", exact: true }) });
+  const icon = row.locator("[data-record-color]");
+  await expect(icon).toHaveAttribute("data-record-color", "#476BA1");
+  await expect(icon.locator("svg")).toHaveCount(1);
+  const originalColor = await icon.evaluate((element) => getComputedStyle(element).backgroundColor);
+  const contrast = await icon.evaluate((element) => {
+    function luminance(value: string) {
+      const channels = value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((v) => v / 255)
+        .map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    }
+    const background = luminance(getComputedStyle(element).backgroundColor);
+    const foreground = luminance(getComputedStyle(element.querySelector("svg")!).color);
+    return (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05);
+  });
+  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  await row.getByRole("button", { name: "Pin Development", exact: true }).click();
+  await expect(page.getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
+  await page.reload();
+  const persistedIcon = page.getByRole("table").locator('[data-record-color="#476BA1"]');
+  await expect(persistedIcon).toBeVisible();
+  expect(await persistedIcon.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(originalColor);
+  await page.getByRole("textbox", { name: "Filter catalog", exact: true }).fill("file=/fixtures");
+  await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell").filter({ hasText: "Documentation" })).toHaveCount(0);
+});
+
+test("compact catalog actions remain beside Search and support keyboard dialogs", async ({ page }) => {
+  await engineFixture(page);
+  await page.setViewportSize({ width: 360, height: 700 });
+  await page.goto("/");
+  const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
+  const actions = toolbar.getByRole("button", { name: "Catalog actions", exact: true });
+  await expect(actions).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Search", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("button", { name: "Add config", exact: true })).toHaveCount(0);
+  await actions.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Add config", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(actions).toBeFocused();
+  for (const [action, title] of [["Add config", "Import kubeconfig"], ["Add web link", "Add web link"]]) {
+    await actions.click();
+    await page.getByRole("menuitem", { name: action, exact: true }).click();
+    await expect(page.getByRole("dialog").getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+  }
+  await actions.click();
+  await page.getByRole("menuitem", { name: "Refresh catalog", exact: true }).click();
+  await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __catalogCalls: { command: string }[] }).__catalogCalls.filter((call) => call.command === "catalog_list").length)).toBeGreaterThanOrEqual(2);
 });

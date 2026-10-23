@@ -12,9 +12,10 @@ Project-specific guidance for AI coding agents.
   interaction, Rust owner, UI states, and acceptance test. Preserve relevant
   notices if adapting upstream code. Do not claim extension compatibility.
 - Current state: Catalog-first navigation/search, Rust-owned catalog persistence,
-  explicit kubeconfig metadata import, web links, individual item pins, and a
+  explicit kubeconfig metadata import, opt-in default-file discovery, SQLite,
+  web links, persisted record colors, individual item pins, and a
   Rust-owned seamless frame. All Categories combines clusters and web links;
-  category pages are never pinnable. Connections/discovery/live Kubernetes
+  category pages are never pinnable. Connections/background watching/live Kubernetes
   operations are not implemented. Keep disconnected states honest.
 
 ## Non-negotiable runtime architecture
@@ -51,9 +52,20 @@ Project-specific guidance for AI coding agents.
 - All Categories replaces General and shows both entity kinds, not a setup page.
   Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
   checkout, not `taulens`; record the commit before implementing another workflow.
-- Catalog import must stay explicit and metadata-only until authentication and
-  connection lifecycle support is separately approved. Never auto-read real
-  kubeconfigs, execute auth plugins, or claim a context is connected from an import.
+- Catalog import stays metadata-only until authentication/connection lifecycle
+  support is separately approved. Default-file discovery is off by default and
+  requires the persisted user opt-in; it reads only `~/.kube/config` on load/Refresh,
+  never `KUBECONFIG` or a directory scan. Never read real kubeconfigs in agent tests,
+  execute auth plugins, or claim a context is connected from an import.
+- Kubeconfig paths may be symbolic links. Resolve before opening and enforce
+  readable regular-file/size limits on the target; retain canonical identity and
+  selected-path provenance. Broken/cyclic links must preserve prior records.
+  Keep catalog database, lock, sidecar, and legacy-storage symlinks rejected.
+- Catalog columns stay Name, Kind, Source, Labels, Status, Actions in every category.
+  Kind uses the sidebar's category name/icon; Labels expose file provenance.
+  Use Astryx neutral status badges (explicit exception to the count-only rule).
+  Per-record random hex colors are Rust-generated data persisted in SQLite, not
+  renderer-generated colors or theme palette overrides; preserve them across reloads.
 - `seamless` is an Icekube window mode, not an upstream Astryx prop/variant.
   `src-tauri/src/window.rs` owns the flag, native window construction, and initial
   layout metadata; `WindowFrame` owns device insets and `WindowToolbar` owns

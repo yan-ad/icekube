@@ -26,6 +26,9 @@ serde_yaml_ng = "0.10"
 sha2 = "0.10"
 tempfile = "3"
 url = "2"
+rusqlite = { version = "0.40", features = ["bundled", "limits"] }
+getrandom = "0.4"
+fs2 = "0.4"
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
