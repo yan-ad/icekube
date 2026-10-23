@@ -1,4 +1,4 @@
-<img width="64" height="64" alt="icon-iOS-Default-64@1x" src="https://github.com/user-attachments/assets/717ea184-42d7-48dc-b0ca-e606f122623d" />
+<img width="64" height="64" alt="32x32@2x" src="https://github.com/user-attachments/assets/234cf1ae-15ae-4795-a485-d2bef787ca72" />
 
 
 # IceKube
