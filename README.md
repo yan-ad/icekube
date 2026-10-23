@@ -1,4 +1,4 @@
-<img width="128" height="128" alt="128x128" src="https://github.com/user-attachments/assets/a70238b7-1edc-4993-9973-18839a532d6f" />
+<img width="256" height="256" alt="128x128@2x" src="https://github.com/user-attachments/assets/ce02739d-b816-423c-b939-06f690075053" />
 
 
 # IceKube
