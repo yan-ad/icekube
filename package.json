@@ -12,12 +12,17 @@
   "dependencies": {
     "@astryxdesign/cli": "^0.7.3",
     "@astryxdesign/core": "^0.7.3",
+    "@astryxdesign/theme-matcha": "^0.7.3",
     "@astryxdesign/theme-neutral": "^0.7.3",
     "@stylexjs/stylex": "^0.19.1",
+    "@tabler/icons-react": "^3.49.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@tanstack/react-router": "^1.170.46",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
     "@types/react": "^19.1.8",
