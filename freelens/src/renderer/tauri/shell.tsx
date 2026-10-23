@@ -290,7 +290,7 @@ export function TauriShell({
                 origin: "tauri",
                 component: () => (
                   <span title="Terminals, cluster activation, hotbar switching, settings badges, and extensions are not available yet. Your existing Freelens profile has not been opened.">
-                    Local catalog · Connections not started · Pins: session only
+                    Read-only development · Pins: session only
                   </span>
                 ),
               },

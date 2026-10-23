@@ -1,0 +1,84 @@
+/**
+ * Copyright (c) Freelens Authors. All rights reserved.
+ * Licensed under MIT License. See LICENSE in root directory for more information.
+ */
+.layout {
+  min-width: 0;
+  min-height: 0;
+}
+.tabs {
+  overflow-x: auto;
+}
+.tabs button {
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.tabs button.active {
+  color: var(--layoutTabsActiveColor);
+}
+.main {
+  min-height: 0;
+}
+.pods {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.filters {
+  display: flex;
+  align-items: center;
+  gap: var(--padding);
+}
+.filters select {
+  background: var(--inputControlBackground);
+  color: var(--textColorPrimary);
+  padding: calc(var(--padding) / 2);
+}
+.filters button,
+.message button {
+  background: var(--buttonDefaultBackground);
+  color: var(--textColorPrimary);
+  padding: calc(var(--padding) / 2);
+  cursor: pointer;
+}
+.pods button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.pods button:focus-visible,
+.pods select:focus-visible,
+.tabs button:focus-visible {
+  outline: 2px solid var(--textColorAccent);
+  outline-offset: -2px;
+}
+.message {
+  padding: var(--padding);
+}
+.message p {
+  margin-bottom: var(--padding);
+}
+.table {
+  min-width: 980px;
+  overflow-y: auto;
+  flex: 1;
+}
+.table :global(.TableRow) {
+  cursor: default;
+}
+.table :global(.logs) {
+  overflow: visible;
+}
+.table :global(.logs) button {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: transparent;
+  color: inherit;
+}
+
+.containerCount {
+  margin-left: calc(var(--padding) / 2);
+  color: var(--textColorSecondary);
+}

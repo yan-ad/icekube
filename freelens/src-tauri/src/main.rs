@@ -3,7 +3,7 @@
 
 mod backend;
 
-use backend::{Backend, BackendStatus, CatalogSnapshot};
+use backend::{Backend, BackendStatus, CatalogSnapshot, PodsRequest, PodsSnapshot};
 use std::{
     path::PathBuf,
     sync::{Arc, Mutex},
@@ -70,6 +70,25 @@ async fn catalog_snapshot(
 }
 
 #[tauri::command]
+async fn pods_list(
+    window: WebviewWindow,
+    backend: State<'_, SharedBackend>,
+    request: PodsRequest,
+) -> Result<PodsSnapshot, String> {
+    check_caller(&window)?;
+    request.validate()?;
+    let backend = backend.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backend
+            .lock()
+            .map_err(|_| "Pods backend unavailable".to_string())?
+            .list_pods(request)
+    })
+    .await
+    .map_err(|_| "Pods backend unavailable".to_string())?
+}
+
+#[tauri::command]
 fn window_drag(window: WebviewWindow) -> Result<(), String> {
     check_caller(&window)?;
     window.start_dragging().map_err(|error| error.to_string())
@@ -89,12 +108,23 @@ fn window_toggle_maximize(window: WebviewWindow) -> Result<(), String> {
 fn runtime_ready(window: WebviewWindow, smoke: State<'_, SmokeTest>) -> Result<(), String> {
     check_caller(&window)?;
     if smoke.0 {
-        if window.url().map_err(|error| error.to_string())?.fragment() != Some("/catalog") {
-            window.eval("window.location.hash = '/catalog'").map_err(|error| error.to_string())?;
-            return Ok(());
+        let url = window.url().map_err(|error| error.to_string())?;
+        if url
+            .fragment()
+            .is_some_and(|fragment| fragment.starts_with("/cluster/"))
+        {
+            println!("TAURI_PODS_PAGE_READY");
+            window.app_handle().exit(0);
+        } else if url.fragment() == Some("/catalog") {
+            println!("TAURI_CATALOG_READY");
+            window.eval("document.querySelector('[data-catalog-kind=\"KubernetesCluster\"] [aria-label^=\"Open \"]').click()")
+                .map_err(|error| error.to_string())?;
+        } else {
+            window
+                .eval("window.location.hash = '/catalog'")
+                .map_err(|error| error.to_string())?;
         }
-        println!("TAURI_CATALOG_READY");
-        window.app_handle().exit(0);
+        return Ok(());
     }
     println!("TAURI_WEBVIEW_READY");
     Ok(())
@@ -133,6 +163,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .invoke_handler(tauri::generate_handler![
             runtime_status,
             catalog_snapshot,
+            pods_list,
             window_drag,
             window_toggle_maximize,
             runtime_ready
@@ -141,18 +172,20 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .setup(move |app| {
             let data_directory = profile.join("webview");
             std::fs::create_dir_all(&data_directory)?;
-            let window = tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
-                .title("Freelens")
-                .inner_size(900.0, 600.0)
-                .min_inner_size(700.0, 500.0)
-                .data_directory(data_directory)
-                .on_navigation(|url| {
-                    let allowed = is_runtime_url(url);
-                    eprintln!("Tauri runtime navigation: {url} allowed={allowed}");
-                    allowed
-                });
+            let window =
+                tauri::WebviewWindowBuilder::new(app, "main", WebviewUrl::App("index.html".into()))
+                    .title("Freelens")
+                    .inner_size(900.0, 600.0)
+                    .min_inner_size(700.0, 500.0)
+                    .data_directory(data_directory)
+                    .on_navigation(|url| {
+                        let allowed = is_runtime_url(url);
+                        eprintln!("Tauri runtime navigation: {url} allowed={allowed}");
+                        allowed
+                    });
             #[cfg(target_os = "macos")]
-            let window = window.title_bar_style(tauri::TitleBarStyle::Overlay)
+            let window = window
+                .title_bar_style(tauri::TitleBarStyle::Overlay)
                 .hidden_title(true)
                 .traffic_light_position(tauri::LogicalPosition::new(14.0, 18.0));
             window.build()?;

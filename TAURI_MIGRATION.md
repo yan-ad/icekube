@@ -13,11 +13,8 @@ or refactor unrelated code during this phase. Those are separate workstreams.
 
 ## Progress
 
-- **Mainline** counts behavior checkpoints in the migration inventory, not lines
-  of code or Electron API calls. The counts below carry over the existing parity
-  inventory; they are not a fresh automated API count.
-- **Ported** counts checkpoints with equivalent behavior verified in Tauri on the
-  Apple Silicon MVP target. Partial implementations do not count as completed.
+- **Mainline** count the behavior at the Freelens electron desktop
+- **Ported** counts the behavior that ported and working in tauri version
 - **%** is `Ported / Mainline × 100`. Calculate total progress from summed counts.
 - **0%** means no complete checkpoints have recorded parity verification. It does
   not mean that no Tauri implementation exists.
@@ -56,7 +53,7 @@ or refactor unrelated code during this phase. Those are separate workstreams.
 
 ### Catalog comparison boundary
 
-Catalog is the current page-level target. A page is complete only after its
+Catalog and Pods are page-level comparison targets. A page is complete only after its
 mainline behavior is ported, compared, and accepted; partial implementation does
 not increment the completed checkpoint counts above.
 
@@ -79,17 +76,49 @@ search linking, hotbar switching/reordering and durable profile integration rema
 unverified or unavailable. These gaps prevent a full Catalog UX parity claim.
 
 Unimplemented controls carry a visible `SOON` marker. The marker identifies a gap;
-it does not count as a ported checkpoint. Selecting a local cluster opens a landing
-view using the shared mainline cluster-status presentation. It explicitly says
-that no connection has started and marks Connect/Settings as `SOON`; it does not
-emit simulated authentication/proxy logs or change the cluster's disconnected
-status. Catalog metadata inspection remains available through View Details.
+it does not count as a ported checkpoint. Selecting a local cluster opens the
+cluster sidebar and Pods page without automatically authenticating. Catalog
+metadata inspection remains available through View Details.
+
+### Cluster sidebar and Pods comparison boundary
+
+The cluster route now renders the full static built-in sidebar inventory and the
+original Workloads tab order. Every unported leaf and tab is disabled and visibly
+marked `SOON`; group expansion remains functional. Pods is the only enabled
+resource page in this checkpoint.
+
+Pods loading requires an explicit user action because it may resolve the selected
+kubeconfig authentication and contact the cluster. The Tauri Node sidecar runs that
+read in an owned worker process with a deadline covering discovery, authentication
+and listing, bounded API responses, pagination and process-tree cleanup. It uses
+the selected kubeconfig context only. A backend-private fingerprint pins the
+selected context/cluster/user configuration for repeated reads. Changed selected
+configuration requires restarting the application; the public Catalog ID is not
+an authorization grant. Referenced credential file contents are not fingerprinted.
+It returns sanitized Pod summaries: name, namespace, owner, status, container readiness,
+restart count, age and unavailable-metric markers. Pod specs, images, environment
+values, annotations, credentials, auth-plugin stderr and Kubernetes error bodies do
+not cross the bridge.
+
+The page supports all-namespaces and namespace-scoped reads, search, sorting,
+column visibility, refresh, retry, empty/loading/error states and safe warnings.
+It intentionally does not mutate resources or enable logs, shell, details, create,
+delete, or other resource pages. Those controls are visibly `SOON`. CPU and memory
+metrics show `N/A`, not fabricated values. Namespace choices come from returned
+Pods; a namespace can be entered explicitly when cluster-wide listing is denied
+or a full namespace inventory is unavailable. Stop refreshing revokes page-level
+consent and discards pending results; the owned worker still has its bounded
+deadline. Polling resumes only after another Load Pods action.
+The selected cluster remains disconnected in Catalog until the separate cluster
+activation/proxy checkpoint is ported. This is a verified read-only Pods slice,
+not full Kubernetes parity.
 
 Run the current page with `node scripts/run-tauri.mjs`. `pnpm test:tauri`,
 `pnpm smoke:tauri` and `pnpm check:tauri` use synthetic temporary kubeconfigs,
-never the real home directory. Tests assert that authentication plugins are not
-executed and credentials/endpoints are not serialized. Native macOS smoke
-traverses Welcome to the Catalog before exiting.
+never the real home directory. Tests assert that discovery does not execute
+authentication plugins and credentials/endpoints are not serialized. Pods tests
+use loopback API fixtures and synthetic credentials. Native macOS smoke traverses
+Welcome, Catalog and the Pods page without clicking Load Pods.
 
 For comparison, open the same mainline page with the same theme and window content
 size. Check launcher/titlebar alignment, hotbar icons/cells, categories, item count,

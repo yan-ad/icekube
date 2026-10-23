@@ -5,11 +5,14 @@
 
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { createHash } from "node:crypto";
 import { once } from "node:events";
 import { existsSync } from "node:fs";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { createInterface } from "node:readline";
 import { test } from "node:test";
 
 const script = process.env.FREELENS_TAURI_BACKEND;
@@ -57,6 +60,128 @@ const exchange = async (input, env = {}) => {
 
 const line = (request) => `${JSON.stringify(request)}\n`;
 const initialize = { id: 1, method: "initialize", appData: profile };
+
+test("lists real fixture Pods through the supervised worker without exposing credentials", {
+  timeout: 20_000,
+}, async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "freelens-pods-protocol-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const requests = [];
+  let deny = false;
+  const server = createServer((request, response) => {
+    requests.push({
+      method: request.method,
+      path: request.url,
+      authorized: request.headers.authorization === "Bearer fixture-auth-secret",
+    });
+    response.setHeader("content-type", "application/json");
+    if (deny) {
+      response.writeHead(403).end(JSON.stringify({ message: "fixture-auth-secret" }));
+      return;
+    }
+    const next = new URL(request.url, "http://localhost").searchParams.get("continue");
+    response.end(
+      JSON.stringify({
+        apiVersion: "v1",
+        kind: "PodList",
+        metadata: { continue: next ? "" : "page-two" },
+        items: [
+          {
+            apiVersion: "v1",
+            kind: "Pod",
+            metadata: {
+              uid: next ? "second-pod" : "first-pod",
+              name: next ? "second-pod" : "first-pod",
+              namespace: "team",
+              creationTimestamp: "2026-01-01T00:00:00Z",
+            },
+            spec: {
+              containers: [
+                { name: "app", image: "private-image", env: [{ name: "SECRET", value: "fixture-auth-secret" }] },
+              ],
+            },
+            status: {
+              phase: "Running",
+              containerStatuses: [{ name: "app", ready: true, restartCount: 1, state: { running: {} } }],
+            },
+          },
+        ],
+      }),
+    );
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(
+    () =>
+      new Promise((resolve) => {
+        server.closeAllConnections();
+        server.close(resolve);
+      }),
+  );
+  const config = join(await realpath(directory), "config");
+  await writeFile(
+    config,
+    JSON.stringify({
+      clusters: [
+        {
+          name: "fixture",
+          cluster: { server: `http://127.0.0.1:${server.address().port}`, "insecure-skip-tls-verify": true },
+        },
+      ],
+      users: [{ name: "fixture", user: { token: "fixture-auth-secret" } }],
+      contexts: [{ name: "fixture", context: { cluster: "fixture", user: "fixture" } }],
+    }),
+    { mode: 0o600 },
+  );
+  const clusterId = createHash("md5").update(`${config}:fixture`).digest("hex");
+  const child = spawn(process.execPath, [script], {
+    env: { ...process.env, FREELENS_TAURI_KUBECONFIG_ROOTS: JSON.stringify([config]) },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  t.after(() => child.kill("SIGTERM"));
+  const responses = createInterface({ input: child.stdout })[Symbol.asyncIterator]();
+  let stderr = "";
+  child.stderr.on("data", (chunk) => {
+    stderr += chunk;
+  });
+  let id = 0;
+  const request = async (method, fields = {}) => {
+    child.stdin.write(line({ id: ++id, method, ...fields }));
+    const received = await responses.next();
+    assert.equal(received.done, false);
+    assert.doesNotMatch(received.value, /fixture-auth-secret|private-image|canonicalPath|authorization|SECRET/);
+    const result = JSON.parse(received.value);
+    assert.equal(result.id, id);
+    return result;
+  };
+  await request("initialize", { appData: join(directory, "profile") });
+  const initial = await request("pods.list", { clusterId, namespace: null });
+  assert.equal(initial.result.error, null);
+  assert.deepEqual(
+    initial.result.pods.map((pod) => pod.name),
+    ["first-pod", "second-pod"],
+  );
+  assert.equal(initial.result.pods[0].restartCount, 1);
+  assert.equal(initial.result.pods[0].cpu, null);
+  assert.deepEqual(initial.result.namespaces, ["team"]);
+  assert.ok(
+    requests.every((entry) => entry.method === "GET" && entry.authorized && entry.path.startsWith("/api/v1/pods?")),
+  );
+  const scoped = await request("pods.list", { clusterId, namespace: "team" });
+  assert.equal(scoped.result.error, null);
+  assert.ok(requests.slice(2).every((entry) => entry.path.startsWith("/api/v1/namespaces/team/pods?")));
+  const before = requests.length;
+  const invalid = await request("pods.list", { clusterId, namespace: "team", url: "https://untrusted.invalid" });
+  assert.match(invalid.error, /unsupported keys/);
+  assert.equal(requests.length, before);
+  deny = true;
+  assert.equal((await request("pods.list", { clusterId, namespace: null })).result.error, "FORBIDDEN");
+  deny = false;
+  assert.equal((await request("pods.list", { clusterId, namespace: null })).result.error, null);
+  const closed = once(child, "close");
+  child.stdin.end();
+  assert.deepEqual(await closed, [0, null]);
+  assert.equal(stderr, "");
+});
 
 test("boots real Node with the existing lifecycle and profile policy, then exits at EOF", async () => {
   const { pid, responses } = await exchange(line(initialize) + line({ id: 2, method: "status" }));

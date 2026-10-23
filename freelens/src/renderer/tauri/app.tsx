@@ -13,6 +13,7 @@ import { useCatalogHotbar } from "./hotbar";
 import { TauriShell } from "./shell";
 import { Soon } from "./soon";
 
+import type { PodsRequest, PodsSnapshot } from "../../common/tauri/pods-protocol";
 import type { CatalogSnapshot, RuntimeStatus } from "../../common/tauri/protocol";
 
 export type { RuntimeStatus } from "../../common/tauri/protocol";
@@ -25,6 +26,7 @@ function currentRoute() {
 export interface RuntimeHost {
   status: () => Promise<RuntimeStatus>;
   catalogSnapshot: () => Promise<CatalogSnapshot>;
+  listPods: (request: PodsRequest) => Promise<PodsSnapshot>;
   ready: () => Promise<void>;
   dragWindow: () => Promise<void>;
   toggleMaximize: () => Promise<void>;
@@ -163,6 +165,7 @@ export function TauriApplication({ host }: { host: RuntimeHost }) {
                 onNavigateCatalog={() => {
                   window.location.hash = "/catalog";
                 }}
+                podsHost={host}
               />
             ) : (
               <TauriCatalog

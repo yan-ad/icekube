@@ -3,16 +3,16 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 // @vitest-environment jsdom
-
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { TauriCluster } from "./cluster";
+import { clusterSidebarItems, workloadsTabs } from "./sidebar-metadata";
 
 import type { CatalogSnapshot } from "../../common/tauri/protocol";
 
 afterEach(cleanup);
 const entity: CatalogSnapshot["entities"][number] = {
-  id: "test-cluster",
+  id: "a".repeat(32),
   name: "Test Cluster",
   kind: "KubernetesCluster",
   group: "entity.k8slens.dev",
@@ -22,27 +22,48 @@ const entity: CatalogSnapshot["entities"][number] = {
   icon: null,
   action: null,
 };
-
-describe("cluster landing checkpoint", () => {
-  it("uses the shared status view without simulating a connection", () => {
+describe("cluster sidebar", () => {
+  it("opens Pods without auth, preserving full built-in groups and disabling every unported leaf", () => {
+    const listPods = vi.fn();
     const navigate = vi.fn();
-    const { container } = render(<TauriCluster entity={entity} onNavigateCatalog={navigate} />);
-    expect(screen.getByRole("heading", { name: "Test Cluster" })).toBeTruthy();
-    expect(screen.getByRole("status").textContent).toContain("SOON");
-    expect(screen.getByText(/No connection has been started/)).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Connect" }) as HTMLButtonElement).disabled).toBe(true);
-    expect((screen.getByRole("button", { name: "Settings" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(container.querySelector(".Spinner")).toBeNull();
-    expect(screen.queryByText(/Authentication proxy started/)).toBeNull();
+    const { container } = render(<TauriCluster entity={entity} podsHost={{ listPods }} onNavigateCatalog={navigate} />);
+    expect(listPods).not.toHaveBeenCalled();
+    expect(screen.getByText("Test Cluster")).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Pods" })).toBeTruthy();
     expect(entity.status).toBe("disconnected");
+    const nav = screen.getByRole("navigation", { name: "Cluster navigation" });
+    for (const item of clusterSidebarItems.filter((i) => i.parentId === null)) {
+      expect(within(nav).getByRole("button", { name: new RegExp(`^${item.title}`) })).toBeTruthy();
+    }
+    for (const toggle of within(nav)
+      .getAllByRole("button")
+      .filter((button) => button.getAttribute("aria-expanded") === "false"))
+      fireEvent.click(toggle);
+    expect(within(nav).getAllByRole("button")).toHaveLength(clusterSidebarItems.length);
+    for (const button of within(nav).getAllByRole("button")) {
+      if (!button.hasAttribute("aria-expanded") && button.getAttribute("aria-current") !== "page") {
+        expect((button as HTMLButtonElement).disabled).toBe(true);
+        expect(button.textContent).toContain("SOON");
+      }
+    }
+    expect(within(nav).getByText("Priority Classes")).toBeTruthy();
+    expect(container.querySelector("a")).toBeNull();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((tab) => tab.textContent?.replace(/SOON/g, "").trim())).toEqual(
+      workloadsTabs.map((tab) => tab.title),
+    );
+    expect(tabs.filter((tab) => !(tab as HTMLButtonElement).disabled)).toHaveLength(1);
+    const workloads = within(nav).getByRole("button", { name: /^Workloads/ });
+    fireEvent.click(workloads);
+    expect(workloads.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(workloads);
+    expect(workloads.getAttribute("aria-expanded")).toBe("true");
     fireEvent.click(screen.getByRole("button", { name: "Back to Catalog" }));
     expect(navigate).toHaveBeenCalledOnce();
   });
-
-  it("handles removed or unknown clusters without showing fake progress", () => {
+  it("handles removed clusters without fake progress", () => {
     render(<TauriCluster onNavigateCatalog={vi.fn()} />);
     expect(screen.getByRole("heading", { name: "Cluster not found" })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Connect" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Back to Catalog" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load Pods" })).toBeNull();
   });
 });

@@ -7,7 +7,7 @@ Repository scripts that the build, the checks or a developer run directly.
 Builds the isolated Node bootstrap and browser-only launcher/Catalog frontend,
 then runs the Tauri development host. The Catalog snapshot uses the existing
 built-in application providers and read-only local kubeconfig context discovery.
-Normal development scans immediate files under `~/.kube`; it never executes auth
+Discovery scans immediate files under `~/.kube`; discovery never executes auth
 plugins or starts connections. Test, smoke and backend-check modes use synthetic
 temporary kubeconfigs instead of the real home directory. The host uses a
 temporary profile and does not start cluster services or load extensions. Frontend assets and the profile are built
@@ -27,7 +27,14 @@ run it through `test:tauri` so its bundled entry and temporary profile are suppl
 `tauri-frontend.test.mjs` tests the compiled browser entry, its assets, themes,
 startup failures, real backend Catalog snapshots, navigation/search and
 rendering-before-readiness ordering through the same command. The native smoke
-test traverses Welcome to Catalog before exiting.
+test traverses Welcome, Catalog and the Pods page before exiting.
+
+Opening a cluster renders the built-in sidebar and read-only Pods view. Load Pods
+explicitly authorizes the selected context's normal Kubernetes client authentication,
+including any configured exec plugin, followed by bounded Pod GET requests. The
+worker is built separately and supervised outside the repository. Discovery never
+authenticates. Native smoke traverses to Pods but does not authorize a request;
+protocol tests use a loopback Kubernetes fixture rather than a real cluster.
 
 ## generate-explicit-di-registration.mjs
 

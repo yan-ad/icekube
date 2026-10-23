@@ -2,32 +2,42 @@
  * Copyright (c) Freelens Authors. All rights reserved.
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
-
 .cluster {
   min-height: 0;
-  overflow: auto;
 }
-
-.actions {
+.sidebar {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: var(--padding);
-
-  button {
-    color: var(--textColorPrimary);
-    background: var(--buttonDefaultBackground);
-    padding: var(--padding);
-    border-radius: var(--border-radius);
-    cursor: pointer;
-
-    &:disabled {
-      cursor: not-allowed;
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--textColorAccent);
-      outline-offset: 2px;
-    }
-  }
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}
+.navButton {
+  width: 100%;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.navButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+.navButton:disabled:hover {
+  background: transparent;
+  color: inherit;
+}
+.navButton:focus-visible,
+.back:focus-visible {
+  outline: 2px solid var(--textColorAccent);
+  outline-offset: -2px;
+}
+.back {
+  background: transparent;
+  color: var(--textColorSecondary);
+  padding: var(--padding);
+  cursor: pointer;
+  text-align: left;
+}
+.missing {
+  padding: var(--padding);
 }

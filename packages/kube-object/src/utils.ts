@@ -12,7 +12,7 @@ import {
   isRecord,
   isString,
   isTypedArray,
-} from "@freelensapp/utilities";
+} from "../../utility-features/utilities/src/type-narrowing";
 
 import type {
   KubeJsonApiData,

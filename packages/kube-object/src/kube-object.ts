@@ -4,9 +4,11 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { formatDuration, formatRelativeTime, isObject, isString } from "@freelensapp/utilities";
 import autoBind from "auto-bind";
 import { omit } from "es-toolkit/compat";
+import { formatRelativeTime } from "../../utility-features/utilities/src/date";
+import { formatDuration } from "../../utility-features/utilities/src/formatDuration";
+import { isObject, isString } from "../../utility-features/utilities/src/type-narrowing";
 import { KubeCreationError } from "./api-types";
 import {
   filterOutResourceApplierAnnotations,

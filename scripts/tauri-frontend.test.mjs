@@ -23,7 +23,7 @@ const compiled = await build({
   write: false,
 });
 
-test("opens a cluster SOON landing without starting authentication and returns to Catalog", async (t) => {
+test("opens the full cluster sidebar and Pods without starting authentication", async (t) => {
   const calls = [];
   const app = boot(
     t,
@@ -38,13 +38,17 @@ test("opens a cluster SOON landing without starting authentication and returns t
   );
   await waitFor(() => app.document.querySelector(`[data-testid="catalog-entity-${cluster.id}"]`));
   app.document.querySelector(`[aria-label="Open ${cluster.name}"]`).click();
-  await waitFor(() => app.document.querySelector('[aria-label="Cluster connection"]'));
+  await waitFor(() => app.document.querySelector('[aria-label="Cluster navigation"]'));
   assert.equal(app.window.location.hash, `#/cluster/${encodeURIComponent(cluster.id)}`);
   assert.match(app.document.body.textContent, /SOON/);
-  assert.match(app.document.body.textContent, /No connection has been started/);
+  assert.match(app.document.body.textContent, /Load Pods/);
+  assert.match(app.document.body.textContent, /may execute kubeconfig auth plugins/);
   assert.doesNotMatch(app.document.body.textContent, /Authentication proxy started|Starting connection|Connecting…/);
+  const navigation = app.document.querySelector('[aria-label="Cluster navigation"]');
   assert.ok(
-    [...app.document.querySelectorAll("button")].find((button) => button.textContent.startsWith("Connect")).disabled,
+    [...navigation.querySelectorAll("button")]
+      .filter((button) => button.disabled)
+      .every((button) => button.textContent.includes("SOON")),
   );
   [...app.document.querySelectorAll("button")].find((button) => button.textContent === "Back to Catalog").click();
   await waitFor(() => app.document.querySelector('[aria-label="Catalog entities"]'));

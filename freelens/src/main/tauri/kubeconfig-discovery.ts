@@ -40,7 +40,7 @@ const isSensitive = (filePath: string): boolean =>
 /** Catalog metadata only. Never instantiate KubeConfig or resolve credentials, exec, or servers.
  * Each call is a fresh snapshot; warnings are fixed codes, never paths or parser exceptions.
  */
-export async function discoverKubeconfigContexts({
+export async function discoverKubeconfigSelections({
   roots,
   homeDirectory,
   maxEntities = entityLimit,
@@ -48,10 +48,15 @@ export async function discoverKubeconfigContexts({
   roots: readonly string[];
   homeDirectory: string;
   maxEntities?: number;
-}): Promise<{ entities: DiscoveredCatalogEntity[]; warnings: string[] }> {
+}): Promise<{
+  entities: DiscoveredCatalogEntity[];
+  warnings: string[];
+  selections: Map<string, { canonicalPath: string; contextName: string }>;
+}> {
   if (!Number.isInteger(maxEntities) || maxEntities < 0 || maxEntities > entityLimit) {
     throw new Error("Invalid catalog discovery entity limit");
   }
+  const selections = new Map<string, { canonicalPath: string; contextName: string }>();
   const entities: DiscoveredCatalogEntity[] = [];
   const warnings = new Set<string>();
   const visitedFiles = new Set<string>();
@@ -165,6 +170,7 @@ export async function discoverKubeconfigContexts({
         }
         metadataBytes += entityBytes;
         entities.push(entity);
+        selections.set(entity.id, { canonicalPath: target, contextName: context.name });
         if (entities.length >= maxEntities) break;
       }
     } catch {
@@ -211,5 +217,15 @@ export async function discoverKubeconfigContexts({
     }
   }
   warnLimits();
-  return { entities, warnings: [...warnings] };
+  return { entities, warnings: [...warnings], selections };
+}
+
+/** Public catalog projection deliberately excludes the private worker selections. */
+export async function discoverKubeconfigContexts(options: {
+  roots: readonly string[];
+  homeDirectory: string;
+  maxEntities?: number;
+}): Promise<{ entities: DiscoveredCatalogEntity[]; warnings: string[] }> {
+  const { entities, warnings } = await discoverKubeconfigSelections(options);
+  return { entities, warnings };
 }

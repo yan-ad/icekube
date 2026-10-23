@@ -232,6 +232,7 @@ export function TauriCatalog({
                   role="row"
                   selected={detailsId === entity.id}
                   testId={`catalog-entity-${entity.id}`}
+                  data-catalog-kind={entity.kind}
                   onClick={() => showEntity(entity)}
                 >
                   {visible("name") && (

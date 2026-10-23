@@ -50,12 +50,14 @@ if (
 const target = join(cache, cacheKey);
 const manifest = join(root, "freelens/src-tauri/Cargo.toml");
 const backend = join(temporary, "backend.mjs");
+const podsWorker = join(temporary, "pods-worker.mjs");
 const frontend = join(temporary, "frontend");
 const environment = {
   ...process.env,
   CARGO_TARGET_DIR: target,
   FREELENS_TAURI_NODE: process.execPath,
   FREELENS_TAURI_BACKEND: backend,
+  FREELENS_TAURI_PODS_WORKER: podsWorker,
   FREELENS_TAURI_PROFILE: join(temporary, "profile"),
   FREELENS_TAURI_FRONTEND: frontend,
   TAURI_CONFIG: JSON.stringify({ build: { frontendDist: frontend } }),
@@ -91,9 +93,63 @@ const interrupt = () => {
 process.on("SIGINT", interrupt);
 process.on("SIGTERM", interrupt);
 
+const buildPodsWorker = async () => {
+  const workerBundle = await build({
+    absWorkingDir: root,
+    entryPoints: ["freelens/src/main/tauri/pods-worker.ts"],
+    outfile: podsWorker,
+    bundle: true,
+    platform: "node",
+    target: "node24",
+    format: "esm",
+    metafile: true,
+    supported: { decorators: false },
+    plugins: [
+      {
+        name: "pinned-pods-worker-dependencies",
+        setup(build) {
+          const permitted = new Set(["@kubernetes/client-node", "undici", "joi", "js-yaml", "auto-bind", "es-toolkit"]);
+          build.onResolve({ filter: /^[^./]/ }, (args) => {
+            if (args.path.startsWith("node:")) return { path: args.path, external: true };
+            if (args.path.startsWith("@freelensapp/")) return;
+            const name = args.path.startsWith("@")
+              ? args.path.split("/").slice(0, 2).join("/")
+              : args.path.split("/")[0];
+            if (!permitted.has(name)) throw new Error(`Unsupported Pods worker dependency: ${args.path}`);
+            const pinned = createRequire(args.importer || join(root, "freelens/package.json")).resolve(args.path);
+            return { path: pinned, external: true };
+          });
+        },
+      },
+    ],
+  });
+  // Keep the credential-capable worker independent of Electron, extensions,
+  // feature registration and model/utility barrels, including tree-shaken inputs.
+  const permittedWorkerInputs = new Set([
+    "freelens/src/main/tauri/pods-worker.ts",
+    "freelens/src/main/tauri/kubeconfig-discovery.ts",
+    "packages/core/src/common/kubeconfig-file-ignore.ts",
+    "freelens/src/common/tauri/pods-protocol.ts",
+    "packages/core/src/common/kube-config-document.ts",
+    "packages/kube-object/src/specifics/pod.ts",
+    "packages/kube-object/src/kube-object.ts",
+    "packages/kube-object/src/api-types.ts",
+    "packages/kube-object/src/utils.ts",
+    "packages/utility-features/utilities/src/type-narrowing.ts",
+    "packages/utility-features/utilities/src/date.ts",
+    "packages/utility-features/utilities/src/formatDuration.ts",
+    "packages/technical-features/messaging/messaging/src/features/actual/request/get-request-channel.ts",
+  ]);
+  const unexpectedWorkerInputs = Object.keys(workerBundle.metafile.inputs).filter(
+    (path) => !permittedWorkerInputs.has(path),
+  );
+  if (unexpectedWorkerInputs.length > 0) {
+    throw new Error(`Pods worker acquired unsupported runtime dependencies: ${unexpectedWorkerInputs.join(", ")}`);
+  }
+};
+
 const run = async (executable, args) => {
   if (interrupted) return 130;
-
   const running = spawn(executable, args, {
     cwd: root,
     env: environment,
@@ -118,6 +174,7 @@ const run = async (executable, args) => {
 };
 
 try {
+  await buildPodsWorker();
   await buildFrontend({
     configFile: join(root, "freelens/tauri.vite.config.ts"),
     build: { outDir: frontend, emptyOutDir: true },
@@ -140,7 +197,15 @@ try {
       {
         name: "explicit-node-catalog-dependencies",
         setup(build) {
-          const permitted = new Set(["@ogre-tools/injectable", "mobx", "es-toolkit", "uuid", "joi", "js-yaml"]);
+          const permitted = new Set([
+            "@ogre-tools/injectable",
+            "@ogre-tools/fp",
+            "mobx",
+            "es-toolkit",
+            "uuid",
+            "joi",
+            "js-yaml",
+          ]);
           build.onResolve({ filter: /^[^./]/ }, (args) => {
             if (args.path.startsWith("node:")) return { path: args.path, external: true };
             if (args.path.startsWith("@freelensapp/")) return;
@@ -152,7 +217,7 @@ try {
             // not the temporary bundle directory or NODE_PATH.
             const require = createRequire(args.importer || join(root, "package.json"));
             const path = require.resolve(args.path);
-            return name === "@ogre-tools/injectable"
+            return ["@ogre-tools/injectable", "@ogre-tools/fp"].includes(name)
               ? { path, namespace: "pinned-commonjs" }
               : { path, external: true };
           });
@@ -176,6 +241,8 @@ try {
       !(
         path.startsWith("pinned-commonjs:") ||
         path.startsWith("freelens/src/main/tauri/") ||
+        path === "freelens/src/common/tauri/pods-protocol.ts" ||
+        path.startsWith("packages/technical-features/messaging/messaging/") ||
         path.startsWith("packages/core/src/common/catalog/") ||
         path.startsWith("packages/core/src/common/catalog-entities/") ||
         path.startsWith("packages/core/src/main/catalog/") ||

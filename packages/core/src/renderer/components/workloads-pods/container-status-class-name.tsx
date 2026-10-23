@@ -1,8 +1,11 @@
 import type { ContainerWithType, EphemeralContainerWithType, PodContainerStatus } from "@freelensapp/kube-object";
 
 export function containerStatusClassName(
-  container: ContainerWithType | EphemeralContainerWithType,
-  status?: PodContainerStatus,
+  container: Pick<ContainerWithType | EphemeralContainerWithType, "type">,
+  status?: Pick<PodContainerStatus, "ready" | "restartCount"> & {
+    state?: { running?: unknown; waiting?: unknown; terminated?: unknown };
+    lastState?: { running?: unknown; waiting?: unknown; terminated?: unknown };
+  },
 ) {
   const state = status ? Object.keys(status?.state ?? {})[0] : "";
   const lastState = status ? Object.keys(status?.lastState ?? {})[0] : "";

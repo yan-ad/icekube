@@ -9,13 +9,23 @@ import {
   initializeAppPaths,
 } from "../../../../packages/core/src/main/app-paths/initialize-app-paths";
 import { createHostApplicationStarter } from "../../../../packages/technical-features/application/application/src/start-application/create-host-application-starter";
+import {
+  type PodsRequest,
+  type PodsSnapshot,
+  parsePodsRequest,
+  parsePodsSnapshot,
+} from "../../common/tauri/pods-protocol";
 import { createBuiltInCatalog } from "./catalog";
+import { createPodsReader } from "./pods";
 
 import type { CatalogSnapshot, RuntimeStatus } from "../../common/tauri/protocol";
 
-type BackendResponse = { id: number; result: RuntimeStatus | CatalogSnapshot } | { id: number | null; error: string };
+type BackendResponse =
+  | { id: number; result: RuntimeStatus | CatalogSnapshot | PodsSnapshot }
+  | { id: number | null; error: string };
 
 const maximumRequestBytes = 16 * 1024;
+let listPods: ((request: PodsRequest) => Promise<PodsSnapshot>) | undefined;
 let initializationStarted = false;
 let status: RuntimeStatus | undefined;
 let catalogSnapshot: (() => Promise<CatalogSnapshot>) | undefined;
@@ -68,6 +78,13 @@ const initialize = async (appData: string): Promise<RuntimeStatus> => {
         throw new Error("Invalid catalog discovery roots configuration");
       }
       catalogSnapshot = createBuiltInCatalog({ roots, homeDirectory: process.env.HOME });
+      const workerPath = process.env.FREELENS_TAURI_PODS_WORKER;
+      if (workerPath !== undefined && (!isAbsolute(workerPath) || workerPath.includes("\0"))) {
+        throw new Error("Invalid Pods worker configuration");
+      }
+      listPods = workerPath
+        ? createPodsReader({ roots, homeDirectory: process.env.HOME ?? "", workerPath, nodePath: process.execPath })
+        : undefined;
       phases.push("application-started");
     },
   });
@@ -116,7 +133,12 @@ const handleRequest = async (line: string): Promise<BackendResponse> => {
       throw new Error("Request method must be a string");
     }
 
-    const allowedKeys = fields.method === "initialize" ? ["id", "method", "appData"] : ["id", "method"];
+    const allowedKeys =
+      fields.method === "initialize"
+        ? ["id", "method", "appData"]
+        : fields.method === "pods.list"
+          ? ["id", "method", "clusterId", "namespace"]
+          : ["id", "method"];
 
     if (Object.keys(fields).some((key) => !allowedKeys.includes(key))) {
       throw new Error("Request contains unsupported keys");
@@ -134,6 +156,28 @@ const handleRequest = async (line: string): Promise<BackendResponse> => {
         }
 
         return { id, result: await initialize(fields.appData) };
+      }
+      case "pods.list": {
+        const dto = parsePodsRequest({ clusterId: fields.clusterId, namespace: fields.namespace });
+        if (!status) throw new Error("Backend has not been initialized");
+        const unavailable = (error: "UNAVAILABLE" | "INVALID_RESPONSE" | "RESPONSE_TOO_LARGE"): PodsSnapshot => ({
+          protocolVersion: 1,
+          ...dto,
+          pods: [],
+          namespaces: [],
+          truncated: false,
+          warnings: [],
+          error,
+        });
+        if (!listPods) return { id, result: unavailable("UNAVAILABLE") };
+        try {
+          const result = parsePodsSnapshot(await listPods(dto), dto);
+          return Buffer.byteLength(JSON.stringify({ id, result })) + 1 > 1024 * 1024
+            ? { id, result: unavailable("RESPONSE_TOO_LARGE") }
+            : { id, result };
+        } catch {
+          return { id, result: unavailable("INVALID_RESPONSE") };
+        }
       }
       case "status": {
         if (!status) {

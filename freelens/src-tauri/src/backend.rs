@@ -17,6 +17,163 @@ const RESPONSE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PodsRequest {
+    pub cluster_id: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub namespace: Option<String>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+pub enum PodsError {
+    ClusterNotFound,
+    ConfigUnavailable,
+    AuthFailed,
+    Forbidden,
+    Timeout,
+    TlsError,
+    Unavailable,
+    ResponseTooLarge,
+    InvalidResponse,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PodsSnapshot {
+    pub protocol_version: u32,
+    pub cluster_id: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub namespace: Option<String>,
+    pub pods: Vec<PodSummary>,
+    pub namespaces: Vec<String>,
+    pub truncated: bool,
+    pub warnings: Vec<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub error: Option<PodsError>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PodSummary {
+    pub uid: String,
+    pub name: String,
+    pub namespace: String,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub node_name: Option<String>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub created_at: Option<String>,
+    pub phase: String,
+    pub status: String,
+    pub ready_containers: u64,
+    pub total_containers: u64,
+    pub restart_count: u64,
+    pub containers: Vec<PodContainer>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub owner: Option<PodOwner>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub cpu: Option<f64>,
+    #[serde(deserialize_with = "Option::deserialize")]
+    pub memory: Option<f64>,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PodContainer {
+    pub name: String,
+    pub ready: bool,
+    pub state: ContainerState,
+    pub init: bool,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ContainerState {
+    Running,
+    Waiting,
+    Terminated,
+    Unknown,
+}
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct PodOwner {
+    pub kind: String,
+    pub name: String,
+}
+fn valid_namespace(value: &str) -> bool {
+    !value.is_empty()
+        && value.len() <= 63
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && value.as_bytes()[0].is_ascii_alphanumeric()
+        && value.as_bytes()[value.len() - 1].is_ascii_alphanumeric()
+}
+impl PodsRequest {
+    pub fn validate(&self) -> Result<(), String> {
+        if self.cluster_id.len() != 32
+            || !self
+                .cluster_id
+                .bytes()
+                .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+            || self.namespace.as_ref().is_some_and(|s| !valid_namespace(s))
+        {
+            return Err("Invalid Pods request".into());
+        }
+        Ok(())
+    }
+}
+fn validate_pods(snapshot: &PodsSnapshot, request: &PodsRequest) -> Result<(), String> {
+    request.validate()?;
+    let mut uids = std::collections::HashSet::new();
+    if snapshot.protocol_version != 1
+        || snapshot.cluster_id != request.cluster_id
+        || snapshot.namespace != request.namespace
+        || snapshot.pods.len() > 1000
+        || snapshot.namespaces.len() > 1000
+        || snapshot.namespaces.iter().any(|s| !valid_namespace(s))
+        || snapshot.warnings.len() > 32
+        || snapshot.warnings.iter().any(|s| {
+            ![
+                "Pod list truncated",
+                "Namespace list unavailable",
+                "Metrics unavailable",
+            ]
+            .contains(&s.as_str())
+        })
+        || (snapshot.error.is_some() && !snapshot.pods.is_empty())
+        || snapshot.pods.iter().any(|p| {
+            [&p.uid, &p.name, &p.phase, &p.status]
+                .iter()
+                .any(|s| !bounded_text(s))
+                || !valid_namespace(&p.namespace)
+                || request
+                    .namespace
+                    .as_ref()
+                    .is_some_and(|s| s != &p.namespace)
+                || !uids.insert(&p.uid)
+                || p.node_name.as_ref().is_some_and(|s| !bounded_text(s))
+                || p.created_at.as_ref().is_some_and(|s| !bounded_text(s))
+                || p.ready_containers > p.total_containers
+                || [p.ready_containers, p.total_containers, p.restart_count]
+                    .iter()
+                    .any(|n| *n > 9007199254740991)
+                || p.containers.len() > 256
+                || p.containers.iter().any(|c| !bounded_text(&c.name))
+                || p.owner
+                    .as_ref()
+                    .is_some_and(|o| !bounded_text(&o.kind) || !bounded_text(&o.name))
+                || [p.cpu, p.memory]
+                    .iter()
+                    .flatten()
+                    .any(|n| !n.is_finite() || *n < 0.0)
+        })
+        || serde_json::to_vec(snapshot)
+            .map_err(|_| "Invalid Pods snapshot")?
+            .len()
+            > MAX_RESPONSE_BYTES as usize
+    {
+        return Err("Backend Pods snapshot mismatch".into());
+    }
+    Ok(())
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct BackendStatus {
     pub protocol_version: u32,
     pub runtime: String,
@@ -152,6 +309,85 @@ fn validate_catalog(snapshot: &CatalogSnapshot) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn pods_dtos_reject_unknown_missing_and_invalid_values_without_cluster_access() {
+        let request = PodsRequest {
+            cluster_id: "0123456789abcdef0123456789abcdef".into(),
+            namespace: Some("default".into()),
+        };
+        assert!(request.validate().is_ok());
+        for value in [
+            json!({"clusterId": request.cluster_id}),
+            json!({"clusterId": request.cluster_id, "namespace": null, "url": "https://example.com"}),
+            json!({"clusterId": 1, "namespace": null}),
+        ] {
+            assert!(serde_json::from_value::<PodsRequest>(value).is_err());
+        }
+        for namespace in ["", "../secret", "Default", "-default", "default-"] {
+            let mut invalid = request.clone();
+            invalid.namespace = Some(namespace.into());
+            assert!(invalid.validate().is_err());
+        }
+        for id in ["test-cluster", "ABCDEF0123456789abcdef0123456789ab", ""] {
+            let mut invalid = request.clone();
+            invalid.cluster_id = id.into();
+            assert!(invalid.validate().is_err());
+        }
+        let value = json!({"protocolVersion":1,"clusterId": request.cluster_id,"namespace":"default","pods":[{"uid":"uid","name":"pod","namespace":"default","nodeName":null,"createdAt":null,"phase":"Running","status":"Running","readyContainers":1,"totalContainers":1,"restartCount":0,"containers":[{"name":"app","ready":true,"state":"running","init":false}],"owner":{"kind":"ReplicaSet","name":"owner"},"cpu":null,"memory":null}],"namespaces":["default"],"truncated":false,"warnings":[],"error":null});
+        let snapshot: PodsSnapshot = serde_json::from_value(value.clone()).unwrap();
+        assert!(validate_pods(&snapshot, &request).is_ok());
+        for pointer in ["", "/pods/0", "/pods/0/containers/0", "/pods/0/owner"] {
+            let mut invalid = value.clone();
+            invalid.pointer_mut(pointer).unwrap()["unknown"] = json!(true);
+            assert!(serde_json::from_value::<PodsSnapshot>(invalid).is_err());
+        }
+        for pointer in [
+            "/namespace",
+            "/pods/0/nodeName",
+            "/pods/0/createdAt",
+            "/pods/0/cpu",
+            "/pods/0/memory",
+            "/pods/0/owner",
+            "/error",
+        ] {
+            let mut invalid = value.clone();
+            let (parent, key) = pointer.rsplit_once('/').unwrap();
+            invalid
+                .pointer_mut(parent)
+                .unwrap()
+                .as_object_mut()
+                .unwrap()
+                .remove(key);
+            assert!(serde_json::from_value::<PodsSnapshot>(invalid).is_err());
+        }
+        for (pointer, replacement) in [
+            ("/error", json!("SECRET")),
+            ("/pods/0/containers/0/state", json!("execute")),
+            ("/pods/0/restartCount", json!(-1)),
+        ] {
+            let mut invalid = value.clone();
+            *invalid.pointer_mut(pointer).unwrap() = replacement;
+            assert!(serde_json::from_value::<PodsSnapshot>(invalid).is_err());
+        }
+        let mut invalid = snapshot.clone();
+        invalid.cluster_id = "f".repeat(32);
+        assert!(validate_pods(&invalid, &request).is_err());
+        invalid = snapshot.clone();
+        invalid.namespace = None;
+        assert!(validate_pods(&invalid, &request).is_err());
+        invalid = snapshot.clone();
+        invalid.pods[0].namespace = "other".into();
+        assert!(validate_pods(&invalid, &request).is_err());
+        invalid = snapshot.clone();
+        invalid.warnings = vec!["sensitive backend text".into()];
+        assert!(validate_pods(&invalid, &request).is_err());
+        invalid = snapshot.clone();
+        invalid.pods[0].containers = vec![snapshot.pods[0].containers[0].clone(); 257];
+        assert!(validate_pods(&invalid, &request).is_err());
+        invalid = snapshot.clone();
+        invalid.pods = vec![snapshot.pods[0].clone(); 1001];
+        assert!(validate_pods(&invalid, &request).is_err());
+    }
 
     fn node_paths() -> (std::path::PathBuf, std::path::PathBuf, std::path::PathBuf) {
         (
@@ -266,6 +502,22 @@ mod tests {
         let mut invalid = value;
         invalid["entities"][0]["status"] = json!({"phase": "active"});
         assert!(serde_json::from_value::<CatalogSnapshot>(invalid).is_err());
+    }
+
+    #[test]
+    fn pods_wire_scope_mismatch_is_terminal() {
+        let (node, script, profile) = node_paths();
+        let mut backend = Backend::start(&node, &script, &profile).unwrap();
+        let (sender, responses) = mpsc::sync_channel(1);
+        sender.send(Ok(json!({"id": 2, "result": {"protocolVersion":1,"clusterId":"ffffffffffffffffffffffffffffffff","namespace":null,"pods":[],"namespaces":[],"truncated":false,"warnings":[],"error":null}}))).unwrap();
+        backend.responses = responses;
+        assert!(backend
+            .list_pods(PodsRequest {
+                cluster_id: "0123456789abcdef0123456789abcdef".into(),
+                namespace: None
+            })
+            .is_err());
+        assert!(backend.child.try_wait().unwrap().is_some());
     }
 
     #[test]
@@ -523,10 +775,41 @@ impl Backend {
         result
     }
 
+    pub fn list_pods(&mut self, request: PodsRequest) -> Result<PodsSnapshot, String> {
+        request.validate()?;
+        let response = match self.exchange_request("pods.list", None, Some(&request)) {
+            Ok(Ok(value)) => value,
+            Ok(Err(error)) => return Err(error),
+            Err(_) => {
+                self.stop();
+                return Err("Pods backend unavailable".into());
+            }
+        };
+        let result = serde_json::from_value::<PodsSnapshot>(response)
+            .map_err(|_| "Invalid Pods response".to_string())
+            .and_then(|snapshot| {
+                validate_pods(&snapshot, &request)?;
+                Ok(snapshot)
+            });
+        if result.is_err() {
+            self.stop();
+        }
+        result
+    }
+
     fn exchange(
         &mut self,
         method: &str,
         app_data: Option<&Path>,
+    ) -> Result<Result<Value, String>, String> {
+        self.exchange_request(method, app_data, None)
+    }
+
+    fn exchange_request(
+        &mut self,
+        method: &str,
+        app_data: Option<&Path>,
+        pods: Option<&PodsRequest>,
     ) -> Result<Result<Value, String>, String> {
         if self
             .child
@@ -542,12 +825,20 @@ impl Backend {
         if let Some(path) = app_data {
             request["appData"] = json!(path);
         }
+        if let Some(pods) = pods {
+            request["clusterId"] = json!(pods.cluster_id);
+            request["namespace"] = json!(pods.namespace);
+        }
         let input = self.input.as_mut().ok_or("Node backend is stopped")?;
         writeln!(input, "{request}").map_err(|error| error.to_string())?;
         input.flush().map_err(|error| error.to_string())?;
         let response = self
             .responses
-            .recv_timeout(self.response_timeout)
+            .recv_timeout(if pods.is_some() {
+                Duration::from_secs(20)
+            } else {
+                self.response_timeout
+            })
             .map_err(|error| format!("Backend response unavailable: {error}"))??;
         if response.get("id").and_then(Value::as_u64) != Some(id) {
             return Err("Backend response ID mismatch".into());

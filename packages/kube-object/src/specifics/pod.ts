@@ -4,7 +4,7 @@
  * Licensed under MIT License. See LICENSE in root directory for more information.
  */
 
-import { isDefined } from "@freelensapp/utilities";
+import { isDefined } from "../../../utility-features/utilities/src/type-narrowing";
 import { KubeObject } from "../kube-object";
 
 import type { RequireExactlyOne } from "type-fest";
