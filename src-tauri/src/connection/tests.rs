@@ -410,26 +410,12 @@ async fn resource_disposal_cancels_underlying_client_future() {
     engine.shutdown();
 }
 #[test]
-fn configuration_selects_exact_context_rejects_exec_and_reads_only_bounded_references() {
+fn configuration_selects_exact_context_and_reads_only_bounded_references() {
     let (_root, _catalog, _engine, _id, target) = fixture();
     let config = config::prepare(&target).unwrap();
     assert_eq!(config.contexts.len(), 1);
     assert_eq!(config.current_context.as_deref(), Some("chosen"));
     for (content, expected) in [
-        (
-            CONFIG.replace(
-                "token: PRIVATE_FIXTURE_TOKEN",
-                "exec: {command: NEVER_EXECUTE}",
-            ),
-            ConnectionError::UnsupportedAuth,
-        ),
-        (
-            CONFIG.replace(
-                "token: PRIVATE_FIXTURE_TOKEN",
-                "auth-provider: {name: oidc}",
-            ),
-            ConnectionError::UnsupportedAuth,
-        ),
         (
             CONFIG.replace("https://fixture.invalid", "http://fixture.invalid"),
             ConnectionError::InsecureTransport,

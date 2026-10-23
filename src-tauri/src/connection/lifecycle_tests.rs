@@ -88,7 +88,12 @@ async fn removed_catalog_target_never_reaches_version_probe() {
 async fn client_construction_uses_selected_static_configuration_without_network() {
     let (_root, _catalog, _engine, _id, target) = fixture();
     let admission = Arc::new(tokio::sync::Semaphore::new(2));
-    let result = config::build_client(target.clone(), admission.clone()).await;
+    let result = config::build_client(
+        target.clone(),
+        admission.clone(),
+        tokio_util::task::TaskTracker::new(),
+    )
+    .await;
     assert!(result.is_ok());
     fs::write(
         &target.source_path,
@@ -99,8 +104,10 @@ async fn client_construction_uses_selected_static_configuration_without_network(
     )
     .unwrap();
     assert_eq!(
-        config::build_client(target, admission).await.err(),
-        Some(ConnectionError::UnsupportedAuth)
+        config::build_client(target, admission, tokio_util::task::TaskTracker::new())
+            .await
+            .err(),
+        Some(ConnectionError::KubeconfigInvalid)
     );
 }
 

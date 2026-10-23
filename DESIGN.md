@@ -25,8 +25,9 @@ seamless window frame. The first Rust catalog engine persists imported cluster
 context metadata, web links, individual item pins, and random record colors in SQLite.
 Built-in discovery imports `~/.kube/config` on catalog load/Refresh.
 Background file watching and live watches are not implemented. The connection foundation
-now provides explicit Rust-owned session leases, bounded HTTPS client setup, and read-only
-Nodes/Namespaces snapshots. Cluster rows open a disconnected workspace with inset navigation;
+now provides Rust-owned session leases, automatic connection on workspace entry, bounded
+HTTPS client setup, and read-only Nodes/Namespaces snapshots. Cluster rows open a compact
+workspace with inset navigation and a cluster-local breadcrumb/status/actions row;
 saved web links open
 in the default OS browser through a Rust-owned saved-ID command.
 Do not claim Freelens extension compatibility or expose unfinished operations.
@@ -107,12 +108,14 @@ from a name or nearby record. Unknown/deleted IDs show a missing-cluster state.
 
 The workspace adds a cluster-specific inset sidebar beside the collapsed main
 sidebar, preserving the Astryx section shell. Its header shows the saved cluster
-name, context, persisted icon color, and a Saved context label. The sidebar routes
+name, context, and a brightened display glyph derived from persisted color. The sidebar routes
 between Cluster, Nodes, Workloads, Config, Network, Storage, Namespaces, Events,
 Helm, Access Control, and Custom Resources. These are navigable workspace sections
 with explicit disconnected/not-implemented states. Nodes and Namespaces show read-only
-resource tables after explicit connection. The Cluster section shows saved
-context/source/labels and verified API version; no fake metrics, events, counts, or terminals.
+resource tables after automatic connection. The Cluster section shows saved context/source/labels
+and verified API version; the cluster-local row owns Refresh and overflow actions, while the
+global toolbar remains for shell navigation/search. ⌘R/Ctrl+R refreshes only the active cluster
+view. No fake metrics, events, counts, or terminals.
 
 Section identity is scoped to the cluster route through the validated `section`
 search field. History back/forward and direct links retain cluster/section scope.

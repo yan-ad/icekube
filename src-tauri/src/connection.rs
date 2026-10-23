@@ -12,6 +12,7 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod auth;
 mod config;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -31,6 +32,11 @@ pub enum ConnectionError {
     KubeconfigInvalid,
     SourceChanged,
     UnsupportedAuth,
+    AuthHelperMissing,
+    AuthHelperFailed,
+    AuthHelperInvalidResponse,
+    AuthInteractiveRequired,
+    AuthExpired,
     InsecureTransport,
     AuthFailed,
     TlsFailed,
@@ -44,6 +50,16 @@ pub enum ConnectionError {
     LimitExceeded,
     InvalidResponse,
     StoreUnavailable,
+}
+fn validate_credentials(client: &Client) -> Result<()> {
+    if client
+        .valid_until()
+        .is_some_and(|expiry| expiry <= jiff::Timestamp::now())
+    {
+        Err(ConnectionError::AuthExpired)
+    } else {
+        Ok(())
+    }
 }
 fn validate_read_id(id: u64) -> Result<()> {
     if id == 0 || id > 9_007_199_254_740_991 {
@@ -141,6 +157,7 @@ pub struct ConnectionEngine {
     session: Mutex<Option<Session>>,
     workers: tokio::sync::Semaphore,
     file_workers: Arc<tokio::sync::Semaphore>,
+    auth_tasks: tokio_util::task::TaskTracker,
     open_generation: AtomicU64,
 }
 impl ConnectionEngine {
@@ -150,6 +167,7 @@ impl ConnectionEngine {
             session: Mutex::new(None),
             workers: tokio::sync::Semaphore::new(4),
             file_workers: Arc::new(tokio::sync::Semaphore::new(2)),
+            auth_tasks: tokio_util::task::TaskTracker::new(),
             open_generation: AtomicU64::new(0),
         }
     }
@@ -214,6 +232,12 @@ impl ConnectionEngine {
             state.take();
         }
     }
+    pub async fn drain(&self) {
+        // Cancellation must reach connect futures before their helper trackers can be empty.
+        let _workers = self.workers.acquire_many(4).await;
+        self.auth_tasks.close();
+        self.auth_tasks.wait().await;
+    }
     pub fn status(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
         validate_request(&request)?;
         let state = self
@@ -224,7 +248,7 @@ impl ConnectionEngine {
     }
     pub async fn connect(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
         self.connect_with(request, |target| {
-            config::build_client(target, self.file_workers.clone())
+            config::build_client(target, self.file_workers.clone(), self.auth_tasks.clone())
         })
         .await
     }
@@ -271,6 +295,7 @@ impl ConnectionEngine {
                 return Err(ConnectionError::SourceChanged);
             }
             let version = transport::version(&client, &cancel).await?;
+            validate_credentials(&client)?;
             Ok((client, version))
         })
         .await;
@@ -337,6 +362,7 @@ impl ConnectionEngine {
                 .client
                 .clone()
                 .ok_or(ConnectionError::NotConnected)?;
+            validate_credentials(&client)?;
             let cancel = session.cancel.child_token();
             let slot = session.reads.entry(request.kind).or_insert(ReadSlot {
                 id: 0,

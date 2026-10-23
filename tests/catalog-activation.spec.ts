@@ -17,6 +17,8 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
         calls.push({ command, request: args?.request });
         if (options.slow) await new Promise((resolve) => setTimeout(resolve, 250));
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
+        if (command === "cluster_connect") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, contextName: "dev-context", status: "connected", apiVersion: "v1.34.1", error: null };
+        if (command === "cluster_resources") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, kind: args?.request.kind, readId: args?.request.readId, items: [], truncated: false, fetchedAt: Date.now() };
         if (command === "cluster_disconnect") return;
         if (command === "catalog_open_web_link") {
           if (options.failOpen) throw "openFailed";
@@ -50,16 +52,16 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await expect(inset).toBeVisible();
   await expect(inset.getByRole("link", { name: "Nodes", exact: true })).toBeVisible();
-  await expect(page.getByRole("main")).toContainText("This workspace is not connected");
+  await expect(page.getByRole("main")).toContainText("Connected");
   await page.screenshot({ path: testInfo.outputPath("cluster-workspace.png") });
   for (const [name, section] of [["Nodes", "nodes"], ["Workloads", "workloads"], ["Network", "network"], ["Storage", "storage"], ["Helm", "helm"]]) {
     await inset.getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${section}$`));
     await expect(page.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
-    await expect(page.getByRole("main")).toContainText(section === "nodes" ? "Connect to load live nodes" : "not implemented yet");
+    await expect(page.getByRole("main")).toContainText(section === "nodes" ? "No nodes were returned" : "not implemented yet");
   }
-  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_disconnect"].includes(call.command))).toBe(true);
-  await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
+  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect"].includes(call.command))).toBe(true);
+  await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
@@ -77,7 +79,7 @@ test("row Enter/Space and pinned cluster activation work; pin/remove buttons do 
   const row = page.getByRole("row", { name: "Open cluster Development", exact: true });
   await row.focus(); await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
-  await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
+  await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await row.focus(); await page.keyboard.press("Space");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
@@ -148,7 +150,7 @@ test("workspace sidebar expansion is temporary and history preserves section sco
   await expect(page).toHaveURL(/section=nodes$/);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
+  await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
 });
 

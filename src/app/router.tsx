@@ -5,9 +5,10 @@ import NotFoundPage from "./pages/NotFoundPage";
 import { CatalogProvider } from "./catalog/CatalogProvider";
 import ClusterWorkspacePage from "./cluster/ClusterWorkspacePage";
 import { clusterSections, type ClusterSectionId } from "./cluster/navigation";
+import { WorkspaceRefreshProvider } from "./cluster/WorkspaceRefresh";
 
 const rootRoute = createRootRoute({
-  component: () => <CatalogProvider><MainLayout /></CatalogProvider>,
+  component: () => <CatalogProvider><WorkspaceRefreshProvider><MainLayout /></WorkspaceRefreshProvider></CatalogProvider>,
   notFoundComponent: NotFoundPage,
 });
 const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/catalog", replace: true }); } });
