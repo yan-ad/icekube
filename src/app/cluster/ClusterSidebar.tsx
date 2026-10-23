@@ -1,5 +1,4 @@
 import { useSearch } from "@tanstack/react-router";
-import { Badge } from "@astryxdesign/core/Badge";
 import { Divider } from "@astryxdesign/core/Divider";
 import { SideNav, SideNavSection } from "@astryxdesign/core/SideNav";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -29,7 +28,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
             <Text weight="semibold" style={{ minWidth: 0, overflowWrap: "anywhere" }}>{cluster.name}</Text>
           </HStack>
           <Text type="supporting" style={{ overflowWrap: "anywhere" }}>Context: {cluster.contextName}</Text>
-          <Badge variant="neutral" label="Disconnected" />
+          <Text type="supporting">Saved context</Text>
         </> : <Text role="status">{!available ? "Desktop engine required" : loading ? "Loading cluster…" : error ? "Cluster metadata unavailable" : "Cluster not found"}</Text>}
       </VStack>
       {cluster && <>

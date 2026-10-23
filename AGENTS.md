@@ -15,8 +15,9 @@ Project-specific guidance for AI coding agents.
   explicit kubeconfig metadata import, built-in default-file discovery, SQLite,
   web links, persisted record colors, individual item pins, and a
   Rust-owned seamless frame. All Categories combines clusters and web links;
-  category pages are never pinnable. Connections/background watching/live Kubernetes
-  operations are not implemented. Keep disconnected states honest.
+  category pages are never pinnable. Explicit Rust-owned HTTPS connections and bounded
+  read-only Nodes/Namespaces snapshots are implemented; auth helpers, background watches,
+  and mutations are not. Keep disconnected, failed, stale, and partial states honest.
 - Cluster rows/pins open an ID-scoped disconnected workspace with inset navigation,
   temporarily auto-collapsing main navigation without overwriting its Catalog
   preference. Do not confuse opening that route with connecting/authenticating.

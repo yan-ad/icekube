@@ -16,6 +16,8 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
         calls.push({ command, request: args?.request });
         if (options.slow) await new Promise((resolve) => setTimeout(resolve, 250));
+        if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
+        if (command === "cluster_disconnect") return;
         if (command === "catalog_open_web_link") {
           if (options.failOpen) throw "openFailed";
           return;
@@ -54,9 +56,9 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
     await inset.getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${section}$`));
     await expect(page.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
-    await expect(page.getByRole("main")).toContainText("not implemented yet");
+    await expect(page.getByRole("main")).toContainText(section === "nodes" ? "Connect to load live nodes" : "not implemented yet");
   }
-  expect((await calls(page)).every((call) => call.command === "catalog_list")).toBe(true);
+  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_disconnect"].includes(call.command))).toBe(true);
   await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);

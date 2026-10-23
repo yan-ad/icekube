@@ -2,7 +2,7 @@
 //! common/catalog/catalog-entity.ts and common/catalog-entities/web-link.ts (behavior only).
 //! CatalogEngine owns imported disconnected contexts, local links, and entry-only pins.
 //! Snapshot results cover empty/loaded states; sanitized errors cover rejected/unavailable states.
-//! Acceptance fixtures live in catalog/tests.rs and catalog/open_tests.rs; connections are not implemented.
+//! Acceptance fixtures live in catalog/tests.rs and catalog/open_tests.rs.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -93,6 +93,13 @@ pub struct RemoveRequest {
 #[serde(deny_unknown_fields)]
 pub struct OpenWebLinkRequest {
     pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ConnectionTarget {
+    pub source_path: PathBuf,
+    pub provenance_path: PathBuf,
+    pub context_name: String,
 }
 
 #[derive(Clone, Serialize, Deserialize, Default)]
@@ -213,6 +220,27 @@ impl CatalogEngine {
     }
     pub fn list(&self) -> Result<CatalogSnapshot> {
         self.change_inner(|_| Ok(false), true)
+    }
+
+    pub(crate) fn connection_target(&self, id: &str) -> Result<ConnectionTarget> {
+        if !valid_name(id) {
+            return Err(CatalogError::InvalidInput);
+        }
+        let _guard = self
+            .operations
+            .lock()
+            .map_err(|_| CatalogError::StoreUnavailable)?;
+        let store = storage::read_existing(&self.directory)?;
+        let cluster = store
+            .clusters
+            .iter()
+            .find(|cluster| cluster.id == id)
+            .ok_or(CatalogError::NotFound)?;
+        Ok(ConnectionTarget {
+            source_path: PathBuf::from(&cluster.source_path),
+            provenance_path: PathBuf::from(&cluster.provenance_path),
+            context_name: cluster.context_name.clone(),
+        })
     }
     pub(crate) fn open_web_link_with<E>(
         &self,
@@ -514,7 +542,7 @@ fn normalize_url(value: &str) -> Result<String> {
     }
     Ok(normalized)
 }
-fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>> {
+pub(crate) fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path).map_err(|_| CatalogError::InputUnavailable)?;
     if !metadata.is_file() || metadata.file_type().is_symlink() {
         return Err(CatalogError::InputUnavailable);

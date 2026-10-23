@@ -23,9 +23,11 @@ These are objectives, not a shipped-feature list. Today the app implements the
 shell, Catalog as the home screen, category search, navigation history, and the
 seamless window frame. The first Rust catalog engine persists imported cluster
 context metadata, web links, individual item pins, and random record colors in SQLite.
-Built-in discovery imports `~/.kube/config` on catalog load/Refresh. Cluster connections,
-background file watching and live resource operations are not implemented. Cluster
-rows open a disconnected workspace with inset navigation; saved web links open
+Built-in discovery imports `~/.kube/config` on catalog load/Refresh.
+Background file watching and live watches are not implemented. The connection foundation
+now provides explicit Rust-owned session leases, bounded HTTPS client setup, and read-only
+Nodes/Namespaces snapshots. Cluster rows open a disconnected workspace with inset navigation;
+saved web links open
 in the default OS browser through a Rust-owned saved-ID command.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
@@ -105,12 +107,12 @@ from a name or nearby record. Unknown/deleted IDs show a missing-cluster state.
 
 The workspace adds a cluster-specific inset sidebar beside the collapsed main
 sidebar, preserving the Astryx section shell. Its header shows the saved cluster
-name, context, persisted icon color, and Disconnected status. The sidebar routes
+name, context, persisted icon color, and a Saved context label. The sidebar routes
 between Cluster, Nodes, Workloads, Config, Network, Storage, Namespaces, Events,
 Helm, Access Control, and Custom Resources. These are navigable workspace sections
-with explicit disconnected/not-implemented states, not live resource pages.
-The Cluster section shows saved context/source/labels; no fake metrics, events,
-resource counts, terminals, or connection controls are rendered.
+with explicit disconnected/not-implemented states. Nodes and Namespaces show read-only
+resource tables after explicit connection. The Cluster section shows saved
+context/source/labels and verified API version; no fake metrics, events, counts, or terminals.
 
 Section identity is scoped to the cluster route through the validated `section`
 search field. History back/forward and direct links retain cluster/section scope.
@@ -258,6 +260,53 @@ An in-flight local write completes even if its initiating view is disposed; no
 watch or background discovery session is started. The UI preserves loaded data
 on refresh failure. Browser preview clearly disables engine-backed actions.
 
+### Cluster connection and live resource foundation
+
+`src-tauri/src/connection.rs` owns one main-workspace session lease. Opening a saved
+cluster creates a random lease from catalog metadata only. It does not read the
+kubeconfig or contact an API. `cluster_connect` requires that exact cluster/lease,
+loads the saved canonical source and selected context, then verifies `/version`.
+React keeps only typed public session/resource DTOs. Connection state is ephemeral,
+not persisted into Catalog's metadata snapshot.
+
+- `cluster_session_open`, `cluster_connect`, `cluster_connection_status`, and
+  `cluster_disconnect` scope every action to a saved ID and lease. Workspace change,
+  Cancel, Disconnect, and app/window teardown cancel owned work. Late completions
+  cannot publish into a replacement lease. Repeated cleanup is idempotent.
+- `connection/config.rs` reads the canonical kubeconfig and referenced credential
+  files with the existing regular-file/replacement checks and a 1 MiB per-file bound.
+  Relative references resolve beside the canonical source. A retargeted provenance
+  alias fails with `sourceChanged`. Only the selected context/cluster/user enters
+  client setup; `KUBECONFIG`, in-cluster fallback, debug overrides, and scans are not used.
+- This slice supports verified HTTPS with static token/basic/client-certificate
+  credentials. Exec plugins, auth-provider integrations, explicit proxies, HTTP,
+  and insecure TLS skip settings fail closed with fixed codes. Referenced token
+  files are snapshotted at connection time; reconnect to pick up credential rotation.
+  No auth helper subprocess is launched. Inherited proxy routing is not enabled.
+- `connection/transport.rs` uses `kube` 4.2.0 with rustls. It sends only allowlisted
+  GETs for version, nodes, and namespaces. Requests have a 15-second deadline,
+  four-operation admission bound, cancellation inside the client's buffered service,
+  and body limits before JSON parsing (64 KiB version, 2 MiB resource response).
+  API error bodies and underlying credential/TLS/transport messages never reach IPC.
+- `cluster_resources` fetches at most the first 100 Nodes or Namespaces independently,
+  with name/status projection only. Continuation is reported as `truncated`, never
+  a total. Monotonic per-read IDs bind `cluster_resources_cancel` to the exact read;
+  cancellation-before-registration and out-of-order completions fail closed.
+  Tables show loading, empty, denied/error, fetched time, partial, and stale retained
+  rows on refresh failure. Connected means the version probe succeeded, not that all
+  resource permissions exist or that background health monitoring is running.
+
+Behavior reference remains local Freelens commit
+`cd07118f843c4a69f937a319a37a7c12ef2c92d8`:
+`common/cluster/cluster.ts` separates connection/accessibility state and
+`common/cluster/list-namespaces.injectable.ts` lists namespace names. Icekube keeps
+those interactions but uses Rust instead of Electron/Node; no code was copied.
+Acceptance: `connection/tests.rs`, `connection/lifecycle_tests.rs`, and
+`tests/cluster-connection.spec.ts` cover exact scope, bounded responses, independent
+RBAC, cancelled/superseded work, redaction, retry, keyboard use, and narrow layouts.
+Tests use synthetic kubeconfigs, an in-memory client service, and mocked IPC only;
+they do not prove real-cluster TLS/authentication or native OS integration.
+
 ### Reference workflow record
 
 Behavior-only reference: local `/Users/user1/Kerjaa/freelens`,
@@ -269,13 +318,13 @@ No upstream source code was copied. `taulens` is not the reference checkout.
 | `renderer/components/catalog/catalog.tsx`, `columns/browse-all.injectable.tsx` | Combined entity inventory with kind/category, category filters; `CatalogEngine::list` | Loading, empty, loaded, filtered-empty, unavailable/error; `tests/catalog.spec.ts` aggregation and legacy redirect |
 | `common/catalog/catalog-entity.ts`, `common/catalog-entities/web-link.ts` | Explicit local entities, web-link name/URL, local-only removal; `import_kubeconfig`, `add_web_link`, `remove` | Entry forms, safe validation, saved, confirmed removal; Rust catalog fixtures plus browser import/link/remove tests |
 | `renderer/components/catalog/hotbar-toggle-menu-item.tsx` | Toggle shortcuts for entities, not categories; `set_pin` | Persisted pinned/unpinned, item-specific workspace or browser activation; Rust restart/dedup tests plus browser row-pin tests |
-| `common/catalog-entities/kubernetes-cluster.ts` (`onRun`), `renderer/components/layout/sidebar.tsx`, `sidebar-cluster.tsx`, `common/sidebar-menu-items-starting-order.ts` | Cluster-ID route, scoped inset navigation, temporary Catalog collapse; Rust remains owner of catalog metadata, connection engine not implemented | Loading, disconnected section, missing cluster, refresh errors; `tests/catalog-activation.spec.ts` row/keyboard, sections, history and drawer cases |
+| `common/catalog-entities/kubernetes-cluster.ts` (`onRun`), `renderer/components/layout/sidebar.tsx`, `sidebar-cluster.tsx`, `common/sidebar-menu-items-starting-order.ts` | Cluster-ID route, scoped inset navigation, temporary Catalog collapse; Rust owns the session lease and bounded client/resource requests | Loading, disconnected, connecting, connected, permission/transport failure, stale resource data, missing cluster; `tests/catalog-activation.spec.ts` and `tests/cluster-connection.spec.ts` |
 | `common/catalog-entities/web-link.ts` (`onRun`) | Open the selected saved link externally; `CatalogEngine::open_web_link_with` and Rust `OpenerExt` replace upstream `window.open` | Success/error without route change; Rust `catalog/open_tests.rs` validates saved IDs/URLs and injected opener, browser activation tests verify IPC-only handoff |
 
 Default-path discovery and the six-column table/colors are Icekube requirements,
 not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/
 color fixtures and browser built-in discovery, warning, column/icon, and reload tests.
-Connecting clusters, invoking auth helpers, live watches, and Freelens
+Authentication helper subprocesses, live watches, mutations, and Freelens
 extensions are outside this slice. Tests use synthetic fixtures and mocked IPC;
 they do not prove production-cluster or native OS integration.
 

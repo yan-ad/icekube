@@ -1,4 +1,5 @@
 mod catalog;
+mod connection;
 mod window;
 
 use catalog::{
@@ -16,6 +17,54 @@ async fn catalog_operation(
     tauri::async_runtime::spawn_blocking(move || operation(&engine))
         .await
         .map_err(|_| CatalogError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn cluster_session_open(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::OpenRequest,
+) -> Result<connection::ConnectionSnapshot, connection::ConnectionError> {
+    connections.open(request).await
+}
+
+#[tauri::command]
+async fn cluster_connect(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<connection::ConnectionSnapshot, connection::ConnectionError> {
+    connections.connect(request).await
+}
+
+#[tauri::command]
+async fn cluster_disconnect(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.disconnect(request)
+}
+
+#[tauri::command]
+fn cluster_connection_status(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<connection::ConnectionSnapshot, connection::ConnectionError> {
+    connections.status(request)
+}
+
+#[tauri::command]
+async fn cluster_resources(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::ResourceRequest,
+) -> Result<connection::ResourcePage, connection::ConnectionError> {
+    connections.resources(request).await
+}
+
+#[tauri::command]
+fn cluster_resources_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::ResourceRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.cancel_resources(request)
 }
 
 #[tauri::command]
@@ -85,10 +134,12 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            app.manage(Arc::new(CatalogEngine::new_with_home(
+            let catalog = Arc::new(CatalogEngine::new_with_home(
                 app.path().app_data_dir()?,
                 app.path().home_dir().ok(),
-            )));
+            ));
+            app.manage(catalog.clone());
+            app.manage(Arc::new(connection::ConnectionEngine::new(catalog)));
             window::create_main_window(app)?;
             Ok(())
         })
@@ -98,8 +149,21 @@ pub fn run() {
             catalog_add_web_link,
             catalog_set_pin,
             catalog_remove,
-            catalog_open_web_link
+            catalog_open_web_link,
+            cluster_session_open,
+            cluster_connect,
+            cluster_disconnect,
+            cluster_connection_status,
+            cluster_resources,
+            cluster_resources_cancel
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. })
+                || matches!(event, tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } if label == "main")
+            {
+                app.state::<Arc<connection::ConnectionEngine>>().shutdown();
+            }
+        });
 }
