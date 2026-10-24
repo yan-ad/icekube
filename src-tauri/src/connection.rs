@@ -16,6 +16,10 @@ mod auth;
 mod config;
 #[cfg(test)]
 mod lifecycle_tests;
+mod metrics;
+#[cfg(test)]
+mod resource_tests;
+mod resources;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -41,6 +45,7 @@ pub enum ConnectionError {
     AuthFailed,
     TlsFailed,
     PermissionDenied,
+    ResourceUnavailable,
     Timeout,
     Network,
     ConnectionFailed,
@@ -87,6 +92,36 @@ pub struct SessionRequest {
 pub enum ResourceKind {
     Nodes,
     Namespaces,
+    Pods,
+    Deployments,
+    DaemonSets,
+    StatefulSets,
+    ReplicaSets,
+    Jobs,
+    CronJobs,
+    ConfigMaps,
+    Secrets,
+    ResourceQuotas,
+    LimitRanges,
+    HorizontalPodAutoscalers,
+    PodDisruptionBudgets,
+    PriorityClasses,
+    RuntimeClasses,
+    Services,
+    Endpoints,
+    Ingresses,
+    IngressClasses,
+    NetworkPolicies,
+    PersistentVolumes,
+    PersistentVolumeClaims,
+    StorageClasses,
+    Events,
+    ServiceAccounts,
+    Roles,
+    RoleBindings,
+    ClusterRoles,
+    ClusterRoleBindings,
+    CustomResourceDefinitions,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -96,6 +131,10 @@ pub struct ResourceRequest {
     pub session_id: String,
     pub kind: ResourceKind,
     pub read_id: u64,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub continue_token: Option<String>,
 }
 impl ResourceRequest {
     fn session(&self) -> SessionRequest {
@@ -117,7 +156,7 @@ pub struct ConnectionSnapshot {
     pub error: Option<ConnectionError>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcePage {
     pub cluster_id: String,
@@ -127,11 +166,44 @@ pub struct ResourcePage {
     pub items: Vec<ResourceItem>,
     pub truncated: bool,
     pub fetched_at: u64,
+    pub namespace: Option<String>,
+    pub continue_token: Option<String>,
+    pub metrics: Option<MetricState>,
 }
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
     pub name: String,
     pub status: String,
+    pub namespace: Option<String>,
+    pub created_at: Option<String>,
+    pub columns: std::collections::BTreeMap<String, String>,
+    pub node: Option<NodeInfo>,
+}
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MetricState {
+    Available,
+    Unavailable,
+    Denied,
+    Stale,
+    Partial,
+    Error,
+}
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeInfo {
+    pub roles: Vec<String>,
+    pub version: Option<String>,
+    pub cpu: Usage,
+    pub memory: Usage,
+    pub metrics_timestamp: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Usage {
+    pub used: Option<f64>,
+    pub allocatable: Option<f64>,
+    pub capacity: Option<f64>,
 }
 
 struct Session {
@@ -321,6 +393,7 @@ impl ConnectionEngine {
         Ok(session.snapshot.clone())
     }
     pub fn cancel_resources(&self, request: ResourceRequest) -> Result<()> {
+        transport::validate_resource_request(&request)?;
         validate_request(&request.session())?;
         validate_read_id(request.read_id)?;
         let mut state = self
@@ -345,6 +418,7 @@ impl ConnectionEngine {
         Ok(())
     }
     pub async fn resources(&self, request: ResourceRequest) -> Result<ResourcePage> {
+        transport::validate_resource_request(&request)?;
         let identity = request.session();
         validate_request(&identity)?;
         validate_read_id(request.read_id)?;

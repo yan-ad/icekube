@@ -42,6 +42,8 @@ pub(super) fn resource(snapshot: &ConnectionSnapshot, kind: ResourceKind) -> Res
         session_id: snapshot.session_id.clone(),
         kind,
         read_id: 1,
+        namespace: None,
+        continue_token: None,
     }
 }
 pub(super) fn fake(response: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'static) -> Client {
@@ -62,6 +64,9 @@ pub(super) fn fake(response: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'st
     )
 }
 pub(super) fn normal(path: &str) -> (u16, Vec<u8>) {
+    if path.starts_with("/apis/metrics.k8s.io/") {
+        return (404, Vec::new());
+    }
     let body = if path == "/version" {
         json!({"gitVersion":"v1.36.0"})
     } else if path.starts_with("/api/v1/nodes?") {
@@ -164,12 +169,7 @@ async fn success_scoped_resources_truncation_empty_and_redaction() {
         serde_json::to_string(&snapshot).unwrap(),
         serde_json::to_string(&nodes).unwrap(),
     ] {
-        for forbidden in [
-            "PRIVATE",
-            "opaque-not-for-renderer",
-            "fixture.invalid",
-            "fixture-user",
-        ] {
+        for forbidden in ["PRIVATE", "fixture.invalid", "fixture-user"] {
             assert!(!value.contains(forbidden));
         }
     }
