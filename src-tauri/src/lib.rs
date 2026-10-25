@@ -20,6 +20,126 @@ async fn catalog_operation(
 }
 
 #[tauri::command]
+async fn helm_table(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::HelmRequest,
+) -> Result<connection::helm::HelmPage, connection::ConnectionError> {
+    connections.helm_table(request).await
+}
+
+#[tauri::command]
+fn helm_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::HelmCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.helm_cancel(request)
+}
+
+#[tauri::command]
+async fn cluster_pod_detail(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pods::PodRequest,
+) -> Result<connection::pods::PodDetails, connection::ConnectionError> {
+    connections.pod_detail(request).await
+}
+
+#[tauri::command]
+async fn cluster_pod_mutate(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pods::PodMutationRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_mutate(request).await
+}
+
+#[tauri::command]
+async fn cluster_pod_stream_open(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodStartRequest,
+) -> Result<connection::pod_runtime::PodStreamSnapshot, connection::ConnectionError> {
+    connections.pod_stream_open(request).await
+}
+
+#[tauri::command]
+fn cluster_pod_stream_read(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodStreamRequest,
+) -> Result<connection::pod_runtime::PodStreamSnapshot, connection::ConnectionError> {
+    connections.pod_stream_read(request)
+}
+
+#[tauri::command]
+fn cluster_pod_stream_close(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodStreamRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_stream_close(request)
+}
+
+#[tauri::command]
+fn cluster_pod_stream_write(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodInputRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_stream_write(request)
+}
+
+#[tauri::command]
+fn cluster_pod_stream_resize(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodResizeRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_stream_resize(request)
+}
+
+#[tauri::command]
+async fn cluster_pod_forward_start(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodForwardRequest,
+) -> Result<connection::pod_runtime::PodForward, connection::ConnectionError> {
+    connections.pod_forward_start(request).await
+}
+
+#[tauri::command]
+fn cluster_pod_forward_list(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<Vec<connection::pod_runtime::PodForward>, connection::ConnectionError> {
+    connections.pod_forward_list(request)
+}
+
+#[tauri::command]
+fn cluster_pod_forward_stop(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_runtime::PodForwardStopRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_forward_stop(request)
+}
+
+#[tauri::command]
+fn cluster_pod_sync_open(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::ResourceRequest,
+) -> Result<connection::pod_sync::PodSyncSnapshot, connection::ConnectionError> {
+    connections.pod_sync_open(request)
+}
+
+#[tauri::command]
+fn cluster_pod_sync_read(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_sync::PodSyncRequest,
+) -> Result<connection::pod_sync::PodSyncSnapshot, connection::ConnectionError> {
+    connections.pod_sync_read(request)
+}
+
+#[tauri::command]
+fn cluster_pod_sync_close(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::pod_sync::PodSyncRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.pod_sync_close(request)
+}
+
+#[tauri::command]
 async fn cluster_session_open(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::OpenRequest,
@@ -155,7 +275,23 @@ pub fn run() {
             cluster_disconnect,
             cluster_connection_status,
             cluster_resources,
-            cluster_resources_cancel
+            cluster_resources_cancel,
+            cluster_pod_detail,
+            cluster_pod_mutate,
+            cluster_pod_stream_open,
+            cluster_pod_stream_read,
+            cluster_pod_stream_close,
+            cluster_pod_stream_write,
+            cluster_pod_stream_resize,
+            cluster_pod_forward_start,
+            cluster_pod_forward_list,
+            cluster_pod_forward_stop,
+            cluster_pod_sync_open,
+            cluster_pod_sync_read,
+            cluster_pod_sync_close,
+
+            helm_table,
+            helm_cancel
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")

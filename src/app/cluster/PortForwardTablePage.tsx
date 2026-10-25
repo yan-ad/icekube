@@ -1,0 +1,169 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Selector } from "@astryxdesign/core/Selector";
+import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
+import { Text } from "@astryxdesign/core/Text";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import type { SessionRequest } from "./api";
+import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
+import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+
+type PortForwardTablePageProps = SessionRequest;
+
+const namespacePattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
+const podPattern = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
+
+function portValue(value: string, allowAuto: boolean) {
+  if (!/^\d+$/.test(value)) return null;
+  const port = Number(value);
+  if (!Number.isSafeInteger(port) || port < (allowAuto ? 0 : 1) || port > 65535) return null;
+  return port;
+}
+
+export function PortForwardTablePage({ clusterId, sessionId }: PortForwardTablePageProps) {
+  return <PortForwardSession key={`${clusterId}:${sessionId}`} clusterId={clusterId} sessionId={sessionId} />;
+}
+
+function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps) {
+  const [forwards, setForwards] = useState<PodForward[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("");
+  const [namespaceFilter, setNamespaceFilter] = useState("");
+  const [namespace, setNamespace] = useState("");
+  const [pod, setPod] = useState("");
+  const [remotePort, setRemotePort] = useState("");
+  const [localPort, setLocalPort] = useState("0");
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  const loading = useRef(false);
+  const acting = useRef(false);
+  const generation = useRef(0);
+  const request = useMemo(() => ({ clusterId, sessionId }), [clusterId, sessionId]);
+
+  const load = useCallback(async () => {
+    if (loading.current) return;
+    loading.current = true;
+    const owner = generation.current;
+    try {
+      const next = await podForwardList(request);
+      if (alive.current && owner === generation.current) {
+        setForwards(next);
+        setError(null);
+      }
+    } catch (reason) {
+      if (alive.current && owner === generation.current) setError(podMessage(reason));
+    } finally {
+      loading.current = false;
+    }
+  }, [request]);
+
+  useRegisterWorkspaceRefresh({ clusterId, section: "port-forwarding", enabled: true, refresh: () => void load() });
+
+  useEffect(() => {
+    alive.current = true;
+    void load();
+    const timer = window.setInterval(() => void load(), 2000);
+    return () => {
+      alive.current = false;
+      generation.current += 1;
+      window.clearInterval(timer);
+    };
+  }, [load]);
+
+  const namespaces = useMemo(() => [...new Set((forwards ?? []).map((item) => item.namespace))].sort(), [forwards]);
+  const statuses = useMemo(() => [...new Set((forwards ?? []).map((item) => item.status))].sort(), [forwards]);
+  const items = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    return (forwards ?? []).filter((item) => {
+      const searchable = [item.id, item.namespace, item.name, item.remotePort, item.localPort, item.status].join(" ").toLocaleLowerCase();
+      return (!needle || searchable.includes(needle)) && (!status || item.status === status) && (!namespaceFilter || item.namespace === namespaceFilter);
+    });
+  }, [forwards, namespaceFilter, query, status]);
+
+  const namespaceValid = namespace.length > 0 && namespace.length <= 63 && namespacePattern.test(namespace);
+  const podValid = pod.length > 0 && pod.length <= 253 && podPattern.test(pod);
+  const remote = portValue(remotePort, false);
+  const local = portValue(localPort, true);
+  const formValid = namespaceValid && podValid && remote !== null && local !== null;
+
+  async function start() {
+    if (!formValid || remote === null || local === null || acting.current) return;
+    acting.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      const details = await podDetail({ clusterId, sessionId, namespace, name: pod });
+      if (!alive.current) return;
+      // The workspace session owns started forwards, including late start completions.
+      await podForwardStart({ clusterId, sessionId, namespace, name: pod, uid: details.uid, remotePort: remote, localPort: local });
+      if (alive.current) {
+        setPod("");
+        setRemotePort("");
+        setLocalPort("0");
+        await load();
+      }
+    } catch (reason) {
+      if (alive.current) setActionError(podMessage(reason));
+    } finally {
+      acting.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  async function stop(id: string) {
+    if (acting.current) return;
+    acting.current = true;
+    setBusy(true);
+    setActionError(null);
+    try {
+      await podForwardStop({ ...request, id });
+      await load();
+    } catch (reason) {
+      if (alive.current) setActionError(podMessage(reason));
+    } finally {
+      acting.current = false;
+      if (alive.current) setBusy(false);
+    }
+  }
+
+  const columns: TableColumn<PodForward>[] = [
+    { key: "id", header: "Name", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.id}</Text> },
+    { key: "namespace", header: "Namespace", renderCell: (item) => <Text maxLines={1}>{item.namespace}</Text> },
+    { key: "pod", header: "Pod", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.name}</Text> },
+    { key: "remotePort", header: "Port", renderCell: (item) => <Text>{item.remotePort}</Text> },
+    { key: "localPort", header: "Local Port", renderCell: (item) => <Text>{item.localPort}</Text> },
+    { key: "address", header: "Address", renderCell: () => <Text>127.0.0.1</Text> },
+    { key: "status", header: "Status", renderCell: (item) => <Text>{item.error ? `${item.status}: ${podMessage(item.error)}` : item.status}</Text> },
+    { key: "actions", header: "Actions", renderCell: (item) => <Button label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} forward`} aria-label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} ${item.namespace}/${item.name} on port ${item.localPort}`} size="sm" variant="ghost" isDisabled={busy} onClick={() => void stop(item.id)} /> },
+  ];
+
+  return <VStack gap={3} style={{ minWidth: 0 }}>
+    <VStack gap={2}>
+      <HStack gap={2} wrap="wrap" vAlign="end">
+        <TextInput label="Search forwards" value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
+        <Selector label="Status" value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />
+        <Selector label="Namespace filter" value={namespaceFilter} onChange={setNamespaceFilter} size="sm" options={[{ value: "", label: "All namespaces" }, ...namespaces.map((value) => ({ value, label: value }))]} />
+        <Button label="Refresh" size="sm" isDisabled={busy} onClick={() => void load()} />
+      </HStack>
+      <HStack gap={2} wrap="wrap" vAlign="end">
+        <TextInput label="Namespace" value={namespace} onChange={setNamespace} placeholder="Pod namespace" size="sm" status={namespace && !namespaceValid ? { type: "error", message: "Enter a valid namespace name." } : undefined} />
+        <TextInput label="Pod" value={pod} onChange={setPod} placeholder="Pod name" size="sm" status={pod && !podValid ? { type: "error", message: "Enter a valid Pod name." } : undefined} />
+        <TextInput label="Port" value={remotePort} onChange={setRemotePort} placeholder="Remote port" size="sm" status={remotePort && remote === null ? { type: "error", message: "Use a port from 1 to 65535." } : undefined} />
+        <TextInput label="Local port" value={localPort} onChange={setLocalPort} placeholder="0 for auto" size="sm" status={localPort && local === null ? { type: "error", message: "Use 0 or a port from 1 to 65535." } : undefined} />
+        <Button label={busy ? "Working…" : "Start forward"} size="sm" isDisabled={!formValid || busy} onClick={() => void start()} />
+      </HStack>
+      <Text type="supporting">Forwards bind to 127.0.0.1. Local port 0 asks the engine to choose an available port.</Text>
+      <Text type="supporting">Cluster: {clusterId}. Table-started forwards continue when navigating this workspace and stop when the session disconnects.</Text>
+    </VStack>
+    {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
+    {actionError && <Text role="alert">{actionError}</Text>}
+    {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
+    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate"
+      emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Enter a namespace, Pod, and ports above to start one.</Text></VStack>} />}
+  </VStack>;
+}
+
+export default PortForwardTablePage;

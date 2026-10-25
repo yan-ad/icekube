@@ -29,9 +29,10 @@ url = "2"
 rusqlite = { version = "0.40", features = ["bundled", "limits"] }
 getrandom = "0.4"
 fs2 = "0.4"
-kube = { version = "4.2.0", default-features = true }
+kube = { version = "4.2.0", default-features = true, features = ["ws"] }
+futures = "0.3"
 k8s-openapi = { version = "0.28.0", features = ["latest"] }
-tokio = { version = "1", features = ["sync", "time", "macros", "process", "io-util"] }
+tokio = { version = "1", features = ["sync", "time", "macros", "process", "io-util", "net"] }
 tokio-util = { version = "0.7", features = ["rt"] }
 http = "1"
 http-body-util = "0.1"

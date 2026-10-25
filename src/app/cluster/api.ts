@@ -1,8 +1,12 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import type { MetricState, NodeInfo } from "./nodeContract";
 import { metricStates, parseNode, validTimestamp } from "./nodeContract";
+import { resourceViews, type TableResourceKind } from "./resourceViews";
 
 const messages = {
+  conflict: "The resource changed. Reload its details before trying again.",
+  processUnavailable: "The container process is unavailable. Choose a running container or another shell.",
+  helmUnavailable: "Helm is not installed or executable on the desktop app's PATH.",
   invalidInput: "The cluster request is invalid. Return to Catalog and choose the saved context again.",
   notFound: "This saved cluster no longer exists. Refresh Catalog and choose a cluster again.",
   kubeconfigUnavailable: "The saved kubeconfig cannot be read. Check the file and its symbolic-link target.",
@@ -27,6 +31,7 @@ const messages = {
   limitExceeded: "The cluster response exceeds the supported size limit.",
   invalidResponse: "The cluster engine returned an unsupported response. Disconnect and try again.",
   storeUnavailable: "Saved cluster metadata could not be read. Check access to the app's data directory.",
+  resourceUnavailable: "This cluster resource is unavailable. Try again after reconnecting.",
 } as const;
 export type ConnectionErrorCode = keyof typeof messages;
 export type SessionRequest = { clusterId: string; sessionId: string };
@@ -36,8 +41,13 @@ export type ConnectionSnapshot = SessionRequest & {
   apiVersion: string | null;
   error: ConnectionErrorCode | null;
 };
-export type ResourceKind = "nodes" | "namespaces";
-export type ResourceRequest = SessionRequest & { kind: ResourceKind; readId: number };
+export type ResourceKind = "nodes" | TableResourceKind;
+export type ResourceRequest = SessionRequest & {
+  kind: ResourceKind;
+  readId: number;
+  namespace?: string | null;
+  continueToken?: string | null;
+};
 export type ResourceItem = {
   name: string;
   status: string;
@@ -72,6 +82,30 @@ function record(value: unknown): value is Record<string, unknown> {
 }
 function text(value: unknown, max = 4096): value is string {
   return typeof value === "string" && value.length > 0 && value.length <= max;
+}
+function safeText(value: unknown, max = 4096): value is string {
+  return text(value, max) && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+function validNamespace(value: unknown): value is string {
+  return typeof value === "string" && value.length <= 63
+    && /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(value);
+}
+function validContinueToken(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0 && value.length <= 4096
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+const tableKinds = new Set<TableResourceKind>(resourceViews.flatMap((view) => view.kind ? [view.kind] : []));
+function knownResourceKind(value: unknown): value is ResourceKind {
+  return value === "nodes" || typeof value === "string" && tableKinds.has(value as TableResourceKind);
+}
+function isNamespacedKind(kind: ResourceKind): boolean {
+  return kind !== "nodes" && resourceViews.find((view) => view.kind === kind)?.namespaced === true;
+}
+function validResourceRequest(request: ResourceRequest): boolean {
+  return knownResourceKind(request.kind) && validReadId(request.readId)
+    && (request.namespace == null || isNamespacedKind(request.kind))
+    && (request.namespace === undefined || request.namespace === null || validNamespace(request.namespace))
+    && (request.continueToken === undefined || request.continueToken === null || validContinueToken(request.continueToken));
 }
 function identity(value: Record<string, unknown>, request: { clusterId: string; sessionId?: string }) {
   return text(value.clusterId) && value.clusterId === request.clusterId && text(value.sessionId)
@@ -123,38 +157,58 @@ export async function disconnectSession(request: SessionRequest) {
   if (result !== undefined && result !== null) throw "invalidResponse";
 }
 export async function cancelResources(request: ResourceRequest): Promise<void> {
-  if (!validReadId(request.readId)) throw "invalidInput";
+  if (!validResourceRequest(request)) throw "invalidInput";
   const result = await command("cluster_resources_cancel", request);
   if (result !== undefined && result !== null) throw "invalidResponse";
 }
 export async function loadResources(request: ResourceRequest): Promise<ResourcePage> {
-  if (!validReadId(request.readId)) throw "invalidInput";
+  request = { ...request };
+  if (!validResourceRequest(request)) throw "invalidInput";
   const value = await command("cluster_resources", request);
+  const responseNamespace = record(value) ? value.namespace : undefined;
+  const requestedNamespace = request.namespace ?? null;
+  const legacyKind = request.kind === "nodes" || request.kind === "namespaces";
+  const legacyMissingNamespace = legacyKind && requestedNamespace === null && responseNamespace === undefined;
   if (!record(value) || !identity(value, request) || value.kind !== request.kind
     || !validReadId(value.readId) || value.readId !== request.readId
+    || (!legacyMissingNamespace && !(responseNamespace === null || validNamespace(responseNamespace)))
+    || (!legacyMissingNamespace && responseNamespace !== requestedNamespace)
     || !Array.isArray(value.items) || value.items.length > 100
-    || !value.items.every((item) => record(item) && text(item.name, 253) && text(item.status, 256))
-    || new Set(value.items.map((item) => item.name)).size !== value.items.length
+    || !value.items.every((item) => {
+      if (!record(item) || !safeText(item.name, 253) || !safeText(item.status, 256)) return false;
+      const itemNamespace = item.namespace;
+      if (!legacyKind && itemNamespace === undefined) return false;
+      if (itemNamespace !== undefined && itemNamespace !== null
+        && !validNamespace(itemNamespace)) return false;
+      if (isNamespacedKind(request.kind) && !validNamespace(itemNamespace)) return false;
+      if (!isNamespacedKind(request.kind) && itemNamespace != null) return false;
+      if (requestedNamespace !== null && itemNamespace !== requestedNamespace) return false;
+      if (item.createdAt !== undefined && item.createdAt !== null && !validTimestamp(item.createdAt)) return false;
+      if (item.columns !== undefined) {
+        if (!record(item.columns) || Object.keys(item.columns).length > 12
+          || !Object.entries(item.columns).every(([key, column]) => safeText(key, 128)
+            && typeof column === "string" && column.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/.test(column))) return false;
+      } else if (!legacyKind) return false;
+      return true;
+    })
+    || new Set(value.items.map((item) => `${item.namespace ?? ""}\u0000${item.name}`)).size !== value.items.length
     || typeof value.truncated !== "boolean" || !Number.isSafeInteger(value.fetchedAt) || (value.fetchedAt as number) < 0
-    || (value.fetchedAt as number) > 8.64e15) throw "invalidResponse";
+    || (value.fetchedAt as number) > 8.64e15
+    || (value.continueToken !== undefined && value.continueToken !== null && !validContinueToken(value.continueToken))) throw "invalidResponse";
   const metrics = value.metrics === null || value.metrics === undefined ? null
     : typeof value.metrics === "string" && metricStates.includes(value.metrics as MetricState)
       ? value.metrics as MetricState : null;
   if (value.metrics !== null && value.metrics !== undefined && metrics === null) throw "invalidResponse";
-  const items = value.items.map((item) => {
-    if (item.createdAt !== undefined && item.createdAt !== null && !validTimestamp(item.createdAt)) throw "invalidResponse";
-    return ({
+  const items = value.items.map((item) => ({
     name: item.name as string,
     status: item.status as string,
     namespace: typeof item.namespace === "string" ? item.namespace : null,
     createdAt: typeof item.createdAt === "string" ? item.createdAt : null,
-    columns: record(item.columns) && Object.values(item.columns).every((column) => typeof column === "string")
-      ? item.columns as Record<string, string> : {},
+    columns: item.columns === undefined ? {} : Object.fromEntries(Object.entries(item.columns)) as Record<string, string>,
     node: request.kind === "nodes" ? parseNode(item.node) : null,
-    });
-  });
+  }));
   return { clusterId: request.clusterId, sessionId: request.sessionId, kind: request.kind, readId: value.readId,
     items, truncated: value.truncated, fetchedAt: value.fetchedAt as number,
-    namespace: typeof value.namespace === "string" ? value.namespace : null,
-    continueToken: typeof value.continueToken === "string" ? value.continueToken : null, metrics };
+    namespace: responseNamespace === undefined ? null : responseNamespace as string | null,
+    continueToken: value.continueToken === undefined || value.continueToken === null ? null : value.continueToken as string, metrics };
 }

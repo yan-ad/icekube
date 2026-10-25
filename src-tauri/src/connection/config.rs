@@ -45,7 +45,8 @@ pub(super) async fn build_client(
     .await
     .map_err(|_| ConnectionError::KubeconfigInvalid)?;
     config.connect_timeout = Some(DEADLINE);
-    config.read_timeout = Some(DEADLINE);
+    // Snapshots have engine deadlines; log/exec streams must survive quiet periods.
+    config.read_timeout = None;
     config.write_timeout = Some(DEADLINE);
     config.default_retry = false;
     // Proxy processes/tunnels are outside this slice, including inherited proxy URLs.

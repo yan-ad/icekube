@@ -9,6 +9,51 @@ fn fixed_endpoints_cover_every_resource_kind_and_wire_spelling() {
         (ResourceKind::Namespaces, "namespaces", "/api/v1/namespaces"),
         (ResourceKind::Pods, "pods", "/api/v1/pods"),
         (
+            ResourceKind::ReplicationControllers,
+            "replicationControllers",
+            "/api/v1/replicationcontrollers",
+        ),
+        (
+            ResourceKind::VerticalPodAutoscalers,
+            "verticalPodAutoscalers",
+            "/apis/autoscaling.k8s.io/v1/verticalpodautoscalers",
+        ),
+        (
+            ResourceKind::Leases,
+            "leases",
+            "/apis/coordination.k8s.io/v1/leases",
+        ),
+        (
+            ResourceKind::MutatingWebhookConfigurations,
+            "mutatingWebhookConfigurations",
+            "/apis/admissionregistration.k8s.io/v1/mutatingwebhookconfigurations",
+        ),
+        (
+            ResourceKind::ValidatingWebhookConfigurations,
+            "validatingWebhookConfigurations",
+            "/apis/admissionregistration.k8s.io/v1/validatingwebhookconfigurations",
+        ),
+        (
+            ResourceKind::ValidatingAdmissionPolicies,
+            "validatingAdmissionPolicies",
+            "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicies",
+        ),
+        (
+            ResourceKind::ValidatingAdmissionPolicyBindings,
+            "validatingAdmissionPolicyBindings",
+            "/apis/admissionregistration.k8s.io/v1/validatingadmissionpolicybindings",
+        ),
+        (
+            ResourceKind::EndpointSlices,
+            "endpointSlices",
+            "/apis/discovery.k8s.io/v1/endpointslices",
+        ),
+        (
+            ResourceKind::PodSecurityPolicies,
+            "podSecurityPolicies",
+            "/apis/policy/v1beta1/podsecuritypolicies",
+        ),
+        (
             ResourceKind::Deployments,
             "deployments",
             "/apis/apps/v1/deployments",
@@ -132,6 +177,10 @@ fn fixed_endpoints_cover_every_resource_kind_and_wire_spelling() {
     ];
     for (kind, wire, path) in kinds {
         assert_eq!(serde_json::to_value(kind).unwrap(), wire);
+        assert_eq!(
+            serde_json::from_value::<ResourceKind>(json!(wire)).unwrap(),
+            kind
+        );
         let mut request = request(kind);
         assert_eq!(
             transport::resource_path(&request),
@@ -142,6 +191,116 @@ fn fixed_endpoints_cover_every_resource_kind_and_wire_spelling() {
             transport::validate_resource_request(&request).is_ok(),
             resources::namespaced(kind)
         );
+    }
+}
+
+#[test]
+fn workload_facts_use_observed_current_and_spec_desired_values() {
+    let metadata = json!({"name":"example","namespace":"team"});
+    let deployment = resources::project(
+        ResourceKind::Deployments,
+        json!({"metadata":metadata,"spec":{"replicas":3},"status":{"replicas":2}}),
+    )
+    .unwrap();
+    assert_eq!(deployment.columns.get("desired"), Some(&"3".into()));
+    assert_eq!(deployment.columns.get("replicas"), Some(&"2".into()));
+
+    let daemon = resources::project(
+        ResourceKind::DaemonSets,
+        json!({"metadata":{"name":"example","namespace":"team"},"spec":{"replicas":99},"status":{"desiredNumberScheduled":4,"currentNumberScheduled":3,"updatedNumberScheduled":2,"numberAvailable":1}}),
+    )
+    .unwrap();
+    assert_eq!(daemon.columns.get("desired"), Some(&"4".into()));
+    assert_eq!(daemon.columns.get("scheduled"), Some(&"3".into()));
+    assert_eq!(daemon.columns.get("updated"), Some(&"2".into()));
+    assert_eq!(daemon.columns.get("available"), Some(&"1".into()));
+    assert!(!daemon.columns.contains_key("replicas"));
+}
+
+#[test]
+fn cron_jobs_project_safe_schedule_and_active_length_only() {
+    let row = resources::project(
+        ResourceKind::CronJobs,
+        json!({"metadata":{"name":"nightly","namespace":"team"},"spec":{"schedule":"0 3 * * *","timeZone":"Etc/UTC","suspend":false,"jobTemplate":{"PRIVATE":"PRIVATE"}},"status":{"active":[{"name":"job-a"},{"name":"job-b"}],"lastScheduleTime":"2026-01-01T03:00:00Z"}}),
+    )
+    .unwrap();
+    assert_eq!(row.columns.get("schedule"), Some(&"0 3 * * *".into()));
+    assert_eq!(row.columns.get("timeZone"), Some(&"Etc/UTC".into()));
+    assert_eq!(row.columns.get("active"), Some(&"2".into()));
+    assert_eq!(
+        row.columns.get("lastSchedule"),
+        Some(&"2026-01-01T03:00:00Z".into())
+    );
+    assert_eq!(row.columns.get("suspend"), Some(&"false".into()));
+    assert!(!serde_json::to_string(&row).unwrap().contains("PRIVATE"));
+
+    let invalid = resources::project(
+        ResourceKind::CronJobs,
+        json!({"metadata":{"name":"nightly","namespace":"team"},"spec":{"schedule":"x"},"status":{"active":[],"lastScheduleTime":"not-a-time"}}),
+    )
+    .unwrap();
+    assert_eq!(invalid.columns.get("active"), Some(&"0".into()));
+    assert!(!invalid.columns.contains_key("lastSchedule"));
+    let bounded = resources::project(
+        ResourceKind::CronJobs,
+        json!({"metadata":{"name":"nightly","namespace":"team"},"spec":{"schedule":"é\n".repeat(300),"timeZone":"Etc/UTC\u{0000}","suspend":"PRIVATE"},"status":{"active":[{"name":"PRIVATE","namespace":"PRIVATE"}],"message":"PRIVATE"}}),
+    )
+    .unwrap();
+    assert_eq!(bounded.columns.get("schedule"), Some(&"é".repeat(128)));
+    assert_eq!(bounded.columns.get("timeZone"), Some(&"Etc/UTC".into()));
+    assert_eq!(bounded.columns.get("active"), Some(&"1".into()));
+    assert!(!bounded.columns.contains_key("suspend"));
+    assert!(!serde_json::to_string(&bounded).unwrap().contains("PRIVATE"));
+}
+
+#[test]
+fn jobs_and_pods_keep_missing_and_zero_facts_honest() {
+    let job = resources::project(
+        ResourceKind::Jobs,
+        json!({"metadata":{"name":"job","namespace":"team"},"spec":{"completions":0,"parallelism":0,"suspend":true},"status":{"succeeded":0,"failed":0,"active":0}}),
+    )
+    .unwrap();
+    assert_eq!(job.columns.get("desiredCompletions"), Some(&"0".into()));
+    assert_eq!(job.columns.get("parallelism"), Some(&"0".into()));
+    assert_eq!(job.columns.get("suspend"), Some(&"true".into()));
+    assert_eq!(job.columns.get("active"), Some(&"0".into()));
+
+    let pod = resources::project(
+        ResourceKind::Pods,
+        json!({"metadata":{"name":"pod","namespace":"team"},"spec":{"containers":[{"name":"a"},{"name":"b"}]},"status":{"phase":"Pending","containerStatuses":[]}}),
+    )
+    .unwrap();
+    assert_eq!(pod.columns.get("ready"), Some(&"0/2".into()));
+
+    let missing = resources::project(
+        ResourceKind::Pods,
+        json!({"metadata":{"name":"pod","namespace":"team"},"status":{"phase":"Pending"}}),
+    )
+    .unwrap();
+    assert!(!missing.columns.contains_key("ready"));
+    for kind in [
+        ResourceKind::Deployments,
+        ResourceKind::DaemonSets,
+        ResourceKind::Jobs,
+        ResourceKind::CronJobs,
+    ] {
+        let missing = resources::project(
+            kind,
+            json!({"metadata":{"name":"example","namespace":"team"}}),
+        )
+        .unwrap();
+        assert!(missing.columns.is_empty(), "{kind:?}");
+        assert_eq!(missing.status, "Unknown");
+    }
+    for kind in [
+        ResourceKind::Deployments,
+        ResourceKind::StatefulSets,
+        ResourceKind::ReplicaSets,
+        ResourceKind::ReplicationControllers,
+    ] {
+        let zero = resources::project(kind, json!({"metadata":{"name":"example","namespace":"team"},"spec":{"replicas":0},"status":{"replicas":0}})).unwrap();
+        assert_eq!(zero.columns.get("replicas"), Some(&"0".into()));
+        assert_eq!(zero.columns.get("desired"), Some(&"0".into()));
     }
 }
 fn request(kind: ResourceKind) -> ResourceRequest {
@@ -388,6 +547,18 @@ fn representative_projection_has_only_bounded_allowed_scalars() {
             "count",
             "3",
         ),
+        (
+            ResourceKind::CustomResourceDefinitions,
+            json!({"spec":{"group":"apps.example.io","scope":"Namespaced","names":{"kind":"Widget","plural":"widgets","shortNames":["wdg"]},"versions":[{"name":"v1"}]}}),
+            "group",
+            "apps.example.io",
+        ),
+        (
+            ResourceKind::Leases,
+            json!({"spec":{"holderIdentity":"controller-a","leaseDurationSeconds":15,"leaseTransitions":2,"renewTime":"2026-01-01T00:00:00Z"}}),
+            "holder",
+            "controller-a",
+        ),
     ] {
         let mut v = extra;
         v["metadata"] = metadata.clone();
@@ -424,4 +595,246 @@ async fn bad_continuation_missing_namespace_and_resource_404_fail_closed() {
             Err(error)
         );
     }
+}
+
+#[test]
+fn enriched_table_columns_are_explicit_bounded_and_do_not_serialize_nested_data() {
+    use ResourceKind::*;
+    for (kind, extra, expected) in [
+        (
+            Namespaces,
+            json!({"metadata":{"labels":{"private":"PRIVATE"}},"status":{"phase":"Active"}}),
+            vec![("labels", "1")],
+        ),
+        (
+            ResourceQuotas,
+            json!({"status":{"hard":{"requests.cpu":"2","requests.memory":"1Gi","PRIVATE":"PRIVATE"},"used":{"requests.cpu":"500m"}}}),
+            vec![("cpuHard", "2"), ("memoryHard", "1Gi"), ("cpuUsed", "500m")],
+        ),
+        (
+            LimitRanges,
+            json!({"spec":{"limits":[{"type":"Container","min":{"cpu":"10m"},"default":{"memory":"1Gi"},"PRIVATE":"PRIVATE"}]}}),
+            vec![
+                ("limits", "1"),
+                ("types", "Container"),
+                ("minCpu", "10m"),
+                ("defaultMemory", "1Gi"),
+            ],
+        ),
+        (
+            HorizontalPodAutoscalers,
+            json!({"spec":{"scaleTargetRef":{"name":"app","kind":"Deployment"},"minReplicas":1,"maxReplicas":5},"status":{"currentReplicas":2,"desiredReplicas":3}}),
+            vec![
+                ("target", "app"),
+                ("min", "1"),
+                ("max", "5"),
+                ("current", "2"),
+                ("desired", "3"),
+            ],
+        ),
+        (
+            VerticalPodAutoscalers,
+            json!({"spec":{"targetRef":{"name":"app","kind":"Deployment"},"updatePolicy":{"updateMode":"Auto"}},"status":{"recommendation":{"containerRecommendations":[{"containerName":"PRIVATE"}]}}}),
+            vec![
+                ("target", "app"),
+                ("updateMode", "Auto"),
+                ("recommendations", "1"),
+            ],
+        ),
+        (
+            PodDisruptionBudgets,
+            json!({"spec":{"minAvailable":"50%"},"status":{"disruptionsAllowed":2}}),
+            vec![("minAvailable", "50%"), ("allowedDisruptions", "2")],
+        ),
+        (
+            PriorityClasses,
+            json!({"value":-10,"globalDefault":false,"description":"PRIVATE"}),
+            vec![("value", "-10"), ("globalDefault", "false")],
+        ),
+        (
+            RuntimeClasses,
+            json!({"handler":"runc","overhead":{"podFixed":{"cpu":"100m"}},"scheduling":{"nodeSelector":{"PRIVATE":"PRIVATE"},"tolerations":[{"value":"PRIVATE"}]}}),
+            vec![
+                ("handler", "runc"),
+                ("overheadCpu", "100m"),
+                ("nodeSelectors", "1"),
+                ("tolerations", "1"),
+            ],
+        ),
+        (
+            Endpoints,
+            json!({"subsets":[{"addresses":[{"ip":"PRIVATE"}],"notReadyAddresses":[{"ip":"PRIVATE"}],"ports":[{"port":443}]}]}),
+            vec![
+                ("subsets", "1"),
+                ("readyAddresses", "1"),
+                ("notReadyAddresses", "1"),
+                ("ports", "1"),
+            ],
+        ),
+        (
+            EndpointSlices,
+            json!({"addressType":"IPv4","endpoints":[{"addresses":["PRIVATE"],"conditions":{"ready":true}}],"ports":[{"port":443}]}),
+            vec![
+                ("addressType", "IPv4"),
+                ("endpoints", "1"),
+                ("ports", "1"),
+                ("ready", "1"),
+            ],
+        ),
+        (
+            Ingresses,
+            json!({"spec":{"ingressClassName":"nginx","rules":[{"host":"PRIVATE"}],"tls":[{"secretName":"PRIVATE"}]}}),
+            vec![("class", "nginx"), ("rules", "1"), ("tls", "1")],
+        ),
+        (
+            IngressClasses,
+            json!({"spec":{"controller":"example.io/controller","parameters":{"kind":"Config","name":"settings"}}}),
+            vec![
+                ("controller", "example.io/controller"),
+                ("parametersKind", "Config"),
+                ("parametersName", "settings"),
+            ],
+        ),
+        (
+            NetworkPolicies,
+            json!({"spec":{"policyTypes":["Ingress","Egress"],"ingress":[{"PRIVATE":"PRIVATE"}],"podSelector":{"matchLabels":{"PRIVATE":"PRIVATE"}}}}),
+            vec![
+                ("policyTypes", "Ingress,Egress"),
+                ("ingressRules", "1"),
+                ("matchLabels", "1"),
+            ],
+        ),
+        (
+            PodSecurityPolicies,
+            json!({"spec":{"privileged":false,"runAsUser":{"rule":"MustRunAsNonRoot"},"seLinux":{"rule":"RunAsAny","seLinuxOptions":{"user":"PRIVATE"}}}}),
+            vec![
+                ("privileged", "false"),
+                ("runAsUser", "MustRunAsNonRoot"),
+                ("seLinux", "RunAsAny"),
+            ],
+        ),
+        (
+            PersistentVolumes,
+            json!({"spec":{"capacity":{"storage":"5Gi"},"storageClassName":"fast","persistentVolumeReclaimPolicy":"Retain","csi":{"volumeHandle":"PRIVATE"}}}),
+            vec![
+                ("capacity", "5Gi"),
+                ("storageClass", "fast"),
+                ("reclaim", "Retain"),
+            ],
+        ),
+        (
+            StorageClasses,
+            json!({"provisioner":"example.io/storage","volumeBindingMode":"WaitForFirstConsumer","allowVolumeExpansion":true,"parameters":{"PRIVATE":"PRIVATE"}}),
+            vec![
+                ("provisioner", "example.io/storage"),
+                ("bindingMode", "WaitForFirstConsumer"),
+                ("allowExpansion", "true"),
+            ],
+        ),
+        (
+            ServiceAccounts,
+            json!({"secrets":[{"name":"PRIVATE"}],"imagePullSecrets":[{"name":"PRIVATE"}],"automountServiceAccountToken":false}),
+            vec![
+                ("secrets", "1"),
+                ("imagePullSecrets", "1"),
+                ("automountToken", "false"),
+            ],
+        ),
+        (
+            MutatingWebhookConfigurations,
+            json!({"webhooks":[{"failurePolicy":"Fail","sideEffects":"None","clientConfig":{"url":"PRIVATE","caBundle":"PRIVATE"}}]}),
+            vec![
+                ("webhooks", "1"),
+                ("failurePolicies", "Fail"),
+                ("sideEffects", "None"),
+            ],
+        ),
+        (
+            ValidatingWebhookConfigurations,
+            json!({"webhooks":[{"matchPolicy":"Equivalent","clientConfig":{"url":"PRIVATE"}}]}),
+            vec![("webhooks", "1"), ("matchPolicies", "Equivalent")],
+        ),
+        (
+            ValidatingAdmissionPolicies,
+            json!({"spec":{"failurePolicy":"Fail","validations":[{"expression":"PRIVATE","message":"PRIVATE"}],"matchConditions":[{"expression":"PRIVATE"}]}}),
+            vec![
+                ("failurePolicy", "Fail"),
+                ("validations", "1"),
+                ("matchConditions", "1"),
+            ],
+        ),
+        (
+            ValidatingAdmissionPolicyBindings,
+            json!({"spec":{"policyName":"test-policy","validationActions":["Deny","Audit"]}}),
+            vec![
+                ("policy", "test-policy"),
+                ("validationActions", "Deny,Audit"),
+            ],
+        ),
+        (
+            ReplicationControllers,
+            json!({"spec":{"replicas":3,"template":{"PRIVATE":"PRIVATE"}},"status":{"replicas":2,"readyReplicas":2,"availableReplicas":2}}),
+            vec![
+                ("replicas", "2"),
+                ("desired", "3"),
+                ("ready", "2"),
+                ("available", "2"),
+            ],
+        ),
+    ] {
+        let mut v = extra;
+        if v.get("metadata").is_none() {
+            v["metadata"] = json!({});
+        }
+        v["metadata"]["name"] = json!("example");
+        v["metadata"]["annotations"] = json!({"PRIVATE":"PRIVATE"});
+        if resources::namespaced(kind) {
+            v["metadata"]["namespace"] = json!("team");
+        }
+        let row = resources::project(kind, v).unwrap();
+        for (key, value) in expected {
+            assert_eq!(
+                row.columns.get(key).map(String::as_str),
+                Some(value),
+                "{kind:?}: {key}"
+            );
+        }
+        assert!(row.columns.len() <= 12);
+        assert!(
+            row.columns
+                .values()
+                .all(|s| s.len() <= 256 && !s.chars().any(char::is_control))
+        );
+        assert!(
+            !serde_json::to_string(&row).unwrap().contains("PRIVATE"),
+            "{kind:?}"
+        );
+    }
+    let row = resources::project(CustomResourceDefinitions,json!({"metadata":{"name":"widgets.example.io"},"spec":{"group":"example.io","scope":"Namespaced","names":{"kind":"Widget","plural":"widgets","shortNames":["w","wdg"]},"versions":[{"name":"v1","schema":{"PRIVATE":"PRIVATE"}},{"name":"v2"}]}})).unwrap();
+    assert_eq!(row.columns["versions"], "v1,v2");
+    assert_eq!(row.columns["shortNames"], "w,wdg");
+    let row = resources::project(
+        RuntimeClasses,
+        json!({"metadata":{"name":"test"},"handler":"é\n".repeat(500)}),
+    )
+    .unwrap();
+    assert!(row.columns["handler"].len() <= 256);
+    assert!(!row.columns["handler"].contains('\n'));
+}
+
+#[tokio::test]
+async fn removed_pod_security_policy_api_is_unavailable_and_never_falls_back() {
+    let client = fake(|path| {
+        assert!(path.starts_with("/apis/policy/v1beta1/podsecuritypolicies?"));
+        (404, b"PRIVATE".to_vec())
+    });
+    assert_eq!(
+        transport::resources(
+            &client,
+            &request(ResourceKind::PodSecurityPolicies),
+            &CancellationToken::new()
+        )
+        .await,
+        Err(ConnectionError::ResourceUnavailable)
+    );
 }

@@ -1,0 +1,172 @@
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
+import { Button } from "@astryxdesign/core/Button";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { Text } from "@astryxdesign/core/Text";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Selector } from "@astryxdesign/core/Selector";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, podMutate, podStreamClose, podStreamOpen, type PodDetails, type PodForward, type PodIdentity, type PodMode, type PodMutation, type PodRequest, type PodStreamSnapshot } from "./podApi";
+import { PodDetailsView } from "./PodDetailsView";
+import { TerminalView } from "./TerminalView";
+
+type Tab = { id: string; pod: PodRequest; mode: PodMode };
+type DockApi = { openPod: (pod: PodIdentity, mode: PodMode) => void; tabs: Tab[]; active: string | null; minimized: boolean; setMinimized: (value: boolean) => void; setActive: (id: string) => void; close: (id: string) => void; onMutation?: () => void; error: string | null; outlet?: HTMLElement | null };
+const Context = createContext<DockApi | null>(null);
+export function PodDockProvider({ clusterId, sessionId, children, onMutation, outlet }: { clusterId: string; sessionId: string; children: ReactNode; onMutation?: () => void; outlet?: HTMLElement | null }) {
+  const [tabs, setTabs] = useState<Tab[]>([]);
+  const alive = useRef(false);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  const tabsRef = useRef(tabs);
+  const [active, setActive] = useState<string | null>(null);
+  const [minimized, setMinimized] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const close = useCallback((id: string) => {
+    const closing = tabsRef.current.find(t => t.id === id);
+    const index = tabsRef.current.findIndex(t => t.id === id);
+    const next = tabsRef.current.filter(t => t.id !== id);
+    const neighbor = next[Math.min(index, next.length - 1)];
+    const focusWasInside = document.activeElement?.closest(`[id="pod-panel-${id}"]`) || document.activeElement?.closest("[role=tablist]");
+    tabsRef.current = next; setTabs(next);
+    setActive(current => current === id ? neighbor?.id ?? null : current);
+    setError(null);
+    if (focusWasInside) requestAnimationFrame(() => {
+      if (!alive.current) return;
+      const selected = document.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      const fallback = Array.from(document.querySelectorAll<HTMLButtonElement>('button')).find(button => button.textContent?.trim() === closing?.pod.name) ?? document.querySelector<HTMLButtonElement>('button');
+      (selected ?? fallback)?.focus();
+    });
+  }, []);
+  const openPod = useCallback((identity: PodIdentity, mode: PodMode) => {
+    const current = tabsRef.current;
+    const found = (mode === "details" || mode === "edit") && current.find(t => t.pod.namespace === identity.namespace && t.pod.name === identity.name && t.pod.uid === identity.uid && (t.mode === "details" || t.mode === "edit"));
+    if (found) {
+      const next = current.map(t => t.id === found.id ? { ...t, mode } : t);
+      tabsRef.current = next; setTabs(next); setActive(found.id); setMinimized(false); return;
+    }
+    if (current.length >= 12) { setError("Close a Pod tab before opening another. The dock supports 12 tabs."); setMinimized(false); return; }
+    const tab: Tab = { id: crypto.randomUUID(), pod: { namespace: identity.namespace, name: identity.name, ...(identity.uid ? { uid: identity.uid } : {}), clusterId, sessionId }, mode };
+    const next = [...current, tab]; tabsRef.current = next; setTabs(next); setActive(tab.id); setMinimized(false); setError(null);
+  }, [clusterId, sessionId]);
+  return <Context.Provider value={{ openPod, tabs, active, minimized, setMinimized, setActive, close, onMutation, error, outlet }}>{children}</Context.Provider>;
+}
+export function usePodDock() { const value = useContext(Context); if (!value) throw new Error("usePodDock must be used inside PodDockProvider"); return value; }
+export function PodDock() {
+  const dock = usePodDock();
+  const [height, setHeight] = useState(40);
+  const [maximized, setMaximized] = useState(false);
+  const root = useRef<HTMLElement>(null);
+  const select = (id: string) => { dock.setActive(id); dock.setMinimized(false); };
+  if (!dock.tabs.length && !dock.error) return null;
+  const panel = <VStack as="aside" ref={root} aria-label="Pod dock" gap={0} style={{ flex: "0 0 auto", minHeight: 0, height: dock.minimized ? "auto" : `${maximized ? 80 : height}dvh`, maxHeight: "85dvh", overflow: "hidden", borderBlockStart: "var(--spacing-px, thin) solid var(--color-border)" }} onKeyDown={e => {
+    if (e.shiftKey && e.key === "Escape") { e.preventDefault(); dock.setMinimized(true); }
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w" && dock.active) { e.preventDefault(); dock.close(dock.active); }
+  }}>
+    {!dock.minimized && <HStack role="separator" aria-label="Resize Pod dock" aria-orientation="horizontal" aria-valuemin={20} aria-valuemax={80} aria-valuenow={maximized ? 80 : height} tabIndex={0} style={{ cursor: "ns-resize", minHeight: "var(--spacing-2)", flexShrink: 0 }} onKeyDown={e => { if (["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) { e.preventDefault(); setMaximized(false); setHeight(h => e.key === "Home" ? 20 : e.key === "End" ? 80 : Math.max(20, Math.min(80, h + (e.key === "ArrowUp" ? 5 : -5)))); } }} onPointerDown={e => {
+      e.currentTarget.setPointerCapture(e.pointerId);
+    }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) { setMaximized(false); setHeight(Math.max(20, Math.min(80, (window.innerHeight - e.clientY) / window.innerHeight * 100))); } }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />}
+    <HStack gap={2} padding={2} style={{ flexShrink: 0 }}>
+      <HStack role="tablist" aria-label="Pod sessions" gap={1} style={{ flex: 1, minWidth: 0, overflowX: "auto" }} onKeyDown={e => {
+        const index = dock.tabs.findIndex(t => t.id === dock.active);
+        let target: Tab | undefined;
+        if (e.key === "ArrowRight") target = dock.tabs[(index + 1) % dock.tabs.length];
+        if (e.key === "ArrowLeft") target = dock.tabs[(index - 1 + dock.tabs.length) % dock.tabs.length];
+        if (e.key === "Home") target = dock.tabs[0];
+        if (e.key === "End") target = dock.tabs[dock.tabs.length - 1];
+        if (e.key === "Delete" && dock.active) { e.preventDefault(); dock.close(dock.active); }
+        if (target) { e.preventDefault(); select(target.id); document.getElementById(`pod-tab-${target.id}`)?.focus(); }
+      }}>{dock.tabs.map(t => <HStack key={t.id} gap={0} style={{ flexShrink: 0 }}><Button id={`pod-tab-${t.id}`} role="tab" aria-selected={dock.active === t.id} aria-controls={`pod-panel-${t.id}`} tabIndex={dock.active === t.id ? 0 : -1} label={`${t.pod.name} · ${t.mode}`} variant="ghost" onClick={() => select(t.id)} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); dock.close(t.id); } }} /><Button label={`Close ${t.pod.name} ${t.mode}`} variant="ghost" onClick={() => dock.close(t.id)} /></HStack>)}</HStack>
+      <DropdownMenu presentation="popover" alignment="end" renderTrigger={props => <Button {...props} label="Tab actions" variant="ghost" />}
+        items={[
+          { label: "Close active tab", onClick: () => { if (dock.active) dock.close(dock.active); } },
+          { label: "Close other tabs", onClick: () => dock.tabs.filter(tab => tab.id !== dock.active).forEach(tab => dock.close(tab.id)) },
+          { label: "Close tabs to the right", onClick: () => dock.tabs.slice(dock.tabs.findIndex(tab => tab.id === dock.active) + 1).forEach(tab => dock.close(tab.id)) },
+          { label: "Close all tabs", onClick: () => dock.tabs.forEach(tab => dock.close(tab.id)) },
+        ]} />
+      <Button label={dock.minimized ? "Show dock" : "Minimize dock"} variant="ghost" onClick={() => dock.setMinimized(!dock.minimized)} />
+      {!dock.minimized && <Button label={maximized ? "Restore dock" : "Maximize dock"} variant="ghost" onClick={() => setMaximized(!maximized)} />}
+    </HStack>
+    {dock.error && <Text role="alert">{dock.error}</Text>}
+    {dock.tabs.map(t => <VStack key={t.id} id={`pod-panel-${t.id}`} role="tabpanel" aria-labelledby={`pod-tab-${t.id}`} style={{ display: !dock.minimized && dock.active === t.id ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}><PodTab tab={t} visible={!dock.minimized && dock.active === t.id} /></VStack>)}
+  </VStack>;
+  return dock.outlet ? createPortal(panel, dock.outlet) : panel;
+}
+function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
+  const { openPod, onMutation } = usePodDock();
+  const [details, setDetails] = useState<PodDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [revision, setRevision] = useState(0);
+  const [confirm, setConfirm] = useState<{ action: PodMutation; yaml?: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(false);
+  useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
+  useEffect(() => {
+    let disposed = false; setError(null);
+    void podDetail(tab.pod).then(d => { if (!disposed) setDetails(d); }).catch(e => { if (!disposed) setError(podMessage(e)); });
+    return () => { disposed = true; };
+  }, [tab.pod, revision]);
+  async function mutate() {
+    if (!details || !confirm || busy) return;
+    setBusy(true); setError(null);
+    try { await podMutate(details, confirm.action, confirm.yaml); if (!alive.current) return; setConfirm(null); onMutation?.(); setRevision(r => r + 1); }
+    catch (e) { if (alive.current) setError(podMessage(e)); } finally { if (alive.current) setBusy(false); }
+  }
+  return <VStack gap={2} height="100%" style={{ minHeight: 0, overflow: "hidden" }}>
+    <HStack gap={2} paddingInline={3} wrap="wrap" style={{ flexShrink: 0 }}><Text as="p">Cluster {tab.pod.clusterId} · {tab.pod.namespace}/{tab.pod.name}</Text><Button label="Reload details" variant="ghost" isDisabled={busy} onClick={() => setRevision(r => r + 1)} /></HStack>
+    {error && <Text role="alert">{details ? "Retained details may be stale. " : ""}{error}</Text>}
+    {!details ? <Text as="p">{error ? "Pod details unavailable." : "Loading Pod…"}</Text> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} onEdit={() => openPod(tab.pod, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
+    <Dialog isOpen={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} purpose={busy ? "required" : "form"}><Layout header={<DialogHeader title={`${confirm?.action === "replace" ? "Save YAML for" : confirm?.action ?? "Update"} ${tab.pod.name}?`} />} content={<LayoutContent><VStack gap={3}><Text as="p">Cluster: {tab.pod.clusterId}. Namespace: {tab.pod.namespace}. Pod: {tab.pod.name}. UID: {details?.uid}. Resource version: {details?.resourceVersion}.</Text><Text as="p">{confirm?.action === "forceDelete" ? "Danger: force deletion removes the API record without waiting for the process to stop. The workload may continue running." : confirm?.action === "finalize" ? "Danger: removing finalizers bypasses cleanup and may leave resources behind. Only continue if you understand the finalizer's purpose." : confirm?.action === "replace" ? "This updates the live Pod. Protected server fields are preserved by the engine; immutable edits may be rejected." : "This deletes the live Pod. A workload controller may create a replacement."}</Text>{error && <Text role="alert">{error}</Text>}</VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2}><Button label="Cancel" variant="ghost" isDisabled={busy} onClick={() => setConfirm(null)} /><Button label={busy ? "Working…" : "Confirm mutation"} isDisabled={busy} onClick={() => void mutate()} /></HStack></LayoutFooter>} /></Dialog>
+  </VStack>;
+}
+function StreamPanel({ details, mode, visible }: { details: PodDetails; mode: "logs" | "shell" | "attach"; visible: boolean }) {
+  const containers = details.containers.filter(c => mode === "logs" || c.state === "running");
+  const [selection, setContainer] = useState("");
+  const container = containers.find(c => c.name === selection)?.name ?? containers.find(c => c.kind === "container")?.name ?? containers[0]?.name ?? "";
+  const [revision, setRevision] = useState(0);
+  const [previous, setPrevious] = useState(false);
+  const [timestamps, setTimestamps] = useState(true);
+  const [shell, setShell] = useState("sh");
+  const [snapshot, setSnapshot] = useState<PodStreamSnapshot | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    let disposed = false; let owned: PodStreamSnapshot | null = null;
+    setSnapshot(null); setError(null);
+    if (!container) { setError(mode === "logs" ? "This Pod has no selectable containers." : "This Pod has no running containers."); return; }
+    void podStreamOpen({ clusterId: details.clusterId, sessionId: details.sessionId, namespace: details.namespace, name: details.name, uid: details.uid, container, mode, previous, timestamps, tailLines: 500, shell: mode === "shell" ? shell : null }).then(next => {
+      if (disposed) { void podStreamClose(next).catch(() => {}); return; }
+      owned = next; setSnapshot(next);
+    }).catch(e => { if (!disposed) setError(podMessage(e)); });
+    return () => { disposed = true; if (owned) void podStreamClose(owned).catch(() => {}); };
+  }, [details.clusterId, details.sessionId, details.namespace, details.name, details.uid, container, mode, previous, timestamps, shell, revision]);
+  return <VStack gap={2} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+    <HStack gap={2} paddingInline={3} wrap="wrap" style={{ flexShrink: 0 }}><Selector label="Container" value={container} onChange={setContainer} options={containers.map(c => ({ value: c.name, label: `${c.name} (${c.kind})` }))} />{mode === "logs" ? <><Button label={previous ? "Previous: on" : "Previous: off"} variant="ghost" aria-pressed={previous} onClick={() => setPrevious(p => !p)} /><Button label={timestamps ? "Timestamps: on" : "Timestamps: off"} variant="ghost" aria-pressed={timestamps} onClick={() => setTimestamps(p => !p)} /></> : mode === "shell" ? <Selector label="Shell" value={shell} onChange={setShell} options={["sh", "bash", "ash", "powershell", "cmd"]} /> : <Text as="p">Attach sends input to the container's existing process.</Text>}</HStack>
+    {error && <Text role="alert">{error}</Text>}
+    {!snapshot && error && container && <Button label="Restart stream" variant="ghost" onClick={() => setRevision(r => r + 1)} />}
+    {snapshot ? <TerminalView key={snapshot.streamId} snapshot={snapshot} logs={mode === "logs"} visible={visible} onRestart={() => setRevision(r => r + 1)} /> : !error && <Text as="p">Opening {mode}…</Text>}
+  </VStack>;
+}
+function ForwardPanel({ details }: { details: PodDetails }) {
+  const [remote, setRemote] = useState(String(details.containers.flatMap(c => c.ports).find(p => p.protocol === "TCP")?.port ?? ""));
+  const [local, setLocal] = useState("0");
+  const [items, setItems] = useState<PodForward[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const alive = useRef(true);
+  const owned = useRef(new Set<string>());
+  const request = { clusterId: details.clusterId, sessionId: details.sessionId };
+  const reload = async () => { try { const next = await podForwardList(request); if (alive.current) { setItems(next); setError(null); } } catch (e) { if (alive.current) setError(podMessage(e)); } };
+  useEffect(() => { alive.current = true; void reload(); return () => { alive.current = false; for (const id of owned.current) void podForwardStop({ ...request, id }).catch(() => {}); }; }, [details.clusterId, details.sessionId]);
+  async function start() {
+    setBusy(true); setError(null);
+    try {
+      if (!/^\d+$/.test(remote) || !/^\d+$/.test(local)) throw "invalidInput";
+      const next = await podForwardStart({ ...request, namespace: details.namespace, name: details.name, uid: details.uid, remotePort: Number(remote), localPort: Number(local) });
+      if (!alive.current) { void podForwardStop({ ...request, id: next.id }).catch(() => {}); return; }
+      owned.current.add(next.id); await reload();
+    } catch (e) { if (alive.current) setError(podMessage(e)); } finally { if (alive.current) setBusy(false); }
+  }
+  async function stop(id: string) { setBusy(true); try { await podForwardStop({ ...request, id }); owned.current.delete(id); await reload(); } catch (e) { if (alive.current) setError(podMessage(e)); } finally { if (alive.current) setBusy(false); } }
+  return <VStack gap={3} padding={3} isScrollable><Text as="p">Forwarding binds only to 127.0.0.1. Closing this tab stops forwards started here.</Text><HStack gap={2} wrap="wrap"><TextInput label="Remote port" value={remote} onChange={setRemote} /><TextInput label="Local port (0 chooses an available port)" value={local} onChange={setLocal} /><Button label="Start forward" isDisabled={busy} onClick={() => void start()} /><Button label="Refresh forwards" variant="ghost" isDisabled={busy} onClick={() => void reload()} /></HStack>{error && <Text role="alert">{items ? "Retained forward states may be stale. " : ""}{error}</Text>}{items === null ? !error && <Text as="p">Loading forwards…</Text> : items.length === 0 ? <Text as="p">No active forwards returned by the engine.</Text> : items.map(f => <HStack key={f.id} gap={2} wrap="wrap"><Text as="p">{f.namespace}/{f.name} · 127.0.0.1:{f.localPort} → {f.remotePort} · {f.status}{f.error ? ` · ${podMessage(f.error)}` : ""}</Text><Button label={`Stop forward ${f.localPort}`} isDisabled={busy} variant="ghost" onClick={() => void stop(f.id)} /></HStack>)}</VStack>;
+}

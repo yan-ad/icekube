@@ -103,6 +103,17 @@ button {
   margin-right: 5px;
 }
 
+/*
+Source - https://stackoverflow.com/a/70423621
+Posted by Yoann
+Retrieved 2026-10-26, License - CC BY-SA 4.0
+*/
+
+html, body {
+  overscroll-behavior: none;
+}
+
+
 @media (prefers-color-scheme: dark) {
   :root {
     color: #f6f6f6;

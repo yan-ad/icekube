@@ -14,11 +14,15 @@ use tokio_util::sync::CancellationToken;
 
 mod auth;
 mod config;
+pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
 mod metrics;
 #[cfg(test)]
 mod node_tests;
+pub(crate) mod pod_runtime;
+pub(crate) mod pod_sync;
+pub(crate) mod pods;
 #[cfg(test)]
 mod resource_tests;
 mod resources;
@@ -33,6 +37,7 @@ type Result<T> = std::result::Result<T, ConnectionError>;
 #[serde(rename_all = "camelCase")]
 pub enum ConnectionError {
     InvalidInput,
+    ProcessUnavailable,
     NotFound,
     KubeconfigUnavailable,
     KubeconfigInvalid,
@@ -57,6 +62,8 @@ pub enum ConnectionError {
     LimitExceeded,
     InvalidResponse,
     StoreUnavailable,
+    HelmUnavailable,
+    Conflict,
 }
 fn validate_credentials(client: &Client) -> Result<()> {
     if client
@@ -99,6 +106,7 @@ pub enum ResourceKind {
     DaemonSets,
     StatefulSets,
     ReplicaSets,
+    ReplicationControllers,
     Jobs,
     CronJobs,
     ConfigMaps,
@@ -106,14 +114,22 @@ pub enum ResourceKind {
     ResourceQuotas,
     LimitRanges,
     HorizontalPodAutoscalers,
+    VerticalPodAutoscalers,
     PodDisruptionBudgets,
     PriorityClasses,
     RuntimeClasses,
+    Leases,
     Services,
     Endpoints,
     Ingresses,
     IngressClasses,
     NetworkPolicies,
+    EndpointSlices,
+    MutatingWebhookConfigurations,
+    ValidatingWebhookConfigurations,
+    ValidatingAdmissionPolicies,
+    ValidatingAdmissionPolicyBindings,
+    PodSecurityPolicies,
     PersistentVolumes,
     PersistentVolumeClaims,
     StorageClasses,
@@ -244,6 +260,9 @@ pub struct ConnectionEngine {
     file_workers: Arc<tokio::sync::Semaphore>,
     auth_tasks: tokio_util::task::TaskTracker,
     open_generation: AtomicU64,
+    pod_runtime: pod_runtime::PodRuntime,
+    pod_sync: pod_sync::PodSyncRuntime,
+    helm_runtime: helm::HelmRuntime,
 }
 impl ConnectionEngine {
     pub fn new(catalog: Arc<CatalogEngine>) -> Self {
@@ -254,6 +273,9 @@ impl ConnectionEngine {
             file_workers: Arc::new(tokio::sync::Semaphore::new(2)),
             auth_tasks: tokio_util::task::TaskTracker::new(),
             open_generation: AtomicU64::new(0),
+            pod_runtime: pod_runtime::PodRuntime::default(),
+            pod_sync: pod_sync::PodSyncRuntime::default(),
+            helm_runtime: helm::HelmRuntime::default(),
         }
     }
     pub async fn open(&self, request: OpenRequest) -> Result<ConnectionSnapshot> {
@@ -312,6 +334,7 @@ impl ConnectionEngine {
         Ok(())
     }
     pub fn shutdown(&self) {
+        self.pod_sync.cancel_all();
         self.open_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut state) = self.session.lock() {
             state.take();
@@ -322,6 +345,33 @@ impl ConnectionEngine {
         let _workers = self.workers.acquire_many(4).await;
         self.auth_tasks.close();
         self.auth_tasks.wait().await;
+        self.pod_runtime.drain().await;
+        self.pod_sync.drain().await;
+    }
+    fn pod_client(&self, request: &SessionRequest) -> Result<(Client, CancellationToken)> {
+        validate_request(request)?;
+        let state = self
+            .session
+            .lock()
+            .map_err(|_| ConnectionError::StoreUnavailable)?;
+        let session = current(&state, request)?;
+        let client = session
+            .client
+            .clone()
+            .ok_or(ConnectionError::NotConnected)?;
+        validate_credentials(&client)?;
+        Ok((client, session.cancel.child_token()))
+    }
+    fn check_pod_session(&self, request: &SessionRequest) -> Result<()> {
+        self.pod_client(request).map(|_| ())
+    }
+    fn check_pod_lease(&self, request: &SessionRequest) -> Result<()> {
+        validate_request(request)?;
+        let state = self
+            .session
+            .lock()
+            .map_err(|_| ConnectionError::StoreUnavailable)?;
+        current(&state, request).map(|_| ())
     }
     pub fn status(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
         validate_request(&request)?;
