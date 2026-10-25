@@ -29,14 +29,12 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
   return (
     <SideNav aria-label="Cluster navigation" id={id} style={{ width: isMobile ? "100%" : "clamp(11rem, 18vw, 16rem)", minWidth: 0 }}>
       <VStack padding={4} gap={2} style={{ minWidth: 0 }}>
-        {cluster ? <>
-          <HStack gap={2} vAlign="center">
+        {cluster ? (
+          <HStack gap={2} vAlign="center" style={{ minWidth: 0 }}>
             <RecordIcon kind="Clusters" color={cluster.color} />
-            <Text weight="semibold" style={{ minWidth: 0, overflowWrap: "anywhere" }}>{cluster.name}</Text>
+            <Text weight="semibold" maxLines={1} style={{ minWidth: 0 }}>{cluster.name}</Text>
           </HStack>
-          <Text type="supporting" style={{ overflowWrap: "anywhere" }}>Context: {cluster.contextName}</Text>
-          <Text type="supporting">Saved context</Text>
-        </> : <Text role="status">{!available ? "Desktop engine required" : loading ? "Loading cluster…" : error ? "Cluster metadata unavailable" : "Cluster not found"}</Text>}
+        ) : <Text role="status">{!available ? "Desktop engine required" : loading ? "Loading cluster…" : error ? "Cluster metadata unavailable" : "Cluster not found"}</Text>}
       </VStack>
       {cluster && <>
         <Divider />

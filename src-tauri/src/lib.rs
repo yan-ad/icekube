@@ -163,7 +163,9 @@ pub fn run() {
             if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. })
                 || matches!(event, tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } if label == "main")
             {
-                app.state::<Arc<connection::ConnectionEngine>>().shutdown();
+                let engine = app.state::<Arc<connection::ConnectionEngine>>();
+                engine.shutdown();
+                tauri::async_runtime::block_on(engine.drain());
             }
         });
 }

@@ -1,4 +1,5 @@
-import { useRouterState } from "@tanstack/react-router";
+import { useEffect } from "react";
+import { useParams, useRouterState } from "@tanstack/react-router";
 import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -14,6 +15,7 @@ import { useNavigationHistory } from "../layouts/use-navigation-history";
 import { WindowToolbar } from "../layouts/WindowFrame";
 import { getWindowLayout } from "../layouts/window-layout";
 import { CatalogForms } from "../catalog/CatalogForms";
+import { useWorkspaceRefresh } from "../cluster/WorkspaceRefresh";
 
 export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const history = useNavigationHistory();
@@ -23,6 +25,19 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const mobile = useAppShellMobile();
   const expanded = mobile.isMobile ? mobile.isMobileNavOpen : !isSidebarCollapsed;
   const toggleLabel = mobile.isMobile ? "Open sidebar" : isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
+  const workspaceRefresh = useWorkspaceRefresh();
+  const { clusterId } = useParams({ strict: false });
+  const refresh = workspaceRefresh.action?.clusterId === clusterId ? workspaceRefresh.action : null;
+  useEffect(() => {
+    function onRefresh(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r" && !event.isComposing && refresh) {
+        event.preventDefault();
+        if (refresh.enabled && !event.repeat) refresh.refresh();
+      }
+    }
+    window.addEventListener("keydown", onRefresh);
+    return () => window.removeEventListener("keydown", onRefresh);
+  }, [refresh]);
 
   return (
     <WindowToolbar {...layout}>

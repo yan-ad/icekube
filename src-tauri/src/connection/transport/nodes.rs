@@ -1,10 +1,42 @@
 use super::*;
-use crate::connection::{NodeCondition, NodeDetails};
-use std::{
-    collections::{BTreeSet, HashMap},
-    net::IpAddr,
-};
+use crate::connection::{NodeCondition, NodeInfo as ProjectedNodeInfo, Usage};
+use std::{collections::BTreeSet, net::IpAddr};
 
+#[derive(Deserialize)]
+struct Item {
+    metadata: Metadata,
+    #[serde(default)]
+    status: Status,
+    #[serde(default)]
+    spec: Spec,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Metadata {
+    #[serde(default)]
+    labels: std::collections::BTreeMap<String, String>,
+    creation_timestamp: Option<String>,
+}
+#[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct Status {
+    #[serde(default)]
+    conditions: Vec<Condition>,
+    #[serde(default)]
+    addresses: Vec<Address>,
+    #[serde(default)]
+    node_info: NodeInfo,
+    #[serde(default)]
+    allocatable: Quantities,
+    #[serde(default)]
+    capacity: Quantities,
+}
+#[derive(Deserialize)]
+struct Condition {
+    #[serde(rename = "type")]
+    kind: String,
+    status: String,
+}
 #[derive(Default, Deserialize)]
 pub(super) struct Spec {
     #[serde(default)]
@@ -44,7 +76,9 @@ fn array(length: usize) -> Result<()> {
         Ok(())
     }
 }
-pub(super) fn project(item: &Item) -> Result<NodeDetails> {
+pub(in crate::connection) fn project(value: &serde_json::Value) -> Result<ProjectedNodeInfo> {
+    let item: Item =
+        serde_json::from_value(value.clone()).map_err(|_| ConnectionError::InvalidResponse)?;
     array(item.metadata.labels.len())?;
     array(item.spec.taints.len())?;
     array(item.status.conditions.len())?;
@@ -103,19 +137,46 @@ pub(super) fn project(item: &Item) -> Result<NodeDetails> {
         });
     }
     validate_quantities(&item.status.allocatable)?;
-    Ok(NodeDetails {
+    validate_quantities(&item.status.capacity)?;
+    Ok(ProjectedNodeInfo {
         roles: roles.into_iter().collect(),
         taints: item.spec.taints.len() as u32,
-        kubelet_version: item.status.node_info.kubelet_version.clone(),
+        version: item.status.node_info.kubelet_version.clone(),
         internal_ips: internal_ips.into_iter().collect(),
-        created_at: item.metadata.creation_timestamp.clone(),
         schedulable: !item.spec.unschedulable,
         conditions,
-        cpu_allocatable: item.status.allocatable.cpu.clone(),
-        memory_allocatable: item.status.allocatable.memory.clone(),
+        cpu: Usage {
+            used: None,
+            allocatable: item
+                .status
+                .allocatable
+                .cpu
+                .as_deref()
+                .and_then(super::super::resources::parse_quantity),
+            capacity: item
+                .status
+                .capacity
+                .cpu
+                .as_deref()
+                .and_then(super::super::resources::parse_quantity),
+        },
+        memory: Usage {
+            used: None,
+            allocatable: item
+                .status
+                .allocatable
+                .memory
+                .as_deref()
+                .and_then(super::super::resources::parse_quantity),
+            capacity: item
+                .status
+                .capacity
+                .memory
+                .as_deref()
+                .and_then(super::super::resources::parse_quantity),
+        },
         disk_allocatable: item.status.allocatable.disk.clone(),
-        cpu_usage: None,
-        memory_usage: None,
+        metrics_timestamp: None,
     })
 }
 fn validate_quantities(quantities: &Quantities) -> Result<()> {
@@ -123,7 +184,7 @@ fn validate_quantities(quantities: &Quantities) -> Result<()> {
         .into_iter()
         .flatten()
     {
-        if !valid_quantity(value) {
+        if !valid_quantity(value) || super::super::resources::parse_quantity(value).is_none() {
             return Err(ConnectionError::InvalidResponse);
         }
     }
@@ -178,49 +239,6 @@ fn valid_quantity(value: &str) -> bool {
     }
     false
 }
-pub(super) async fn metrics(
-    client: &Client,
-    cancel: &CancellationToken,
-    items: &mut [ResourceItem],
-) -> Result<()> {
-    #[derive(Deserialize)]
-    struct MetricsList {
-        items: Vec<MetricsItem>,
-    }
-    #[derive(Deserialize)]
-    struct MetricsItem {
-        metadata: Metadata,
-        usage: Quantities,
-    }
-    let list: MetricsList = get(
-        client,
-        "/apis/metrics.k8s.io/v1beta1/nodes?limit=100&timeoutSeconds=10",
-        BODY_LIMIT,
-        cancel,
-    )
-    .await?;
-    if cancel.is_cancelled() {
-        return Err(ConnectionError::StaleSession);
-    }
-    array(list.items.len())?;
-    let mut usage = HashMap::new();
-    for item in list.items {
-        if !valid_name(&item.metadata.name) || usage.contains_key(&item.metadata.name) {
-            return Err(ConnectionError::InvalidResponse);
-        }
-        validate_quantities(&item.usage)?;
-        usage.insert(item.metadata.name, item.usage);
-    }
-    for item in items {
-        if let Some(usage) = usage.get(&item.name) {
-            let node = item.node.as_mut().ok_or(ConnectionError::InvalidResponse)?;
-            node.cpu_usage = usage.cpu.clone();
-            node.memory_usage = usage.memory.clone();
-        }
-    }
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

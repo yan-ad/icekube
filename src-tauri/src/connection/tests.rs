@@ -42,6 +42,8 @@ pub(super) fn resource(snapshot: &ConnectionSnapshot, kind: ResourceKind) -> Res
         session_id: snapshot.session_id.clone(),
         kind,
         read_id: 1,
+        namespace: None,
+        continue_token: None,
     }
 }
 pub(super) fn fake(response: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'static) -> Client {
@@ -62,6 +64,9 @@ pub(super) fn fake(response: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'st
     )
 }
 pub(super) fn normal(path: &str) -> (u16, Vec<u8>) {
+    if path.starts_with("/apis/metrics.k8s.io/") {
+        return (404, Vec::new());
+    }
     let body = if path == "/version" {
         json!({"gitVersion":"v1.36.0"})
     } else if path.starts_with("/api/v1/nodes?") {
@@ -166,12 +171,7 @@ async fn success_scoped_resources_truncation_empty_and_redaction() {
         serde_json::to_string(&snapshot).unwrap(),
         serde_json::to_string(&nodes).unwrap(),
     ] {
-        for forbidden in [
-            "PRIVATE",
-            "opaque-not-for-renderer",
-            "fixture.invalid",
-            "fixture-user",
-        ] {
+        for forbidden in ["PRIVATE", "fixture.invalid", "fixture-user"] {
             assert!(!value.contains(forbidden));
         }
     }
@@ -412,26 +412,12 @@ async fn resource_disposal_cancels_underlying_client_future() {
     engine.shutdown();
 }
 #[test]
-fn configuration_selects_exact_context_rejects_exec_and_reads_only_bounded_references() {
+fn configuration_selects_exact_context_and_reads_only_bounded_references() {
     let (_root, _catalog, _engine, _id, target) = fixture();
     let config = config::prepare(&target).unwrap();
     assert_eq!(config.contexts.len(), 1);
     assert_eq!(config.current_context.as_deref(), Some("chosen"));
     for (content, expected) in [
-        (
-            CONFIG.replace(
-                "token: PRIVATE_FIXTURE_TOKEN",
-                "exec: {command: NEVER_EXECUTE}",
-            ),
-            ConnectionError::UnsupportedAuth,
-        ),
-        (
-            CONFIG.replace(
-                "token: PRIVATE_FIXTURE_TOKEN",
-                "auth-provider: {name: oidc}",
-            ),
-            ConnectionError::UnsupportedAuth,
-        ),
         (
             CONFIG.replace("https://fixture.invalid", "http://fixture.invalid"),
             ConnectionError::InsecureTransport,

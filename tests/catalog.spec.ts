@@ -82,7 +82,7 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   await expect(pinnedLink.locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
   await pinnedLink.click();
   await expect(page).toHaveURL(/cluster\/cluster-fixture$/);
-  await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
+  await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await page.reload();
@@ -221,27 +221,74 @@ test("record icons retain colors across reloads and pins; labels are searchable"
   const icon = row.locator("[data-record-color]");
   await expect(icon).toHaveAttribute("data-record-color", "#476BA1");
   await expect(icon.locator("svg")).toHaveCount(1);
-  const originalColor = await icon.evaluate((element) => getComputedStyle(element).backgroundColor);
-  const contrast = await icon.evaluate((element) => {
-    function luminance(value: string) {
-      const channels = value.match(/[\d.]+/g)!.slice(0, 3).map(Number).map((v) => v / 255)
-        .map((v) => v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
-      return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
-    }
-    const background = luminance(getComputedStyle(element).backgroundColor);
-    const foreground = luminance(getComputedStyle(element.querySelector("svg")!).color);
-    return (Math.max(background, foreground) + 0.05) / (Math.min(background, foreground) + 0.05);
+  await expect(icon).toHaveCSS("color", "rgb(74, 109, 162)");
+  await expect(icon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(icon).toHaveCSS("padding", "0px");
+  await expect(icon).toHaveCSS("flex-shrink", "0");
+  await expect(icon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  const dimensions = await icon.locator("svg").evaluate((element) => {
+    const { width, height } = element.getBoundingClientRect();
+    return { width, height };
   });
-  expect(contrast).toBeGreaterThanOrEqual(4.5);
+  expect(dimensions.width).toBeGreaterThan(0);
+  expect(dimensions.height).toBe(dimensions.width);
+  await expect(row.getByRole("cell", { name: "Clusters", exact: true }).locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
   await row.getByRole("button", { name: "Pin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
+  const pinnedIcon = page.getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]");
+  await expect(pinnedIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(pinnedIcon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(pinnedIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
+  await expect(pinnedIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
   await page.reload();
   const persistedIcon = page.getByRole("table").locator('[data-record-color="#476BA1"]');
   await expect(persistedIcon).toBeVisible();
-  expect(await persistedIcon.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(originalColor);
+  await expect(persistedIcon).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(persistedIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByRole("textbox", { name: "Filter catalog", exact: true }).fill("file=/fixtures");
   await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
   await expect(page.getByRole("cell").filter({ hasText: "Documentation" })).toHaveCount(0);
+  await page.getByRole("link", { name: "Development", exact: true }).click();
+  const sidebar = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
+  const sidebarIcon = sidebar.locator("[data-record-color]");
+  await expect(sidebarIcon).toHaveAttribute("data-record-color", "#476BA1");
+  await expect(sidebarIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(sidebarIcon).toHaveCSS("flex-shrink", "0");
+  await expect(sidebarIcon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(sidebarIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
+  await expect(sidebarIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
+  await expect(sidebar.getByText("Saved context", { exact: true })).toHaveCount(0);
+  await expect(sidebar.getByText("Context:", { exact: false })).toHaveCount(0);
+  await page.setViewportSize({ width: 360, height: 700 });
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  const drawerIcon = page.getByRole("dialog").getByRole("navigation", { name: "Cluster navigation", exact: true }).locator("[data-record-color]");
+  await expect(drawerIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
+  await expect(drawerIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
+});
+
+test("cluster sidebar truncates long names and keeps the full name available", async ({ page }) => {
+  await engineFixture(page);
+  await page.goto("/");
+  await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
+  const name = "Development-".repeat(20);
+  await page.evaluate((name) => {
+    const catalog = JSON.parse(sessionStorage.getItem("test.catalog")!);
+    catalog.clusters[0].name = name;
+    sessionStorage.setItem("test.catalog", JSON.stringify(catalog));
+  }, name);
+  await page.goto("/#/cluster/cluster-fixture");
+  await page.reload();
+  const sidebar = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
+  const label = sidebar.getByText(name, { exact: true });
+  await expect(label).toBeVisible();
+  expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+  await expect(label).toHaveAttribute("data-tooltip-content", name);
+  await page.setViewportSize({ width: 360, height: 700 });
+  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  const drawerSidebar = page.getByRole("dialog").getByRole("navigation", { name: "Cluster navigation", exact: true });
+  await expect(drawerSidebar.getByText(name, { exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
 test("compact catalog actions remain beside Search and support keyboard dialogs", async ({ page }) => {

@@ -22,7 +22,7 @@ async fn read(nodes: Value, metrics_status: u16, metrics_body: Vec<u8>) -> Resul
             if path.starts_with("/apis/metrics.") {
                 assert_eq!(
                     path,
-                    "/apis/metrics.k8s.io/v1beta1/nodes?limit=100&timeoutSeconds=10"
+                    "/apis/metrics.k8s.io/v1beta1/nodes?limit=100&timeoutSeconds=3"
                 );
                 (metrics_status, metrics_body.clone())
             } else if path.starts_with("/api/v1/nodes?") {
@@ -39,9 +39,10 @@ async fn read(nodes: Value, metrics_status: u16, metrics_body: Vec<u8>) -> Resul
 }
 #[tokio::test]
 async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
+    let timestamp = jiff::Timestamp::now().to_string();
     let metrics = json!({"items":[
-        {"metadata":{"name":"other-node"},"usage":{"cpu":"999m","memory":"999Gi"}},
-        {"metadata":{"name":"node-a"},"usage":{"cpu":"123456n","memory":"123Ki"}}
+        {"metadata":{"name":"other-node"},"timestamp":timestamp,"usage":{"cpu":"999m","memory":"999Gi"}},
+        {"metadata":{"name":"node-a"},"timestamp":timestamp,"usage":{"cpu":"123456n","memory":"123Ki"}}
     ]});
     let page = read(
         json!([facts(), {"metadata":{"name":"node-b"}}]),
@@ -50,16 +51,15 @@ async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
     )
     .await
     .unwrap();
-    assert_eq!(page.metrics_error, None);
+    assert_eq!(page.metrics, Some(MetricState::Partial));
     let node = page.items[0].node.as_ref().unwrap();
     assert_eq!(
         node,
-        &NodeDetails {
+        &NodeInfo {
             roles: vec!["control-plane".into(), "worker".into()],
             taints: 1,
-            kubelet_version: Some("v1.36.0".into()),
+            version: Some("v1.36.0".into()),
             internal_ips: vec!["10.0.0.1".into(), "2001:db8::1".into()],
-            created_at: Some("2026-10-25T01:02:03.123Z".into()),
             schedulable: false,
             conditions: vec![
                 NodeCondition {
@@ -75,11 +75,18 @@ async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
                     status: "Unknown".into()
                 }
             ],
-            cpu_allocatable: Some("7500m".into()),
-            memory_allocatable: Some("16Gi".into()),
+            cpu: Usage {
+                used: Some(0.000123456),
+                allocatable: Some(7.5),
+                capacity: None
+            },
+            memory: Usage {
+                used: Some(125952.0),
+                allocatable: Some(17179869184.0),
+                capacity: None
+            },
             disk_allocatable: Some("123456Ki".into()),
-            cpu_usage: Some("123456n".into()),
-            memory_usage: Some("123Ki".into()),
+            metrics_timestamp: Some(timestamp),
         }
     );
     let missing = page.items[1].node.as_ref().unwrap();
@@ -89,12 +96,13 @@ async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
             && missing.conditions.is_empty()
             && missing.internal_ips.is_empty()
     );
-    assert_eq!(missing.created_at, None);
-    assert_eq!(missing.kubelet_version, None);
-    assert_eq!(missing.cpu_usage, None);
+    assert_eq!(page.items[1].created_at, None);
+    assert_eq!(missing.version, None);
+    assert_eq!(missing.cpu.used, None);
     let wire = serde_json::to_value(&page).unwrap();
-    assert!(wire.get("metricsError").unwrap().is_null());
-    assert_eq!(wire["items"][0]["node"]["kubeletVersion"], "v1.36.0");
+    assert_eq!(wire["metrics"], "partial");
+    assert_eq!(wire["items"][0]["createdAt"], "2026-10-25T01:02:03.123Z");
+    assert_eq!(wire["items"][0]["node"]["version"], "v1.36.0");
     assert_eq!(
         wire["items"][0]["node"]["conditions"][0],
         json!({"type":"Ready","status":"True"})
@@ -103,69 +111,53 @@ async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
 }
 #[tokio::test]
 async fn optional_metrics_errors_never_discard_or_partially_enrich_facts() {
-    let valid = json!({"metadata":{"name":"node-a"},"usage":{"cpu":"1m","memory":"2Ki"}});
+    let valid = json!({"metadata":{"name":"node-a"},"timestamp":jiff::Timestamp::now().to_string(),"usage":{"cpu":"1m","memory":"2Ki"}});
     for (status, body, expected) in [
-        (
-            403,
-            b"PRIVATE API error".to_vec(),
-            ConnectionError::PermissionDenied,
-        ),
+        (403, b"PRIVATE API error".to_vec(), MetricState::Denied),
         (
             404,
             b"PRIVATE unavailable".to_vec(),
-            ConnectionError::ConnectionFailed,
+            MetricState::Unavailable,
         ),
-        (
-            503,
-            b"PRIVATE unavailable".to_vec(),
-            ConnectionError::ConnectionFailed,
-        ),
-        (504, b"PRIVATE timeout".to_vec(), ConnectionError::Timeout),
-        (
-            200,
-            b"PRIVATE malformed".to_vec(),
-            ConnectionError::InvalidResponse,
-        ),
-        (
-            200,
-            vec![b'x'; 2 * 1024 * 1024 + 1],
-            ConnectionError::LimitExceeded,
-        ),
+        (503, b"PRIVATE unavailable".to_vec(), MetricState::Error),
+        (504, b"PRIVATE timeout".to_vec(), MetricState::Error),
+        (200, b"PRIVATE malformed".to_vec(), MetricState::Error),
+        (200, vec![b'x'; 2 * 1024 * 1024 + 1], MetricState::Error),
         (
             200,
             json!({"items":vec![valid.clone();101]})
                 .to_string()
                 .into_bytes(),
-            ConnectionError::LimitExceeded,
+            MetricState::Error,
         ),
         (
             200,
             json!({"items":[valid.clone(),valid.clone()]})
                 .to_string()
                 .into_bytes(),
-            ConnectionError::InvalidResponse,
+            MetricState::Error,
         ),
         (
             200,
             json!({"items":[valid.clone(),{"metadata":{"name":"other"},"usage":{"cpu":"NaN"}}]})
                 .to_string()
                 .into_bytes(),
-            ConnectionError::InvalidResponse,
+            MetricState::Error,
         ),
         (
             200,
             json!({"items":[{"metadata":{"name":"INVALID"},"usage":{}}]})
                 .to_string()
                 .into_bytes(),
-            ConnectionError::InvalidResponse,
+            MetricState::Error,
         ),
     ] {
         let page = read(json!([facts()]), status, body).await.unwrap();
-        assert_eq!(page.metrics_error, Some(expected));
+        assert_eq!(page.metrics, Some(expected));
         let node = page.items[0].node.as_ref().unwrap();
-        assert_eq!(node.cpu_allocatable.as_deref(), Some("7500m"));
-        assert_eq!(node.cpu_usage, None);
-        assert_eq!(node.memory_usage, None);
+        assert_eq!(node.cpu.allocatable, Some(7.5));
+        assert_eq!(node.cpu.used, None);
+        assert_eq!(node.memory.used, None);
         assert!(!serde_json::to_string(&page).unwrap().contains("PRIVATE"));
     }
 }
@@ -277,7 +269,7 @@ async fn namespaces_have_neither_node_details_nor_metrics_requests() {
         .resources(resource(&snapshot, ResourceKind::Namespaces))
         .await
         .unwrap();
-    assert_eq!(page.metrics_error, None);
+    assert_eq!(page.metrics, None);
     assert_eq!(page.items[0].node, None);
 }
 #[tokio::test]
@@ -301,7 +293,7 @@ async fn hanging_metrics_times_out_without_losing_facts() {
         .resources(resource(&snapshot, ResourceKind::Nodes))
         .await
         .unwrap();
-    assert_eq!(page.metrics_error, Some(ConnectionError::Timeout));
+    assert_eq!(page.metrics, Some(MetricState::Error));
     assert_eq!(page.items.len(), 2);
 }
 #[tokio::test]

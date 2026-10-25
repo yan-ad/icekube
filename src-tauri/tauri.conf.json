@@ -15,11 +15,16 @@
         "label": "main",
         "create": false,
         "title": "icekube",
-        "width": 800,
-        "height": 600,
-        "maximized": true,
+        "width": 1024,
+        "height": 720,
         "minWidth": 360,
-        "minHeight": 320
+        "minHeight": 320,
+        "maximized": true,
+        "titleBarStyle": "Overlay",
+        "trafficLightPosition": {
+          "x": 14,
+          "y": 24
+        }
       }
     ],
     "security": {

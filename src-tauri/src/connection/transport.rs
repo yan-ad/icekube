@@ -1,4 +1,4 @@
-use super::{ConnectionError, ResourceItem, ResourceKind, ResourcePage, ResourceRequest, Result};
+use super::{ConnectionError, ResourceKind, ResourcePage, ResourceRequest, Result};
 use http::Request;
 use http_body_util::BodyExt;
 use kube::{Client, client::Body};
@@ -11,8 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 const BODY_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 100;
-
-mod nodes;
+pub(super) mod nodes;
 
 #[derive(Clone)]
 pub(super) struct CancelService<S>(pub S);
@@ -76,69 +75,46 @@ pub(super) async fn resources(
     request: &ResourceRequest,
     cancel: &CancellationToken,
 ) -> Result<ResourcePage> {
-    let metrics_deadline =
-        tokio::time::Instant::now() + super::DEADLINE - std::time::Duration::from_millis(10);
-    let path = match request.kind {
-        ResourceKind::Nodes => "/api/v1/nodes?limit=100&timeoutSeconds=10",
-        ResourceKind::Namespaces => "/api/v1/namespaces?limit=100&timeoutSeconds=10",
+    validate_resource_request(request)?;
+    let path = resource_path(request);
+    let accept = if matches!(
+        request.kind,
+        ResourceKind::Secrets | ResourceKind::ConfigMaps
+    ) {
+        "application/json;as=PartialObjectMetadataList;g=meta.k8s.io;v=v1"
+    } else {
+        "application/json"
     };
-    let list: List = get(client, path, BODY_LIMIT, cancel).await?;
+    let list: List = get_with_accept(client, &path, BODY_LIMIT, cancel, accept).await?;
+    if matches!(
+        request.kind,
+        ResourceKind::Secrets | ResourceKind::ConfigMaps
+    ) && list.kind.as_deref() != Some("PartialObjectMetadataList")
+    {
+        return Err(ConnectionError::InvalidResponse);
+    }
     if list.items.len() > ITEM_LIMIT {
         return Err(ConnectionError::LimitExceeded);
     }
+    let continue_token = list.metadata.continue_token.filter(|s| !s.is_empty());
+    if continue_token.as_deref().is_some_and(|s| !valid_token(s)) {
+        return Err(ConnectionError::InvalidResponse);
+    }
     let mut names = HashSet::new();
     let mut items = Vec::new();
-    for item in list.items {
-        let name = item.metadata.name.clone();
-        if !valid_name(&name) || !names.insert(name.clone()) {
+    for raw in list.items {
+        let item = super::resources::project(request.kind, raw)?;
+        if !names.insert((item.namespace.clone(), item.name.clone()))
+            || (request.namespace.is_some() && item.namespace != request.namespace)
+            || (!super::resources::namespaced(request.kind) && item.namespace.is_some())
+        {
             return Err(ConnectionError::InvalidResponse);
         }
-        let status = match request.kind {
-            ResourceKind::Nodes => match item
-                .status
-                .conditions
-                .iter()
-                .find(|condition| condition.kind == "Ready")
-                .map(|c| c.status.as_str())
-            {
-                Some("True") => "Ready",
-                Some("False") => "Not ready",
-                _ => "Unknown",
-            },
-            ResourceKind::Namespaces => match item.status.phase.as_deref() {
-                Some("Active") => "Active",
-                Some("Terminating") => "Terminating",
-                _ => "Unknown",
-            },
-        };
-        items.push(ResourceItem {
-            node: if request.kind == ResourceKind::Nodes {
-                Some(nodes::project(&item)?)
-            } else {
-                None
-            },
-            name,
-            status: status.into(),
-        });
+        items.push(item);
     }
-    items.sort_by(|a, b| a.name.cmp(&b.name));
-    let metrics_error = if request.kind == ResourceKind::Nodes {
-        let metrics_cancel = cancel.child_token();
-        let outcome = tokio::time::timeout_at(
-            metrics_deadline.min(tokio::time::Instant::now() + std::time::Duration::from_secs(5)),
-            nodes::metrics(client, &metrics_cancel, &mut items),
-        )
-        .await
-        .unwrap_or(Err(ConnectionError::Timeout));
-        metrics_cancel.cancel();
-        if cancel.is_cancelled() {
-            return Err(ConnectionError::StaleSession);
-        }
-        match outcome {
-            Ok(()) => None,
-            Err(ConnectionError::StaleSession) => return Err(ConnectionError::StaleSession),
-            Err(error) => Some(error),
-        }
+    items.sort_by(|a, b| (&a.namespace, &a.name).cmp(&(&b.namespace, &b.name)));
+    let metrics = if request.kind == ResourceKind::Nodes {
+        Some(super::metrics::enrich(client, &mut items, cancel).await?)
     } else {
         None
     };
@@ -147,32 +123,112 @@ pub(super) async fn resources(
         session_id: request.session_id.clone(),
         kind: request.kind,
         read_id: request.read_id,
-        metrics_error,
+        namespace: request.namespace.clone(),
+        truncated: continue_token.is_some(),
+        continue_token,
         items,
-        truncated: !list.metadata.continue_token.is_empty(),
+        metrics,
         fetched_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| ConnectionError::ConnectionFailed)?
             .as_millis() as u64,
     })
 }
-fn valid_name(name: &str) -> bool {
-    !name.is_empty()
-        && name.len() <= 253
-        && name
-            .bytes()
-            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.'))
+pub(super) fn valid_namespace(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 63
+        && s.bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+        && s.as_bytes()[0].is_ascii_alphanumeric()
+        && s.as_bytes()[s.len() - 1].is_ascii_alphanumeric()
+}
+fn valid_token(s: &str) -> bool {
+    s.len() <= 4096 && !s.chars().any(char::is_control)
+}
+pub(super) fn validate_resource_request(request: &ResourceRequest) -> Result<()> {
+    if request
+        .namespace
+        .as_deref()
+        .is_some_and(|s| !super::resources::namespaced(request.kind) || !valid_namespace(s))
+        || request
+            .continue_token
+            .as_deref()
+            .is_some_and(|s| !valid_token(s))
+    {
+        return Err(ConnectionError::InvalidInput);
+    }
+    Ok(())
+}
+pub(super) fn resource_path(request: &ResourceRequest) -> String {
+    use ResourceKind::*;
+    let (group, plural) = match request.kind {
+        Nodes => ("/api/v1", "nodes"),
+        Namespaces => ("/api/v1", "namespaces"),
+        Pods => ("/api/v1", "pods"),
+        ConfigMaps => ("/api/v1", "configmaps"),
+        Secrets => ("/api/v1", "secrets"),
+        ResourceQuotas => ("/api/v1", "resourcequotas"),
+        LimitRanges => ("/api/v1", "limitranges"),
+        Services => ("/api/v1", "services"),
+        Endpoints => ("/api/v1", "endpoints"),
+        PersistentVolumes => ("/api/v1", "persistentvolumes"),
+        PersistentVolumeClaims => ("/api/v1", "persistentvolumeclaims"),
+        Events => ("/api/v1", "events"),
+        ServiceAccounts => ("/api/v1", "serviceaccounts"),
+        Deployments => ("/apis/apps/v1", "deployments"),
+        DaemonSets => ("/apis/apps/v1", "daemonsets"),
+        StatefulSets => ("/apis/apps/v1", "statefulsets"),
+        ReplicaSets => ("/apis/apps/v1", "replicasets"),
+        Jobs => ("/apis/batch/v1", "jobs"),
+        CronJobs => ("/apis/batch/v1", "cronjobs"),
+        HorizontalPodAutoscalers => ("/apis/autoscaling/v2", "horizontalpodautoscalers"),
+        PodDisruptionBudgets => ("/apis/policy/v1", "poddisruptionbudgets"),
+        PriorityClasses => ("/apis/scheduling.k8s.io/v1", "priorityclasses"),
+        RuntimeClasses => ("/apis/node.k8s.io/v1", "runtimeclasses"),
+        Ingresses => ("/apis/networking.k8s.io/v1", "ingresses"),
+        IngressClasses => ("/apis/networking.k8s.io/v1", "ingressclasses"),
+        NetworkPolicies => ("/apis/networking.k8s.io/v1", "networkpolicies"),
+        StorageClasses => ("/apis/storage.k8s.io/v1", "storageclasses"),
+        Roles => ("/apis/rbac.authorization.k8s.io/v1", "roles"),
+        RoleBindings => ("/apis/rbac.authorization.k8s.io/v1", "rolebindings"),
+        ClusterRoles => ("/apis/rbac.authorization.k8s.io/v1", "clusterroles"),
+        ClusterRoleBindings => ("/apis/rbac.authorization.k8s.io/v1", "clusterrolebindings"),
+        CustomResourceDefinitions => ("/apis/apiextensions.k8s.io/v1", "customresourcedefinitions"),
+    };
+    let scope = request
+        .namespace
+        .as_ref()
+        .map(|s| format!("/namespaces/{s}"))
+        .unwrap_or_default();
+    let mut path = format!("{group}{scope}/{plural}?limit=100&timeoutSeconds=10");
+    if let Some(token) = &request.continue_token {
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("continue", token)
+            .finish();
+        path.push('&');
+        path.push_str(&query);
+    }
+    path
 }
 
 // Only this allowlisted request path reaches the client. API error bodies are never surfaced.
-async fn get<T: DeserializeOwned>(
+pub(super) async fn get<T: DeserializeOwned>(
     client: &Client,
     path: &str,
     limit: usize,
     cancel: &CancellationToken,
 ) -> Result<T> {
+    get_with_accept(client, path, limit, cancel, "application/json").await
+}
+async fn get_with_accept<T: DeserializeOwned>(
+    client: &Client,
+    path: &str,
+    limit: usize,
+    cancel: &CancellationToken,
+    accept: &str,
+) -> Result<T> {
     let mut request = Request::get(path)
-        .header("Accept", "application/json")
+        .header("Accept", accept)
         .body(Body::empty())
         .map_err(|_| ConnectionError::InvalidInput)?;
     request.extensions_mut().insert(cancel.clone());
@@ -181,6 +237,7 @@ async fn get<T: DeserializeOwned>(
         200 => {}
         401 => return Err(ConnectionError::AuthFailed),
         403 => return Err(ConnectionError::PermissionDenied),
+        404 => return Err(ConnectionError::ResourceUnavailable),
         408 | 504 => return Err(ConnectionError::Timeout),
         _ => return Err(ConnectionError::ConnectionFailed),
     }
@@ -232,47 +289,13 @@ fn map_kube_error(error: kube::Error) -> ConnectionError {
 }
 #[derive(Deserialize)]
 struct List {
+    kind: Option<String>,
     #[serde(default)]
     metadata: ListMetadata,
-    items: Vec<Item>,
+    items: Vec<serde_json::Value>,
 }
 #[derive(Default, Deserialize)]
 struct ListMetadata {
     #[serde(default, rename = "continue")]
-    continue_token: String,
-}
-#[derive(Deserialize)]
-struct Item {
-    metadata: Metadata,
-    #[serde(default)]
-    status: Status,
-    #[serde(default)]
-    spec: nodes::Spec,
-}
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Metadata {
-    name: String,
-    #[serde(default)]
-    labels: std::collections::BTreeMap<String, String>,
-    creation_timestamp: Option<String>,
-}
-#[derive(Default, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct Status {
-    #[serde(default)]
-    conditions: Vec<Condition>,
-    phase: Option<String>,
-    #[serde(default)]
-    addresses: Vec<nodes::Address>,
-    #[serde(default)]
-    node_info: nodes::NodeInfo,
-    #[serde(default)]
-    allocatable: nodes::Quantities,
-}
-#[derive(Deserialize)]
-struct Condition {
-    #[serde(rename = "type")]
-    kind: String,
-    status: String,
+    continue_token: Option<String>,
 }

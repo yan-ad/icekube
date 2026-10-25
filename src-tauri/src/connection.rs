@@ -12,11 +12,16 @@ use std::{
 };
 use tokio_util::sync::CancellationToken;
 
+mod auth;
 mod config;
 #[cfg(test)]
 mod lifecycle_tests;
+mod metrics;
 #[cfg(test)]
 mod node_tests;
+#[cfg(test)]
+mod resource_tests;
+mod resources;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -33,10 +38,16 @@ pub enum ConnectionError {
     KubeconfigInvalid,
     SourceChanged,
     UnsupportedAuth,
+    AuthHelperMissing,
+    AuthHelperFailed,
+    AuthHelperInvalidResponse,
+    AuthInteractiveRequired,
+    AuthExpired,
     InsecureTransport,
     AuthFailed,
     TlsFailed,
     PermissionDenied,
+    ResourceUnavailable,
     Timeout,
     Network,
     ConnectionFailed,
@@ -46,6 +57,16 @@ pub enum ConnectionError {
     LimitExceeded,
     InvalidResponse,
     StoreUnavailable,
+}
+fn validate_credentials(client: &Client) -> Result<()> {
+    if client
+        .valid_until()
+        .is_some_and(|expiry| expiry <= jiff::Timestamp::now())
+    {
+        Err(ConnectionError::AuthExpired)
+    } else {
+        Ok(())
+    }
 }
 fn validate_read_id(id: u64) -> Result<()> {
     if id == 0 || id > 9_007_199_254_740_991 {
@@ -73,6 +94,36 @@ pub struct SessionRequest {
 pub enum ResourceKind {
     Nodes,
     Namespaces,
+    Pods,
+    Deployments,
+    DaemonSets,
+    StatefulSets,
+    ReplicaSets,
+    Jobs,
+    CronJobs,
+    ConfigMaps,
+    Secrets,
+    ResourceQuotas,
+    LimitRanges,
+    HorizontalPodAutoscalers,
+    PodDisruptionBudgets,
+    PriorityClasses,
+    RuntimeClasses,
+    Services,
+    Endpoints,
+    Ingresses,
+    IngressClasses,
+    NetworkPolicies,
+    PersistentVolumes,
+    PersistentVolumeClaims,
+    StorageClasses,
+    Events,
+    ServiceAccounts,
+    Roles,
+    RoleBindings,
+    ClusterRoles,
+    ClusterRoleBindings,
+    CustomResourceDefinitions,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -82,6 +133,10 @@ pub struct ResourceRequest {
     pub session_id: String,
     pub kind: ResourceKind,
     pub read_id: u64,
+    #[serde(default)]
+    pub namespace: Option<String>,
+    #[serde(default)]
+    pub continue_token: Option<String>,
 }
 impl ResourceRequest {
     fn session(&self) -> SessionRequest {
@@ -103,7 +158,7 @@ pub struct ConnectionSnapshot {
     pub error: Option<ConnectionError>,
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourcePage {
     pub cluster_id: String,
@@ -113,36 +168,55 @@ pub struct ResourcePage {
     pub items: Vec<ResourceItem>,
     pub truncated: bool,
     pub fetched_at: u64,
-    pub metrics_error: Option<ConnectionError>,
+    pub namespace: Option<String>,
+    pub continue_token: Option<String>,
+    pub metrics: Option<MetricState>,
 }
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
     pub name: String,
     pub status: String,
-    pub node: Option<NodeDetails>,
+    pub namespace: Option<String>,
+    pub created_at: Option<String>,
+    pub columns: std::collections::BTreeMap<String, String>,
+    pub node: Option<NodeInfo>,
 }
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
-pub struct NodeDetails {
+pub enum MetricState {
+    Available,
+    Unavailable,
+    Denied,
+    Stale,
+    Partial,
+    Error,
+}
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeInfo {
     pub roles: Vec<String>,
     pub taints: u32,
-    pub kubelet_version: Option<String>,
+    pub version: Option<String>,
     pub internal_ips: Vec<String>,
-    pub created_at: Option<String>,
     pub schedulable: bool,
     pub conditions: Vec<NodeCondition>,
-    pub cpu_allocatable: Option<String>,
-    pub memory_allocatable: Option<String>,
     pub disk_allocatable: Option<String>,
-    pub cpu_usage: Option<String>,
-    pub memory_usage: Option<String>,
+    pub cpu: Usage,
+    pub memory: Usage,
+    pub metrics_timestamp: Option<String>,
 }
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct NodeCondition {
     #[serde(rename = "type")]
     pub kind: String,
     pub status: String,
+}
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct Usage {
+    pub used: Option<f64>,
+    pub allocatable: Option<f64>,
+    pub capacity: Option<f64>,
 }
 
 struct Session {
@@ -168,6 +242,7 @@ pub struct ConnectionEngine {
     session: Mutex<Option<Session>>,
     workers: tokio::sync::Semaphore,
     file_workers: Arc<tokio::sync::Semaphore>,
+    auth_tasks: tokio_util::task::TaskTracker,
     open_generation: AtomicU64,
 }
 impl ConnectionEngine {
@@ -177,6 +252,7 @@ impl ConnectionEngine {
             session: Mutex::new(None),
             workers: tokio::sync::Semaphore::new(4),
             file_workers: Arc::new(tokio::sync::Semaphore::new(2)),
+            auth_tasks: tokio_util::task::TaskTracker::new(),
             open_generation: AtomicU64::new(0),
         }
     }
@@ -241,6 +317,12 @@ impl ConnectionEngine {
             state.take();
         }
     }
+    pub async fn drain(&self) {
+        // Cancellation must reach connect futures before their helper trackers can be empty.
+        let _workers = self.workers.acquire_many(4).await;
+        self.auth_tasks.close();
+        self.auth_tasks.wait().await;
+    }
     pub fn status(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
         validate_request(&request)?;
         let state = self
@@ -251,7 +333,7 @@ impl ConnectionEngine {
     }
     pub async fn connect(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
         self.connect_with(request, |target| {
-            config::build_client(target, self.file_workers.clone())
+            config::build_client(target, self.file_workers.clone(), self.auth_tasks.clone())
         })
         .await
     }
@@ -298,6 +380,7 @@ impl ConnectionEngine {
                 return Err(ConnectionError::SourceChanged);
             }
             let version = transport::version(&client, &cancel).await?;
+            validate_credentials(&client)?;
             Ok((client, version))
         })
         .await;
@@ -323,6 +406,7 @@ impl ConnectionEngine {
         Ok(session.snapshot.clone())
     }
     pub fn cancel_resources(&self, request: ResourceRequest) -> Result<()> {
+        transport::validate_resource_request(&request)?;
         validate_request(&request.session())?;
         validate_read_id(request.read_id)?;
         let mut state = self
@@ -347,6 +431,7 @@ impl ConnectionEngine {
         Ok(())
     }
     pub async fn resources(&self, request: ResourceRequest) -> Result<ResourcePage> {
+        transport::validate_resource_request(&request)?;
         let identity = request.session();
         validate_request(&identity)?;
         validate_read_id(request.read_id)?;
@@ -364,6 +449,7 @@ impl ConnectionEngine {
                 .client
                 .clone()
                 .ok_or(ConnectionError::NotConnected)?;
+            validate_credentials(&client)?;
             let cancel = session.cancel.child_token();
             let slot = session.reads.entry(request.kind).or_insert(ReadSlot {
                 id: 0,

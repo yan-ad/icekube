@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceKind, type ResourcePage, type SessionRequest } from "./api";
+import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 
 const columns: TableColumn<ResourceItem>[] = [{ key: "name", header: "Name", renderCell: (item) => <Text style={{ overflowWrap: "anywhere" }}>{item.name}</Text> }, { key: "status", header: "Status" }];
 
@@ -12,6 +12,7 @@ export function ClusterResources({ clusterId, sessionId, kind }: SessionRequest 
   const [page, setPage] = useState<ResourcePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ConnectionErrorCode | null>(null);
+  useRegisterWorkspaceRefresh({ clusterId, section: kind, enabled: true, refresh: () => setRevision((value) => value + 1) });
   useEffect(() => {
     let disposed = false;
     const request = { clusterId, sessionId, kind, readId: nextReadId() };
@@ -27,7 +28,6 @@ export function ClusterResources({ clusterId, sessionId, kind }: SessionRequest 
   }, [clusterId, sessionId, kind, revision]);
   return <VStack gap={3} style={{ minWidth: 0 }}>
     <HStack gap={2} wrap="wrap" vAlign="center">
-      <Button label={`Refresh ${kind}`} variant="ghost" onClick={() => setRevision((value) => value + 1)} />
       {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
     </HStack>
     {loading && <Text role="status">Loading {kind}…</Text>}

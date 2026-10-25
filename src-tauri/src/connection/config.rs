@@ -16,18 +16,25 @@ const FILE_LIMIT: usize = 1024 * 1024;
 pub(super) async fn build_client(
     target: ConnectionTarget,
     admission: Arc<tokio::sync::Semaphore>,
+    auth_tasks: tokio_util::task::TaskTracker,
 ) -> Result<Client> {
     let context = target.context_name.clone();
+    let base = target
+        .source_path
+        .parent()
+        .ok_or(ConnectionError::KubeconfigUnavailable)?
+        .to_path_buf();
     let permit = admission
         .try_acquire_owned()
         .map_err(|_| ConnectionError::Busy)?;
     // Blocking preparation has a fixed input bound and never executes plugins or opens sockets.
-    let config = tauri::async_runtime::spawn_blocking(move || {
+    let mut config = tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
         prepare(&target)
     })
     .await
     .map_err(|_| ConnectionError::KubeconfigInvalid)??;
+    let expiry = super::auth::resolve_tracked(&mut config, &base, &auth_tasks).await?;
     let mut config = Config::from_custom_kubeconfig(
         config,
         &KubeConfigOptions {
@@ -46,6 +53,7 @@ pub(super) async fn build_client(
     Ok(kube::client::ClientBuilder::try_from(config)
         .map_err(|_| ConnectionError::TlsFailed)?
         .with_layer(&tower::layer::layer_fn(super::transport::CancelService))
+        .with_valid_until(expiry)
         .build())
 }
 
@@ -128,9 +136,6 @@ pub(super) fn prepare(target: &ConnectionTarget) -> Result<Kubeconfig> {
             .auth_info
             .as_mut()
             .ok_or(ConnectionError::KubeconfigInvalid)?;
-        if auth.exec.is_some() || auth.auth_provider.is_some() {
-            return Err(ConnectionError::UnsupportedAuth);
-        }
         inline_file(
             base,
             &mut auth.client_certificate,
