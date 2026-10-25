@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useSearch } from "@tanstack/react-router";
 import { Divider } from "@astryxdesign/core/Divider";
 import { SideNav, SideNavSection } from "@astryxdesign/core/SideNav";
@@ -18,6 +19,12 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
   const { snapshot, loading, available, error } = useCatalog();
   const cluster = snapshot?.clusters.find((item) => item.id === clusterId);
   const { isMobile } = useAppShellMobile();
+  const selectedParent = clusterSections.find((item) => "children" in item && item.children.some((child) => child.id === section))?.id;
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    setCollapsed((previous) => selectedParent ? { ...previous, [selectedParent]: false } : previous);
+  }, [clusterId, section, selectedParent]);
 
   return (
     <SideNav aria-label="Cluster navigation" id={id} style={{ width: isMobile ? "100%" : "clamp(11rem, 18vw, 16rem)", minWidth: 0 }}>
@@ -34,7 +41,19 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
       {cluster && <>
         <Divider />
         <SideNavSection title="Workspace">
-          {clusterSections.map((item) => (
+          {clusterSections.map((item) => "children" in item ? (
+            <NavLink key={item.id} to="/cluster/$clusterId" params={{ clusterId }}
+              search={{ section: item.id }} label={item.label} icon={item.icon}
+              isSelected={section === item.id} onClick={onNavigate}
+              collapsible={{
+                isCollapsed: collapsed[item.id] ?? selectedParent !== item.id,
+                onCollapsedChange: (isCollapsed) => setCollapsed((previous) => ({ ...previous, [item.id]: isCollapsed })),
+              }}>
+              {item.children.map((child) => <NavLink key={child.id} to="/cluster/$clusterId" params={{ clusterId }}
+                search={{ section: child.id }} label={child.label} isSelected={section === child.id}
+                onClick={onNavigate} />)}
+            </NavLink>
+          ) : (
             <NavLink key={item.id} to="/cluster/$clusterId" params={{ clusterId }}
               search={{ section: item.id }} label={item.label} icon={item.icon}
               isSelected={section === item.id} onClick={onNavigate} />

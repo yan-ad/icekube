@@ -12,6 +12,8 @@ use tokio_util::sync::CancellationToken;
 const BODY_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 100;
 
+mod nodes;
+
 #[derive(Clone)]
 pub(super) struct CancelService<S>(pub S);
 impl<S, B> tower::Service<Request<Body>> for CancelService<S>
@@ -74,6 +76,8 @@ pub(super) async fn resources(
     request: &ResourceRequest,
     cancel: &CancellationToken,
 ) -> Result<ResourcePage> {
+    let metrics_deadline =
+        tokio::time::Instant::now() + super::DEADLINE - std::time::Duration::from_millis(10);
     let path = match request.kind {
         ResourceKind::Nodes => "/api/v1/nodes?limit=100&timeoutSeconds=10",
         ResourceKind::Namespaces => "/api/v1/namespaces?limit=100&timeoutSeconds=10",
@@ -85,7 +89,7 @@ pub(super) async fn resources(
     let mut names = HashSet::new();
     let mut items = Vec::new();
     for item in list.items {
-        let name = item.metadata.name;
+        let name = item.metadata.name.clone();
         if !valid_name(&name) || !names.insert(name.clone()) {
             return Err(ConnectionError::InvalidResponse);
         }
@@ -108,16 +112,42 @@ pub(super) async fn resources(
             },
         };
         items.push(ResourceItem {
+            node: if request.kind == ResourceKind::Nodes {
+                Some(nodes::project(&item)?)
+            } else {
+                None
+            },
             name,
             status: status.into(),
         });
     }
     items.sort_by(|a, b| a.name.cmp(&b.name));
+    let metrics_error = if request.kind == ResourceKind::Nodes {
+        let metrics_cancel = cancel.child_token();
+        let outcome = tokio::time::timeout_at(
+            metrics_deadline.min(tokio::time::Instant::now() + std::time::Duration::from_secs(5)),
+            nodes::metrics(client, &metrics_cancel, &mut items),
+        )
+        .await
+        .unwrap_or(Err(ConnectionError::Timeout));
+        metrics_cancel.cancel();
+        if cancel.is_cancelled() {
+            return Err(ConnectionError::StaleSession);
+        }
+        match outcome {
+            Ok(()) => None,
+            Err(ConnectionError::StaleSession) => return Err(ConnectionError::StaleSession),
+            Err(error) => Some(error),
+        }
+    } else {
+        None
+    };
     Ok(ResourcePage {
         cluster_id: request.cluster_id.clone(),
         session_id: request.session_id.clone(),
         kind: request.kind,
         read_id: request.read_id,
+        metrics_error,
         items,
         truncated: !list.metadata.continue_token.is_empty(),
         fetched_at: SystemTime::now()
@@ -216,16 +246,29 @@ struct Item {
     metadata: Metadata,
     #[serde(default)]
     status: Status,
+    #[serde(default)]
+    spec: nodes::Spec,
 }
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Metadata {
     name: String,
+    #[serde(default)]
+    labels: std::collections::BTreeMap<String, String>,
+    creation_timestamp: Option<String>,
 }
 #[derive(Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Status {
     #[serde(default)]
     conditions: Vec<Condition>,
     phase: Option<String>,
+    #[serde(default)]
+    addresses: Vec<nodes::Address>,
+    #[serde(default)]
+    node_info: nodes::NodeInfo,
+    #[serde(default)]
+    allocatable: nodes::Quantities,
 }
 #[derive(Deserialize)]
 struct Condition {

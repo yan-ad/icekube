@@ -17,6 +17,7 @@
         "title": "icekube",
         "width": 800,
         "height": 600,
+        "maximized": true,
         "minWidth": 360,
         "minHeight": 320
       }

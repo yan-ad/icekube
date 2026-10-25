@@ -16,6 +16,8 @@ mod config;
 #[cfg(test)]
 mod lifecycle_tests;
 #[cfg(test)]
+mod node_tests;
+#[cfg(test)]
 mod tests;
 mod transport;
 
@@ -111,10 +113,35 @@ pub struct ResourcePage {
     pub items: Vec<ResourceItem>,
     pub truncated: bool,
     pub fetched_at: u64,
+    pub metrics_error: Option<ConnectionError>,
 }
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
     pub name: String,
+    pub status: String,
+    pub node: Option<NodeDetails>,
+}
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct NodeDetails {
+    pub roles: Vec<String>,
+    pub taints: u32,
+    pub kubelet_version: Option<String>,
+    pub internal_ips: Vec<String>,
+    pub created_at: Option<String>,
+    pub schedulable: bool,
+    pub conditions: Vec<NodeCondition>,
+    pub cpu_allocatable: Option<String>,
+    pub memory_allocatable: Option<String>,
+    pub disk_allocatable: Option<String>,
+    pub cpu_usage: Option<String>,
+    pub memory_usage: Option<String>,
+}
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct NodeCondition {
+    #[serde(rename = "type")]
+    pub kind: String,
     pub status: String,
 }
 

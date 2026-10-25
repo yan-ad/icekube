@@ -4,7 +4,7 @@ import CatalogPage from "./pages/CatalogPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import { CatalogProvider } from "./catalog/CatalogProvider";
 import ClusterWorkspacePage from "./cluster/ClusterWorkspacePage";
-import { clusterSections, type ClusterSectionId } from "./cluster/navigation";
+import { clusterDestinations, type ClusterSectionId } from "./cluster/navigation";
 
 const rootRoute = createRootRoute({
   component: () => <CatalogProvider><MainLayout /></CatalogProvider>,
@@ -24,7 +24,7 @@ const clusterWorkspaceRoute = createRoute({
   path: "cluster/$clusterId",
   component: ClusterWorkspacePage,
   validateSearch: (search: Record<string, unknown>): { section?: ClusterSectionId } => ({
-    section: clusterSections.find((item) => item.id === search.section)?.id,
+    section: clusterDestinations.find((item) => item.id === search.section)?.id,
   }),
 });
 

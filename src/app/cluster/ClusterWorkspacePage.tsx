@@ -11,12 +11,12 @@ import { catalogError, type ClusterSummary } from "../catalog/api";
 import { RecordIcon } from "../catalog/RecordIcon";
 import { connectionMessage } from "./api";
 import { ClusterResources } from "./ClusterResources";
-import { clusterSections } from "./navigation";
+import { clusterDestinations } from "./navigation";
 import { useClusterSession } from "./useClusterSession";
 
 function ClusterSession({ cluster, section, onReopen }: { cluster: ClusterSummary; section: string; onReopen: () => void }) {
   const session = useClusterSession(cluster.id);
-  const selected = clusterSections.find((item) => item.id === section);
+  const selected = clusterDestinations.find((item) => item.id === section);
   const connection = session.snapshot;
   const connected = connection?.status === "connected";
   const resourceKind = section === "nodes" || section === "namespaces" ? section : null;
