@@ -1,4 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import type { MetricState, NodeInfo } from "./nodeContract";
+import { metricStates, parseNode, validTimestamp } from "./nodeContract";
 
 const messages = {
   invalidInput: "The cluster request is invalid. Return to Catalog and choose the saved context again.",
@@ -36,9 +38,22 @@ export type ConnectionSnapshot = SessionRequest & {
 };
 export type ResourceKind = "nodes" | "namespaces";
 export type ResourceRequest = SessionRequest & { kind: ResourceKind; readId: number };
-export type ResourceItem = { name: string; status: string };
+export type ResourceItem = {
+  name: string;
+  status: string;
+  namespace: string | null;
+  createdAt: string | null;
+  columns: Record<string, string>;
+  node: NodeInfo | null;
+};
 export type ResourcePage = ResourceRequest & {
-  kind: ResourceKind; items: ResourceItem[]; truncated: boolean; fetchedAt: number;
+  kind: ResourceKind;
+  items: ResourceItem[];
+  truncated: boolean;
+  fetchedAt: number;
+  namespace: string | null;
+  continueToken: string | null;
+  metrics: MetricState | null;
 };
 let lastReadId = 0;
 export function nextReadId(): number {
@@ -122,7 +137,24 @@ export async function loadResources(request: ResourceRequest): Promise<ResourceP
     || new Set(value.items.map((item) => item.name)).size !== value.items.length
     || typeof value.truncated !== "boolean" || !Number.isSafeInteger(value.fetchedAt) || (value.fetchedAt as number) < 0
     || (value.fetchedAt as number) > 8.64e15) throw "invalidResponse";
+  const metrics = value.metrics === null || value.metrics === undefined ? null
+    : typeof value.metrics === "string" && metricStates.includes(value.metrics as MetricState)
+      ? value.metrics as MetricState : null;
+  if (value.metrics !== null && value.metrics !== undefined && metrics === null) throw "invalidResponse";
+  const items = value.items.map((item) => {
+    if (item.createdAt !== undefined && item.createdAt !== null && !validTimestamp(item.createdAt)) throw "invalidResponse";
+    return ({
+    name: item.name as string,
+    status: item.status as string,
+    namespace: typeof item.namespace === "string" ? item.namespace : null,
+    createdAt: typeof item.createdAt === "string" ? item.createdAt : null,
+    columns: record(item.columns) && Object.values(item.columns).every((column) => typeof column === "string")
+      ? item.columns as Record<string, string> : {},
+    node: request.kind === "nodes" ? parseNode(item.node) : null,
+    });
+  });
   return { clusterId: request.clusterId, sessionId: request.sessionId, kind: request.kind, readId: value.readId,
-    items: value.items.map((item) => ({ name: item.name as string, status: item.status as string })),
-    truncated: value.truncated, fetchedAt: value.fetchedAt as number };
+    items, truncated: value.truncated, fetchedAt: value.fetchedAt as number,
+    namespace: typeof value.namespace === "string" ? value.namespace : null,
+    continueToken: typeof value.continueToken === "string" ? value.continueToken : null, metrics };
 }
