@@ -309,7 +309,8 @@ async fn node_metrics_states_preserve_inventory_and_never_invent_disk() {
         assert!(wire.get("disk").is_none());
     }
 }
-#[tokio::test(start_paused = true)]
+// The engine and buffered client can run on different runtimes; keep their deadlines on real time.
+#[tokio::test]
 async fn metrics_timeout_is_optional_but_cancellation_discards_late_metrics() {
     use http::{Request, Response};
     use kube::client::Body;

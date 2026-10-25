@@ -493,8 +493,9 @@ printf '%s' '{"apiVersion":"client.authentication.k8s.io/v1","kind":"ExecCredent
             directory.path(),
             &format!("sleep 30 &\necho $! > '{}'\nexit 0", pid_file.display()),
         );
+        // Allow cold script startup on macOS before timing out the inherited pipes.
         assert_eq!(
-            run(request, Duration::from_secs(1)).await,
+            run(request, Duration::from_secs(5)).await,
             Err(ConnectionError::Timeout)
         );
         assert_dead(&pid(&pid_file).await).await;

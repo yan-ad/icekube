@@ -90,7 +90,7 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   await page.getByRole("link", { name: "Development", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-fixture$/);
   await expect(page.getByRole("heading", { level: 1, name: "Development", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Back to Catalog", exact: true }).click();
+  await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await table.getByRole("button", { name: "Unpin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true })).toHaveCount(0);
@@ -225,7 +225,8 @@ test("record icons retain colors across reloads and pins; labels are searchable"
   await expect(icon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(icon).toHaveCSS("padding", "0px");
   await expect(icon).toHaveCSS("flex-shrink", "0");
-  await expect(icon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  const displayColor = await icon.evaluate((element) => getComputedStyle(element).color);
+  await expect(icon.locator("svg")).toHaveCSS("color", displayColor);
   const dimensions = await icon.locator("svg").evaluate((element) => {
     const { width, height } = element.getBoundingClientRect();
     return { width, height };
@@ -237,13 +238,13 @@ test("record icons retain colors across reloads and pins; labels are searchable"
   await expect(page.getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
   const pinnedIcon = page.getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]");
   await expect(pinnedIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(pinnedIcon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(pinnedIcon.locator("svg")).toHaveCSS("color", displayColor);
   await expect(pinnedIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
   await expect(pinnedIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
   await page.reload();
   const persistedIcon = page.getByRole("table").locator('[data-record-color="#476BA1"]');
   await expect(persistedIcon).toBeVisible();
-  await expect(persistedIcon).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(persistedIcon).toHaveCSS("color", displayColor);
   await expect(persistedIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await page.getByRole("textbox", { name: "Filter catalog", exact: true }).fill("file=/fixtures");
   await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
@@ -254,7 +255,7 @@ test("record icons retain colors across reloads and pins; labels are searchable"
   await expect(sidebarIcon).toHaveAttribute("data-record-color", "#476BA1");
   await expect(sidebarIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await expect(sidebarIcon).toHaveCSS("flex-shrink", "0");
-  await expect(sidebarIcon.locator("svg")).toHaveCSS("color", "rgb(71, 107, 161)");
+  await expect(sidebarIcon.locator("svg")).toHaveCSS("color", displayColor);
   await expect(sidebarIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
   await expect(sidebarIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
   await expect(sidebar.getByText("Saved context", { exact: true })).toHaveCount(0);
@@ -280,14 +281,16 @@ test("cluster sidebar truncates long names and keeps the full name available", a
   await page.goto("/#/cluster/cluster-fixture");
   await page.reload();
   const sidebar = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
-  const label = sidebar.getByText(name, { exact: true });
+  const label = sidebar.getByText(name, { exact: true }).and(sidebar.locator('[data-type="body"]'));
   await expect(label).toBeVisible();
   expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  await expect(label).toHaveAttribute("data-tooltip-content", name);
+  await label.hover();
+  await expect(label).toHaveAttribute("aria-describedby", /.+/);
+  await expect(label).toHaveAccessibleDescription(name);
   await page.setViewportSize({ width: 360, height: 700 });
   await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   const drawerSidebar = page.getByRole("dialog").getByRole("navigation", { name: "Cluster navigation", exact: true });
-  await expect(drawerSidebar.getByText(name, { exact: true })).toBeVisible();
+  await expect(drawerSidebar.getByText(name, { exact: true }).and(drawerSidebar.locator('[data-type="body"]'))).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 

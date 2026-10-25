@@ -49,9 +49,6 @@ export function useClusterSession(clusterId: string) {
     };
   }, [attach, connectOwned, publish]);
 
-  const connect = useCallback(async () => {
-    if (owner.current) await connectOwned(owner.current);
-  }, [connectOwned]);
   const reset = useCallback(async (reconnect: boolean) => {
     const scope = owner.current;
     if (!scope || scope.disposed || !scope.snapshot || !scope.release || ["opening", "releasing"].includes(scope.phase)) return;
@@ -70,6 +67,15 @@ export function useClusterSession(clusterId: string) {
       publish(scope, { snapshot: null, phase: "failed", error: errorCode(reason) });
     }
   }, [attach, clusterId, connectOwned, publish]);
+  const connect = useCallback(async () => {
+    const scope = owner.current;
+    if (!scope) return;
+    if (scope.snapshot?.error === "staleSession") {
+      await reset(true);
+      return;
+    }
+    await connectOwned(scope);
+  }, [connectOwned, reset]);
   const disconnect = useCallback(() => reset(false), [reset]);
   const reconnect = useCallback(() => reset(true), [reset]);
   return { ...view, connect, disconnect, reconnect, canRelease: !!owner.current?.snapshot };

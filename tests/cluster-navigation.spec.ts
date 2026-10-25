@@ -13,18 +13,19 @@ async function fixture(page: Page, section = "overview", narrow = false) {
         ] };
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_disconnect") return;
+        if (command === "cluster_connect") throw "network";
         throw new Error(`Unexpected IPC: ${command}`);
       },
     } });
   });
   await page.setViewportSize({ width: narrow ? 360 : 1200, height: 800 });
   await page.goto(`/#/cluster/one?section=${section}`);
-  await expect(page.getByRole("button", { name: "Connect to cluster", exact: true })).toBeEnabled();
+  await expect(page.getByRole("main")).toContainText("Connection error [network]");
 }
 const navigation = (page: Page) => page.getByRole("navigation", { name: "Cluster navigation", exact: true });
 async function noImplicitRequests(page: Page) {
   const calls = await page.evaluate(() => (window as unknown as { __navigationCalls: string[] }).__navigationCalls);
-  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect"].includes(command))).toBe(true);
+  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect", "cluster_connect"].includes(command))).toBe(true);
 }
 
 test("disclosures expand and collapse by keyboard without navigation; children have real destinations", async ({ page }) => {

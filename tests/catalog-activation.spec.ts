@@ -19,7 +19,7 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_connect") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, contextName: "dev-context", status: "connected", apiVersion: "v1.34.1", error: null };
         if (command === "cluster_resources") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, kind: args?.request.kind, readId: args?.request.readId, items: [], truncated: false, fetchedAt: Date.now() };
-        if (command === "cluster_disconnect") return;
+        if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
         if (command === "catalog_open_web_link") {
           if (options.failOpen) throw "openFailed";
           return;
@@ -60,7 +60,7 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
     await expect(page.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
     await expect(page.getByRole("main")).toContainText(section === "nodes" ? "No nodes were returned" : "not implemented yet");
   }
-  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect"].includes(call.command))).toBe(true);
+  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel"].includes(call.command))).toBe(true);
   await page.getByRole("link", { name: "Catalog", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);

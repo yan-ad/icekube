@@ -78,7 +78,14 @@ async function command(name: string, request: object): Promise<unknown> {
   try { return await invoke<unknown>(name, { request }); }
   catch (reason) { throw errorCode(reason); }
 }
-export async function openSession(clusterId: string) {
+let pendingOpen: Promise<unknown> = Promise.resolve();
+export function openSession(clusterId: string): Promise<ConnectionSnapshot> {
+  // Rust has one workspace lease; keep IPC arrival order aligned with view ownership.
+  const next = pendingOpen.then(() => openSessionOrdered(clusterId));
+  pendingOpen = next.catch(() => {});
+  return next;
+}
+async function openSessionOrdered(clusterId: string) {
   const request = { clusterId };
   const value = await command("cluster_session_open", request);
   try {
