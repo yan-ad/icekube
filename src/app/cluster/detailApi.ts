@@ -18,7 +18,7 @@ const kinds = new Set<string>(["nodes", ...resourceViews.flatMap((v) => v.kind ?
 function record(v: unknown): v is Record<string, unknown> { return v !== null && typeof v === "object" && !Array.isArray(v); }
 function closed(v: Record<string, unknown>, keys: string[]) { return Object.keys(v).every((k) => keys.includes(k)); }
 function text(v: unknown, max: number): v is string {
-  return typeof v === "string" && v.length > 0 && v.length <= max && !/[\u0000-\u001f\u007f-\u009f]/.test(v);
+  return typeof v === "string" && v.length > 0 && new TextEncoder().encode(v).length <= max && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(v);
 }
 function name(v: unknown): v is string {
   return typeof v === "string" && v.length <= 253 && v.split(".").every((s) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(s));

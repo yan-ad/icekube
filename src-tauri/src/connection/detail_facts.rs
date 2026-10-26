@@ -31,32 +31,50 @@ fn safe(s: &str) -> Option<String> {
         Some(s.to_owned())
     }
 }
-fn scalar(v: &Value, path: &str) -> Option<String> {
-    match v.pointer(path)? {
-        Value::String(s) => safe(s),
-        Value::Bool(b) => Some(b.to_string()),
-        Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    }
-}
+#[derive(Default)]
 struct Facts {
     sections: Vec<DetailSection>,
+    partial: bool,
 }
 impl Facts {
+    fn scalar(&mut self, v: &Value, path: &str) -> Option<String> {
+        let value = v.pointer(path)?;
+        let result = match value {
+            Value::String(s)
+                if s.is_empty()
+                    && matches!(path.rsplit('/').next(), Some("apiGroup" | "apiGroups")) =>
+            {
+                Some("(core)".into())
+            }
+            Value::String(s) => safe(s),
+            Value::Bool(b) => Some(b.to_string()),
+            Value::Number(n) => Some(n.to_string()),
+            _ => None,
+        };
+        self.partial |= !value.is_null() && result.is_none();
+        result
+    }
     fn fields(&mut self, title: &str, v: &Value, fields: &[(&str, &str)]) {
         let facts = fields
             .iter()
             .map(|(label, path)| DetailFact {
                 label: (*label).into(),
-                value: scalar(v, path).unwrap_or_else(|| "Not reported".into()),
+                value: self
+                    .scalar(v, path)
+                    .unwrap_or_else(|| "Not reported".into()),
             })
             .collect();
         self.push(title, facts);
     }
     fn push(&mut self, title: &str, mut facts: Vec<DetailFact>) {
-        if self.sections.len() >= MAX_SECTIONS || facts.is_empty() {
+        if facts.is_empty() {
             return;
         }
+        if self.sections.len() >= MAX_SECTIONS {
+            self.partial = true;
+            return;
+        }
+        self.partial |= facts.len() > MAX_FACTS;
         facts.truncate(MAX_FACTS);
         self.sections.push(DetailSection {
             title: title.into(),
@@ -65,15 +83,15 @@ impl Facts {
     }
     fn rows(&mut self, title: &str, v: &Value, path: &str, fields: &[(&str, &str)]) {
         let Some(rows) = v.pointer(path).and_then(Value::as_array) else {
+            self.partial |= v.pointer(path).is_some_and(|v| !v.is_null());
             return;
         };
+        self.partial |= rows.len() > MAX_ITEMS;
         let mut facts = Vec::new();
         for (i, row) in rows.iter().take(MAX_ITEMS).enumerate() {
+            self.partial |= !row.is_object();
             for (label, path) in fields {
-                if facts.len() >= MAX_FACTS {
-                    break;
-                }
-                if let Some(value) = scalar(row, path) {
+                if let Some(value) = self.scalar(row, path) {
                     facts.push(DetailFact {
                         label: format!("{} · {}", i + 1, label),
                         value,
@@ -81,34 +99,30 @@ impl Facts {
                 }
             }
         }
-        if rows.len() > MAX_ITEMS || rows.len().saturating_mul(fields.len()) > MAX_FACTS {
-            facts.truncate(MAX_FACTS - 1);
-            facts.push(DetailFact {
-                label: "Coverage".into(),
-                value: "Partial: display limit reached".into(),
-            });
-        }
         self.push(title, facts);
     }
     fn strings(&mut self, title: &str, v: &Value, fields: &[(&str, &str)]) {
         let mut facts = Vec::new();
         for (label, path) in fields {
             let Some(items) = v.pointer(path).and_then(Value::as_array) else {
+                self.partial |= v.pointer(path).is_some_and(|v| !v.is_null());
                 continue;
             };
+            self.partial |= items.len() > MAX_ITEMS;
             for item in items.iter().take(MAX_ITEMS) {
-                if let Some(value) = item.as_str().and_then(safe) {
+                let value = match item.as_str() {
+                    Some("") if *path == "/apiGroups" => Some("(core)".into()),
+                    Some(s) => safe(s),
+                    None => None,
+                };
+                if let Some(value) = value {
                     facts.push(DetailFact {
                         label: (*label).into(),
                         value,
                     });
+                } else {
+                    self.partial = true;
                 }
-            }
-            if items.len() > MAX_ITEMS {
-                facts.push(DetailFact {
-                    label: "Coverage".into(),
-                    value: "Partial: display limit reached".into(),
-                });
             }
         }
         self.push(title, facts);
@@ -116,17 +130,20 @@ impl Facts {
     fn count(&mut self, title: &str, v: &Value, fields: &[(&str, &str)]) {
         let facts = fields
             .iter()
-            .map(|(label, path)| DetailFact {
-                label: (*label).into(),
-                value: v
-                    .pointer(path)
-                    .and_then(|x| {
-                        x.as_array()
-                            .map(Vec::len)
-                            .or_else(|| x.as_object().map(|m| m.len()))
-                    })
-                    .map(|n| n.to_string())
-                    .unwrap_or_else(|| "Not reported".into()),
+            .map(|(label, path)| {
+                let value = v.pointer(path);
+                let count = value.and_then(|x| {
+                    x.as_array()
+                        .map(Vec::len)
+                        .or_else(|| x.as_object().map(|m| m.len()))
+                });
+                self.partial |= value.is_some_and(|v| !v.is_null()) && count.is_none();
+                DetailFact {
+                    label: (*label).into(),
+                    value: count
+                        .map(|n| n.to_string())
+                        .unwrap_or_else(|| "Not reported".into()),
+                }
             })
             .collect();
         self.push(title, facts);
@@ -134,50 +151,63 @@ impl Facts {
     fn selector(&mut self, title: &str, v: &Value, path: &str) {
         // Only explicitly selected spec selectors, never metadata labels or annotations.
         let Some(map) = v.pointer(path).and_then(Value::as_object) else {
+            self.partial |= v.pointer(path).is_some_and(|v| !v.is_null());
             return;
         };
-        let mut facts = map
+        self.partial |= map.len() > MAX_ITEMS;
+        let facts = map
             .iter()
             .take(MAX_ITEMS)
             .filter_map(|(key, value)| {
-                let key = safe(key)?;
-                if key.len() > 128 {
-                    return None;
-                }
-                Some(DetailFact {
-                    label: key,
-                    value: value.as_str().and_then(safe)?,
-                })
+                let fact = safe(key).filter(|key| key.len() <= 128).and_then(|key| {
+                    Some(DetailFact {
+                        label: key,
+                        value: value.as_str().and_then(safe)?,
+                    })
+                });
+                self.partial |= fact.is_none();
+                fact
             })
-            .collect::<Vec<_>>();
-        if map.len() > MAX_ITEMS {
-            facts.push(DetailFact {
-                label: "Coverage".into(),
-                value: "Partial: display limit reached".into(),
-            });
-        }
+            .collect();
         self.push(title, facts);
     }
     fn finish(mut self) -> Vec<DetailSection> {
-        // Reserve worst-case JSON escaping and envelope overhead, not just display bytes.
-        let mut total = 0;
+        // Bound worst-case JSON escaping, section envelopes, and the final coverage marker.
+        let mut total = 1024;
         for section in &mut self.sections {
+            total += section.title.len() * 6 + 64;
             section.facts.retain(|fact| {
                 let bytes = (fact.label.len() + fact.value.len()) * 6 + 64;
-                total += bytes;
-                total <= MAX_TOTAL - 4096
+                if total + bytes > MAX_TOTAL - 4096 {
+                    self.partial = true;
+                    false
+                } else {
+                    total += bytes;
+                    true
+                }
             });
         }
         self.sections.retain(|s| !s.facts.is_empty());
+        if self.partial {
+            // A full projection must still disclose omissions, even if a section is displaced.
+            self.sections.truncate(MAX_SECTIONS - 1);
+            self.sections.push(DetailSection {
+                title: "Coverage".into(),
+                facts: vec![DetailFact {
+                    label: "Coverage".into(),
+                    value:
+                        "Partial: some facts omitted due to display limits or unsupported values"
+                            .into(),
+                }],
+            });
+        }
         self.sections
     }
 }
 
 pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
     use ResourceKind::*;
-    let mut f = Facts {
-        sections: Vec::new(),
-    };
+    let mut f = Facts::default();
     match kind {
         // PartialObjectMetadata only: no data, key names, type, labels or annotations.
         Secrets | ConfigMaps => return Vec::new(),
@@ -419,6 +449,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
         Endpoints => {
             f.count("Endpoints", v, &[("Subsets", "/subsets")]);
             if let Some(subsets) = v.get("subsets").and_then(Value::as_array) {
+                f.partial |= subsets.len() > 3;
                 for (i, subset) in subsets.iter().take(3).enumerate() {
                     f.rows(
                         &format!("Subset {} ready addresses", i + 1),
@@ -474,6 +505,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 ],
             );
             if let Some(endpoints) = v.get("endpoints").and_then(Value::as_array) {
+                f.partial |= endpoints.len() > 6;
                 for (i, endpoint) in endpoints.iter().take(6).enumerate() {
                     f.strings(
                         &format!("Endpoint {} addresses", i + 1),
@@ -498,6 +530,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
             );
             f.rows("Ingress rules", v, "/spec/rules", &[("Host", "/host")]);
             if let Some(rules) = v.pointer("/spec/rules").and_then(Value::as_array) {
+                f.partial |= rules.len() > 4;
                 for (i, rule) in rules.iter().take(4).enumerate() {
                     f.rows(
                         &format!("Rule {} paths", i + 1),
@@ -514,6 +547,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 }
             }
             if let Some(tls) = v.pointer("/spec/tls").and_then(Value::as_array) {
+                f.partial |= tls.len() > 4;
                 for (i, tls) in tls.iter().take(4).enumerate() {
                     f.strings(&format!("TLS {} hosts", i + 1), tls, &[("Host", "/hosts")]);
                 }
@@ -608,6 +642,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
         Roles | ClusterRoles => {
             f.count("RBAC permissions", v, &[("Rules", "/rules")]);
             if let Some(rules) = v.get("rules").and_then(Value::as_array) {
+                f.partial |= rules.len() > 8;
                 for (i, rule) in rules.iter().take(8).enumerate() {
                     f.strings(
                         &format!("Rule {} permissions", i + 1),

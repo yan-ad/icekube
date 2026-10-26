@@ -12,11 +12,30 @@ type FixtureWindow = Window & {
   __releaseInspector: () => void;
 };
 const inspector = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
+const workspace = (page: Page) => page.locator('[aria-label="Resource workspace"]');
+
+async function expectInsetInspector(page: Page, closedWidth: number) {
+  const tableArea = (await workspace(page).boundingBox())!;
+  const sidebar = (await inspector(page).boundingBox())!;
+  const content = await inspector(page).evaluate(element => {
+    const parent = element.parentElement!;
+    const bounds = parent.getBoundingClientRect();
+    const style = getComputedStyle(parent);
+    return {
+      sibling: element.previousElementSibling?.getAttribute("aria-label"),
+      right: bounds.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
+    };
+  });
+  expect(content.sibling).toBe("Resource workspace");
+  expect(tableArea.width).toBeLessThan(closedWidth);
+  expect(tableArea.x + tableArea.width).toBeLessThanOrEqual(sidebar.x + 1);
+  expect(Math.abs(sidebar.x + sidebar.width - content.right)).toBeLessThanOrEqual(2);
+}
 
 test("workspace disposal cancels an in-flight detail and late completion cannot reopen it", async ({ page }) => {
   await fixture(page, "deployments", { holdName: "sample-a" });
   await grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true }).click();
-    await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
+  await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
   const reads = await calls(page, "cluster_resource_detail");
   await page.evaluate(() => { location.hash = "/catalog/all"; });
   await expect(inspector(page)).toHaveCount(0);
@@ -46,6 +65,18 @@ const release = (page: Page) => page.evaluate(async () => {
   await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 });
 const rowName = (kind: string) => kind === "nodes" ? "node-a" : kind === "namespaces" ? "team-a" : "sample-a";
+
+test("Escape closes the inspector when no menu is open and restores the trigger focus", async ({ page }) => {
+  await fixture(page);
+  const trigger = grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true });
+  await trigger.focus(); await trigger.press("Enter");
+  await expect(inspector(page)).toBeFocused();
+  await expect(inspector(page)).toContainText("detail-version-1");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await page.keyboard.press("Escape");
+  await expect(inspector(page)).toHaveCount(0);
+  await expect(trigger).toBeFocused();
+});
 
 async function fixture(page: Page, section = "deployments", options: Controls = {}) {
   page.on("pageerror", error => { throw error; });
@@ -137,14 +168,13 @@ for (const view of [...resourceViews.filter(view => view.kind && view.kind !== "
   { section: "nodes", label: "Nodes", kind: "nodes", namespaced: false }]) {
   test(`${view.label}: name opens scoped metadata in the nonmodal right inspector, without selecting a row`, async ({ page }) => {
     await fixture(page, view.section);
-    const before = (await page.locator('[aria-label="Resource workspace"]').boundingBox())!;
+    const before = (await workspace(page).boundingBox())!;
     const name = rowName(view.kind!);
     const button = grid(page, view.label).getByRole("button", { name, exact: true });
     await button.focus(); await button.press("Enter");
     await expect(inspector(page)).toBeVisible();
     await expect(inspector(page)).toBeFocused();
     expect(await inspector(page).evaluate(element => element.tagName)).toBe("ASIDE");
-    await expect(page.getByRole("dialog", { name: "Resource details" })).toHaveCount(0);
     await expect(inspector(page)).not.toHaveAttribute("aria-modal");
     await expect(inspector(page)).toContainText("detail-version-1");
     await expect(inspector(page).getByRole("alert")).toHaveCount(0);
@@ -159,12 +189,9 @@ for (const view of [...resourceViews.filter(view => view.kind && view.kind !== "
     expect(await calls(page, "cluster_pod_detail")).toHaveLength(0);
     expect((await page.evaluate(() => (window as unknown as FixtureWindow).__inspectorCalls))
       .filter(call => /mutate|create|delete|stream_open/.test(call.command))).toHaveLength(0);
-    const box = (await inspector(page).boundingBox())!;
-    const workspace = (await page.locator('[aria-label="Resource workspace"]').boundingBox())!;
-    expect(workspace.width).toBeLessThan(before.width);
-    expect(box.x).toBeGreaterThanOrEqual(workspace.x + workspace.width - 1);
-    expect(Math.abs(box.x + box.width - 1440)).toBeLessThanOrEqual(2);
-    await page.keyboard.press("Escape"); await expect(inspector(page)).toHaveCount(0); await expect(button).toBeFocused();
+    await expectInsetInspector(page, before.width);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await inspector(page).getByRole("button", { name: /close/i }).click(); await expect(inspector(page)).toHaveCount(0); await expect(button).toBeFocused();
     await expect.poll(async () => (await calls(page, "cluster_resource_detail_cancel")).map(read => read.request)).toEqual(reads.map(read => read.request));
   });
 }
@@ -261,7 +288,7 @@ test("late old detail cannot overwrite the latest selection and each disposal ca
   await expect(inspector(page)).toContainText("latest-response");
   await release(page); await expect(inspector(page)).not.toContainText("old-response");
   await expect(inspector(page)).toContainText("uid-deployments-sample-b");
-  await page.keyboard.press("Escape");
+  await inspector(page).getByRole("button", { name: /close/i }).click();
   const reads = await calls(page, "cluster_resource_detail");
   await expect.poll(async () => (await calls(page, "cluster_resource_detail_cancel")).map(call => call.request)).toEqual(reads.map(call => call.request));
   await page.waitForTimeout(650);
@@ -272,7 +299,7 @@ test("closing a loading relationship ignores late completion and never navigates
   await fixture(page, "pods", { holdName: "sample-a" });
   await grid(page, "Pods").getByRole("button", { name: "related-owner", exact: true }).first().click();
   await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
-  await page.keyboard.press("Escape"); await release(page);
+  await inspector(page).getByRole("button", { name: /close/i }).click(); await release(page);
   await page.waitForTimeout(650);
   await expect(inspector(page)).toHaveCount(0); await expect(page).toHaveURL(/section=pods$/);
   expect((await calls(page, "cluster_resource_detail")).every(read => read.request.reference?.name === "sample-a")).toBe(true);
@@ -294,17 +321,18 @@ test("failed refresh marks retained metadata stale and recovery replaces it", as
   await expect(inspector(page).getByRole("alert")).toHaveCount(0);
 });
 
-for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) {
+for (const width of [1440, 800, 390]) for (const colorScheme of ["light", "dark"] as const) {
   test(`inspector stays inside viewport with internal scrolling at ${width}, ${colorScheme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme }); await fixture(page, "resource-quotas");
     await page.setViewportSize({ width, height: 650 });
+    await expect(grid(page, "Resource Quotas")).toBeVisible();
+    const closedWidth = (await workspace(page).boundingBox())!.width;
     await grid(page, "Resource Quotas").getByRole("button", { name: "sample-a", exact: true }).click();
     await expect(inspector(page)).toContainText("detail-version-1");
     const bounds = (await inspector(page).boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(-1); expect(bounds.y).toBeGreaterThanOrEqual(-1);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
-    const workspace = (await page.locator('[aria-label="Resource workspace"]').boundingBox())!;
-    expect(bounds.x).toBeGreaterThanOrEqual(workspace.x + workspace.width - 1);
+    await expectInsetInspector(page, closedWidth);
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(651);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     expect(await inspector(page).evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
@@ -332,7 +360,7 @@ test("Pod detail uses the Pod API in the inspector, never the bottom dock or gen
   expect((await calls(page, "cluster_pod_detail"))[0].request).toEqual({ clusterId: "one", sessionId: "inspector-lease", namespace: "team-a", name: "sample-a", uid: "uid-pods-sample-a" });
   expect(await calls(page, "cluster_resource_detail")).toHaveLength(0);
   await expect(grid(page, "Pods").getByRole("checkbox", { name: "Select team-a/sample-a", exact: true })).not.toBeChecked();
-  await page.keyboard.press("Escape"); await expect(name).toBeFocused();
+  await inspector(page).getByRole("button", { name: /close/i }).click(); await expect(name).toBeFocused();
 });
 
 test("Pod health icons and status badges distinguish healthy, warning, completed, terminating and unknown", async ({ page }) => {
