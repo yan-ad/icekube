@@ -3,6 +3,9 @@ import { VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@astryxdesign/core/Button";
+import { StatusBadge } from "./StatusBadge";
+import { useResourceInspector } from "./ResourceInspector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconSearch } from "@tabler/icons-react";
 import { TableToolbar, tableViewport } from "./TableToolbar";
@@ -10,9 +13,12 @@ import { nextReadId, type SessionRequest } from "./api";
 import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type HelmView } from "./helmApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { HelmInstall } from "./HelmInstall";
+import { useRowContextMenu } from "./RowContextMenu";
 import { NamespaceSelector } from "./NamespaceScope";
 
 export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & { view: HelmView }) {
+  const { openResource, openSummary } = useResourceInspector();
+  const [installTarget, setInstallTarget] = useState<{ item: HelmItem; identity: string } | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -42,13 +48,34 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
   const needle = query.trim().toLocaleLowerCase();
   const items = rows.filter((item) => (!status || item.status === status) && (!needle || [item.name, item.namespace, item.version, item.appVersion, item.description, item.status].join(" ").toLocaleLowerCase().includes(needle)));
   const statuses = [...new Set(rows.flatMap((item) => item.status ? [item.status] : []))].sort();
+  const inspect = (item: HelmItem) => openSummary({
+      title: item.name,
+      facts: [
+        { label: "Kind", value: view === "charts" ? "Helm chart" : "Helm release" },
+        { label: "Name", value: item.name },
+        { label: view === "charts" ? "Version" : "Chart", value: item.version },
+        { label: "App version", value: item.appVersion || "N/A" },
+        ...(item.namespace ? [{ label: "Namespace", value: item.namespace }] : []),
+        ...(item.description ? [{ label: "Description", value: item.description }] : []),
+        ...(item.revision !== null ? [{ label: "Revision", value: String(item.revision) }] : []),
+        ...(item.updated ? [{ label: "Updated", value: item.updated }] : []),
+      ],
+      ...(item.status ? { status: item.status } : {}),
+    });
+  const installIdentity = JSON.stringify([scope, rows, loading, error]);
+  const contextChart = installTarget?.identity === installIdentity ? installTarget.item : null;
+  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope, rowKey: item => item.id, rowLabel: item => item.name,
+    target: item => view === "charts" ? { type: "helmChart", id: item.id, name: item.name } : { type: "helmRelease", name: item.name, namespace: item.namespace! },
+    actions: () => [{ action: "details" }, ...(view === "charts" ? [{ action: "install" as const, disabled: loading || !!error }] : [])],
+    onAction: (item, action) => { if (action === "details") inspect(item); else if (action === "install") setInstallTarget({ item, identity: installIdentity }); },
+  });
   const columns: TableColumn<HelmItem>[] = [
-    { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.name}</Text> },
-    ...(view === "releases" ? [{ key: "namespace", header: "Namespace", renderCell: (item: HelmItem) => <Text>{item.namespace}</Text> }] : []),
+    { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => inspect(item)} /> },
+    ...(view === "releases" ? [{ key: "namespace", header: "Namespace", renderCell: (item: HelmItem) => <Button label={item.namespace || "Unknown"} variant="ghost" size="sm" isDisabled={!item.namespace} onClick={() => { if (item.namespace) openResource({ kind: "namespaces", namespace: null, name: item.namespace }); }} /> }] : []),
     { key: "version", header: view === "charts" ? "Version" : "Chart", renderCell: (item) => <Text maxLines={1}>{item.version}</Text> },
     { key: "appVersion", header: "App version", renderCell: (item) => <Text maxLines={1}>{item.appVersion || "N/A"}</Text> },
     ...(view === "charts" ? [{ key: "description", header: "Description", width: proportional(3), renderCell: (item: HelmItem) => <Text maxLines={1}>{item.description || "N/A"}</Text> }] : [
-      { key: "status", header: "Status", renderCell: (item: HelmItem) => <Text>{item.status}</Text> },
+      { key: "status", header: "Status", renderCell: (item: HelmItem) => <StatusBadge status={item.status} /> },
       { key: "revision", header: "Revision", renderCell: (item: HelmItem) => <Text>{item.revision}</Text> },
       { key: "updated", header: "Updated", renderCell: (item: HelmItem) => <Text maxLines={1}>{item.updated || "N/A"}</Text> },
     ]),
@@ -64,10 +91,10 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
     {scopedPage && (loading || error?.scope === scope) && <Text role="status">Showing the previous Helm inventory. It may be stale.</Text>}
     {scopedPage && <>
       {scopedPage.truncated && <Text role="status">This inventory may be partial. At most 500 rows are displayed; Helm may apply its own list limit. Filters apply only to loaded rows.</Text>}
-      <Table aria-label={`Helm ${label}`} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<HelmItem>() }}
+      <Table aria-label={`Helm ${label}`} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<HelmItem>(), rowContext: rowMenu }}
         emptyState={<VStack gap={2} padding={6}><Text>{query || status ? `No ${view} match your filters.` : `No ${view} were returned.`}</Text>
           <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>} />
     </>}
-    <HelmInstall clusterId={clusterId} sessionId={sessionId} namespace={namespace} charts={view === "charts" ? rows : []} onInstalled={() => setRevision(value => value + 1)} />
+    <HelmInstall contextChart={contextChart} onContextClose={() => setInstallTarget(null)} clusterId={clusterId} sessionId={sessionId} namespace={namespace} charts={view === "charts" ? rows : []} onInstalled={() => setRevision(value => value + 1)} />
   </VStack>;
 }

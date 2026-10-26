@@ -8,12 +8,15 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { IconPlayerStop, IconPlus, IconSearch, IconTrash } from "@tabler/icons-react";
+import { IconPlus, IconSearch } from "@tabler/icons-react";
 import { TableActionOverlay, TableToolbar, tableViewport } from "./TableToolbar";
 import type { SessionRequest } from "./api";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { useRowContextMenu } from "./RowContextMenu";
 import { NamespaceSelector } from "./NamespaceScope";
+import { StatusBadge } from "./StatusBadge";
+import { useResourceInspector } from "./ResourceInspector";
 
 type PortForwardTablePageProps = SessionRequest;
 
@@ -31,6 +34,7 @@ export function PortForwardTablePage({ clusterId, sessionId }: PortForwardTableP
 }
 
 function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps) {
+  const { openResource, openSummary } = useResourceInspector();
   const [forwards, setForwards] = useState<PodForward[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -136,15 +140,32 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     }
   }
 
+  function inspectForward(item: PodForward) {
+    openSummary({ title: item.id, status: item.status, facts: [
+      { label: "Kind", value: "Port forward" },
+      { label: "Namespace", value: item.namespace || "Unknown" },
+      { label: "Pod", value: item.name || "Unknown" },
+      { label: "Port", value: String(item.remotePort) },
+      { label: "Local port", value: String(item.localPort) },
+      { label: "Address", value: "127.0.0.1" },
+      ...(item.error ? [{ label: "Error", value: podMessage(item.error) }] : []),
+    ] });
+  }
+
+  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope: JSON.stringify([query, status, namespaceFilter]),
+    rowKey: item => item.id, rowLabel: item => item.id, target: item => ({ type: "forward", id: item.id }),
+    actions: item => [{ action: "details" }, { action: item.status === "stopped" || item.status === "error" ? "remove" : "stop", disabled: busy || !!error }],
+    onAction: (item, action) => { if (action === "details") inspectForward(item); else void stop(item.id); },
+  });
   const columns: TableColumn<PodForward>[] = [
-    { key: "id", header: "Name", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.id}</Text> },
-    { key: "namespace", header: "Namespace", renderCell: (item) => <Text maxLines={1}>{item.namespace}</Text> },
-    { key: "pod", header: "Pod", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.name}</Text> },
+    { key: "id", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.id} variant="ghost" size="sm" onClick={() => inspectForward(item)} /> },
+    { key: "namespace", header: "Namespace", renderCell: (item) => <Button label={item.namespace || "Unknown"} variant="ghost" size="sm" isDisabled={!item.namespace} onClick={() => openResource({ kind: "namespaces", namespace: null, name: item.namespace })} /> },
+    { key: "pod", header: "Pod", width: proportional(2), renderCell: (item) => <Button label={item.name || "Unknown"} variant="ghost" size="sm" isDisabled={!item.namespace || !item.name} onClick={() => openResource({ kind: "pods", namespace: item.namespace, name: item.name })} /> },
     { key: "remotePort", header: "Port", renderCell: (item) => <Text>{item.remotePort}</Text> },
     { key: "localPort", header: "Local Port", renderCell: (item) => <Text>{item.localPort}</Text> },
     { key: "address", header: "Address", renderCell: () => <Text>127.0.0.1</Text> },
-    { key: "status", header: "Status", renderCell: (item) => <Text>{item.error ? `${item.status}: ${podMessage(item.error)}` : item.status}</Text> },
-    { key: "actions", header: "Actions", renderCell: (item) => <Button label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} ${item.namespace}/${item.name} on port ${item.localPort}`} icon={item.status === "stopped" || item.status === "error" ? <IconTrash /> : <IconPlayerStop />} isIconOnly tooltip={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} forward`} size="sm" variant="ghost" isDisabled={busy} onClick={() => void stop(item.id)} /> },
+    { key: "status", header: "Status", renderCell: (item) => <VStack gap={1}><StatusBadge status={item.status} variant={item.error ? "error" : undefined} />{item.error && <Text type="supporting">{podMessage(item.error)}</Text>}</VStack> },
+
   ];
 
   return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
@@ -156,7 +177,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
     {actionError && <Text role="alert">{actionError}</Text>}
     {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
-    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>() }}
+    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>(), rowContext: rowMenu }}
       emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Choose Create port forward to enter a namespace, Pod, and ports.</Text></VStack>} />}
     <TableActionOverlay label="Port forward actions"><IconButton label="Create port forward" tooltip="Create port forward" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}

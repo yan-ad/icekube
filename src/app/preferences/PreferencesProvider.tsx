@@ -1,4 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
+import { getWindowLayout } from "../layouts/window-layout";
 import { defaultPreferences, loadPreferences, savePreferences as apiSavePreferences, type Preferences, type PreferencesSnapshot } from "./api";
 
 type PreferencesContextType = {
@@ -34,6 +37,25 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!isTauri() || getWindowLayout().platform !== "macos") return;
+
+    let disposed = false;
+    const subscription = listen<void>("icekube://open-preferences", () => {
+      if (!disposed) setIsOpen(true);
+    }, { target: { kind: "WebviewWindow", label: "main" } });
+
+    void subscription.catch(() => {
+      console.error("Could not listen for the native Preferences menu.");
+    });
+    return () => {
+      disposed = true;
+      void subscription.then(unlisten => unlisten()).catch(() => {
+        console.error("Could not clean up the native Preferences menu listener.");
+      });
+    };
+  }, []);
 
   // Global shortcut: Cmd+, or Ctrl+, opens preferences
   useEffect(() => {

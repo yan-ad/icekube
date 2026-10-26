@@ -1,10 +1,13 @@
-import { VStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { Table, proportional, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
+import { Table, pixel, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@astryxdesign/core/Button";
+import { useResourceInspector } from "./ResourceInspector";
+import { NodeConditionBadge, StatusBadge } from "./StatusBadge";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import type { ResourceItem } from "./api";
-import type { Usage } from "./nodeContract";
+import type { NodeCondition, Usage } from "./nodeContract";
 import { tableViewport } from "./TableToolbar";
 import { resourceRowKey } from "./deleteApi";
 
@@ -42,27 +45,44 @@ function age(value: string | null, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function NodesTable({ items, loading, filtered, now, selection }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem> }) {
+export function NodesTable({ items, loading, filtered, now, selection, rowContext }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem>; rowContext?: TablePlugin<ResourceItem> }) {
+  const { openResource } = useResourceInspector();
+  const conditionSummary = (item: ResourceItem) => {
+    const conditions = item.node?.conditions ?? [];
+    const ready = conditions.find(condition => condition.type === "Ready");
+    const adverse = conditions.filter(condition =>
+      ["MemoryPressure", "DiskPressure", "PIDPressure", "NetworkUnavailable"].includes(condition.type)
+      && condition.status === "True");
+    const visible: NodeCondition[] = [ready ?? { type: "Ready", status: "Unknown" }, ...adverse];
+    const hiddenCount = conditions.length - adverse.length - (ready ? 1 : 0);
+    return { visible, hiddenCount };
+  };
+  const conditionsWidth = Math.max(250, ...items.map(item => 250 + (conditionSummary(item).visible.length - 1) * 200));
   const columns: TableColumn<ResourceItem>[] = [
-    { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.name}</Text> },
-    { key: "cpu", header: "CPU", width: proportional(1), renderCell: (item) => <UsageCell name={item.name} resource="CPU" usage={item.node?.cpu} /> },
-    { key: "memory", header: "Memory", width: proportional(1.2), renderCell: (item) => <UsageCell name={item.name} resource="memory" usage={item.node?.memory} /> },
-    { key: "disk", header: "Disk", renderCell: (item) => <Tooltip content={`Disk usage unavailable${item.node?.diskAllocatable ? `; allocatable: ${item.node.diskAllocatable}` : ""}`}><Text color="secondary">N/A</Text></Tooltip> },
-    { key: "roles", header: "Roles", width: proportional(1), renderCell: (item) => <Text maxLines={1}>{item.node?.roles.join(", ") || "—"}</Text> },
-    { key: "taints", header: "Taints", renderCell: (item) => <Text hasTabularNumbers>{item.node?.taints ?? "N/A"}</Text> },
-    { key: "version", header: "Version", width: proportional(1.1), renderCell: (item) => <Text maxLines={1}>{item.node?.version ?? "N/A"}</Text> },
-    { key: "internalIp", header: "Internal IP", width: proportional(1.1), renderCell: (item) => <Text maxLines={1}>{item.node?.internalIps.join(", ") || "N/A"}</Text> },
-    { key: "age", header: "Age", renderCell: (item) => <Tooltip content={item.createdAt ? `Created ${item.createdAt}` : "Creation time unavailable"}><Text hasTabularNumbers>{age(item.createdAt, now)}</Text></Tooltip> },
-    { key: "schedulable", header: "Schedulable", width: proportional(1), renderCell: (item) => <Text>{item.node ? item.node.schedulable ? "True" : "False" : "N/A"}</Text> },
-    { key: "conditions", header: "Conditions", width: proportional(2), renderCell: (item) => {
+    { key: "name", header: "Name", width: pixel(280), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openResource({ kind: "nodes", namespace: null, name: item.name, uid: item.uid })} /> },
+    { key: "cpu", header: "CPU", width: pixel(150), renderCell: (item) => <UsageCell name={item.name} resource="CPU" usage={item.node?.cpu} /> },
+    { key: "memory", header: "Memory", width: pixel(170), renderCell: (item) => <UsageCell name={item.name} resource="memory" usage={item.node?.memory} /> },
+    { key: "disk", header: "Disk", width: pixel(140), renderCell: (item) => <Tooltip content={`Disk usage unavailable${item.node?.diskAllocatable ? `; allocatable: ${item.node.diskAllocatable}` : ""}`}><Text color="secondary">N/A</Text></Tooltip> },
+    { key: "roles", header: "Roles", width: pixel(140), renderCell: (item) => <Text maxLines={1}>{item.node?.roles.join(", ") || "—"}</Text> },
+    { key: "taints", header: "Taints", width: pixel(90), renderCell: (item) => <Text hasTabularNumbers>{item.node?.taints ?? "N/A"}</Text> },
+    { key: "version", header: "Version", width: pixel(190), renderCell: (item) => <Text maxLines={1}>{item.node?.version ?? "N/A"}</Text> },
+    { key: "internalIp", header: "Internal IP", width: pixel(190), renderCell: (item) => <Text maxLines={1}>{item.node?.internalIps.join(", ") || "N/A"}</Text> },
+    { key: "age", header: "Age", width: pixel(80), renderCell: (item) => <Tooltip content={item.createdAt ? `Created ${item.createdAt}` : "Creation time unavailable"}><Text hasTabularNumbers>{age(item.createdAt, now)}</Text></Tooltip> },
+    { key: "schedulable", header: "Schedulable", width: pixel(130), renderCell: (item) => <StatusBadge status={item.node?.schedulable} variant={item.node?.schedulable === false ? "warning" : "neutral"} /> },
+    { key: "conditions", header: "Conditions", width: pixel(conditionsWidth), renderCell: (item) => {
       const node = item.node;
-      if (!node?.conditions.length) return <Text>{item.status}</Text>;
-      return <Text maxLines={1}>{node.conditions.map((condition) =>
-        condition.type === "Ready" && condition.status === "True" ? "Ready" : `${condition.type}: ${condition.status}`).join(" · ")}</Text>;
+      if (!node) return <StatusBadge status={item.status} />;
+      const { visible, hiddenCount } = conditionSummary(item);
+      return <HStack gap={1} style={{ minWidth: 0, whiteSpace: "nowrap" }}>
+        {visible.map((condition) => <NodeConditionBadge key={condition.type} condition={condition} />)}
+        {hiddenCount > 0 && <Tooltip content={`Open ${hiddenCount} additional node conditions`}>
+          <Button label={`+${hiddenCount} conditions`} variant="ghost" size="sm" onClick={() => openResource({ kind: "nodes", namespace: null, name: item.name, uid: item.uid })} />
+        </Tooltip>}
+      </HStack>;
     } },
   ];
-  return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate"
-    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}) }}
+  return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate" style={{ minWidth: "100rem" }}
+    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}), ...(rowContext ? { rowContext } : {}) }}
     emptyState={<VStack padding={6} gap={2}>
       <Text>{filtered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
       <Text color="secondary">{filtered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>

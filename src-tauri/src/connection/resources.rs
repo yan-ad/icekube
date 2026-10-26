@@ -336,6 +336,7 @@ fn table_status(kind: ResourceKind, v: &Value, c: &mut BTreeMap<String, String>)
         .and_then(Value::as_str)
         .map_or_else(|| "Unknown".into(), bounded)
 }
+
 fn rbac_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
     for (key, path) in [("rules", "/rules"), ("subjects", "/subjects")] {
         if let Some(values) = v.pointer(path).and_then(Value::as_array) {
@@ -419,6 +420,11 @@ pub(super) fn project(kind: ResourceKind, value: Value) -> Result<ResourceItem, 
         ResourceKind::Secrets | ResourceKind::ConfigMaps => "Metadata only".into(),
         _ => table_status(kind, &value, &mut columns),
     };
+    if kind == ResourceKind::Pods
+        && let Some(owner) = super::details::controlled_owner(&value, namespace.as_deref())
+    {
+        insert(&mut columns, "controlledBy", owner.name);
+    }
     Ok(ResourceItem {
         name,
         uid,
@@ -502,6 +508,7 @@ fn cron_job_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
     "Unknown".into()
 }
 fn pod_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
+    pod_health(v, c);
     let cs = v
         .pointer("/status/containerStatuses")
         .and_then(Value::as_array);
@@ -534,9 +541,133 @@ fn pod_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
     if let Some(q) = v.pointer("/status/qosClass").and_then(Value::as_str) {
         insert(c, "qos", bounded(q));
     }
+    if v.pointer("/metadata/deletionTimestamp")
+        .is_some_and(|value| !value.is_null())
+    {
+        return "Terminating".into();
+    }
     v.pointer("/status/phase")
         .and_then(Value::as_str)
         .map_or_else(|| "Unknown".into(), bounded)
+}
+// Additive row facts shared by snapshot and LIST/WATCH projection. Warning codes
+// are local classifications, not Event warnings or server messages (which may
+// contain credentials). Missing readiness never becomes a healthy check mark.
+fn pod_health(v: &Value, c: &mut BTreeMap<String, String>) {
+    let conditions = v.pointer("/status/conditions").and_then(Value::as_array);
+    let condition = |name: &str| {
+        conditions
+            .and_then(|items| {
+                items
+                    .iter()
+                    .find(|item| item.get("type").and_then(Value::as_str) == Some(name))
+            })
+            .and_then(|item| item.get("status"))
+            .and_then(Value::as_str)
+    };
+    let ready = match condition("Ready") {
+        Some("True") => "true",
+        Some("False") => "false",
+        _ => "unknown",
+    };
+    insert(c, "podReady", ready.into());
+    let terminating = v
+        .pointer("/metadata/deletionTimestamp")
+        .is_some_and(|value| !value.is_null());
+    insert(c, "terminating", terminating.to_string());
+    if let Some(time) = v
+        .pointer("/metadata/deletionTimestamp")
+        .and_then(Value::as_str)
+        .and_then(timestamp)
+    {
+        insert(c, "deletionTimestamp", time);
+    }
+
+    let statuses = || {
+        [
+            "/status/containerStatuses",
+            "/status/initContainerStatuses",
+            "/status/ephemeralContainerStatuses",
+        ]
+        .into_iter()
+        .filter_map(|path| v.pointer(path).and_then(Value::as_array))
+        .flatten()
+    };
+    let waiting = statuses().any(|status| {
+        status
+            .pointer("/state/waiting")
+            .is_some_and(Value::is_object)
+    });
+    let failed = statuses().any(|status| {
+        status
+            .pointer("/state/terminated/exitCode")
+            .and_then(Value::as_i64)
+            .is_some_and(|code| code != 0)
+    });
+    let gate_unready = v
+        .pointer("/spec/readinessGates")
+        .and_then(Value::as_array)
+        .is_some_and(|gates| {
+            gates.iter().any(|gate| {
+                gate.get("conditionType")
+                    .and_then(Value::as_str)
+                    .is_none_or(|name| condition(name) != Some("True"))
+            })
+        });
+    let unready = ["/spec/containers", "/spec/initContainers"]
+        .into_iter()
+        .filter_map(|path| {
+            v.pointer(path)
+                .and_then(Value::as_array)
+                .map(|items| (path, items))
+        })
+        .any(|(path, items)| {
+            items.iter().any(|container| {
+                if path == "/spec/initContainers"
+                    && container.get("restartPolicy").and_then(Value::as_str) != Some("Always")
+                {
+                    return false;
+                }
+                let name = container.get("name").and_then(Value::as_str);
+                name.is_none()
+                    || !statuses().any(|status| {
+                        status.get("name").and_then(Value::as_str) == name
+                            && (status.get("ready").and_then(Value::as_bool) == Some(true)
+                                || status
+                                    .pointer("/state/terminated/exitCode")
+                                    .and_then(Value::as_i64)
+                                    == Some(0))
+                    })
+            })
+        });
+    let phase = v.pointer("/status/phase").and_then(Value::as_str);
+    let warning = match phase {
+        Some("Succeeded") => None,
+        Some("Failed") => Some("PodFailed"),
+        _ if failed => Some("ContainerFailed"),
+        _ if waiting => Some("ContainerWaiting"),
+        Some("Pending") => Some("PodPending"),
+        Some("Running") if unready => Some("ContainersNotReady"),
+        Some("Running") if gate_unready => Some("ReadinessGateNotReady"),
+        Some("Running") if ready == "false" => Some("PodNotReady"),
+        Some("Unknown") => Some("PodUnknown"),
+        _ => None,
+    };
+    let health = if terminating {
+        "terminating"
+    } else if warning.is_some() {
+        "warning"
+    } else if phase == Some("Succeeded") {
+        "completed"
+    } else if phase == Some("Running") && ready == "true" {
+        "healthy"
+    } else {
+        "unknown"
+    };
+    insert(c, "health", health.into());
+    if let Some(warning) = warning {
+        insert(c, "warning", warning.into());
+    }
 }
 fn workload_status(kind: ResourceKind, v: &Value, c: &mut BTreeMap<String, String>) -> String {
     let fields = if kind == ResourceKind::DaemonSets {

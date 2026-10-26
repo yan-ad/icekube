@@ -451,3 +451,32 @@ async fn runtime_publishes_list_then_watch_changes_without_raw_payloads() {
     }
     runtime.drain().await;
 }
+
+#[test]
+fn list_and_watch_share_pod_health_projection() {
+    let mut value = pod("api", "10");
+    value["status"]["conditions"] = json!([{"type":"Ready","status":"False"}]);
+    value["status"]["containerStatuses"] = json!([{"name":"app","ready":false,"state":{"waiting":{"reason":"CrashLoopBackOff","message":"secret-marker"}}}]);
+    let mut inv = parse_list(
+        json!({"kind":"PodList","metadata":{"resourceVersion":"10"},"items":[value.clone()]}),
+        Some("default"),
+    )
+    .unwrap();
+    let expected =
+        crate::connection::resources::project(ResourceKind::Pods, value.clone()).unwrap();
+    assert_eq!(inv.page(&request()).items[0], expected);
+    assert_eq!(expected.columns["health"], "warning");
+    value["metadata"]["resourceVersion"] = json!("11");
+    value["metadata"]["deletionTimestamp"] = json!("2026-10-26T12:00:00Z");
+    inv.apply(WatchEvent::Modified(value.clone()), Some("default"))
+        .unwrap();
+    let expected = crate::connection::resources::project(ResourceKind::Pods, value).unwrap();
+    assert_eq!(inv.page(&request()).items[0], expected);
+    assert_eq!(expected.status, "Terminating");
+    assert_eq!(expected.columns["health"], "terminating");
+    assert!(
+        !serde_json::to_string(&expected)
+            .unwrap()
+            .contains("secret-marker")
+    );
+}

@@ -19,6 +19,7 @@ import { PodDock, PodDockProvider } from "./PodDock";
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
 import { NamespaceScopeProvider } from "./NamespaceScope";
+import { ResourceInspectorLayout, ResourceInspectorProvider } from "./ResourceInspector";
 import { useClusterSession } from "./useClusterSession";
 import { useRegisterClusterActions, useRegisterWorkspaceRefresh, useWorkspaceRefresh } from "./WorkspaceRefresh";
 
@@ -62,9 +63,11 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
       {cluster.labels.length ? cluster.labels.map((label) => <Text key={label}>{label}</Text>) : <Text color="secondary">No labels saved.</Text>}
     </VStack>}
     {section === "overview" && connected && <Text color="secondary">Choose a resource view from the cluster navigation.</Text>}
-    {connected && <PodDockProvider key={`${cluster.id}:${connection.sessionId}`} clusterId={cluster.id} sessionId={connection.sessionId} outlet={dockOutlet}
+    {connected && <ResourceInspectorProvider key={`${cluster.id}:${connection.sessionId}`} clusterId={cluster.id}>
+    <PodDockProvider clusterId={cluster.id} sessionId={connection.sessionId} outlet={dockOutlet}
       onMutation={() => { if (workspaceRefresh.action?.section === "pods") workspaceRefresh.action.refresh(); }}>
     <NamespaceScopeProvider clusterId={cluster.id} sessionId={connection.sessionId}>
+    <ResourceInspectorLayout clusterId={cluster.id} sessionId={connection.sessionId}>
     {replacement && (section === "helm-charts" || section === "helm-releases" ?
       <HelmTablePage key={section} clusterId={cluster.id} sessionId={connection.sessionId} view={section === "helm-charts" ? "charts" : "releases"} /> :
       section === "port-forwarding" ? <PortForwardTablePage clusterId={cluster.id} sessionId={connection.sessionId} /> :
@@ -72,9 +75,10 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     {connected && resourceKind && !replacement && <ClusterResources key={`${cluster.id}:${connection.sessionId}:${resourceKind}`} clusterId={cluster.id} sessionId={connection.sessionId} kind={resourceKind} />}
     {destinations.length > 0 && <Table aria-label={`${selected?.label ?? "Cluster"} destinations`} data={destinations.map((item) => ({ ...item }))} idKey="id" density="compact"
       columns={[{ key: "label", header: "View", renderCell: (item) => <Link isStandalone href={`#/cluster/${encodeURIComponent(cluster.id)}?section=${item.id}`}>{item.label}</Link> }]} />}
+    </ResourceInspectorLayout>
     <PodDock />
     </NamespaceScopeProvider>
-    </PodDockProvider>}
+    </PodDockProvider></ResourceInspectorProvider>}
     {!connected && replacement && !busy && <Text color="secondary">{selected?.label} unavailable while disconnected. Refresh to reconnect.</Text>}
     {!connected && resourceKind && !replacement && !busy && <Text color="secondary">{selected?.label} unavailable while disconnected. Refresh to reconnect.</Text>}
     {selected && section !== "overview" && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}

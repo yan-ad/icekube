@@ -15,35 +15,36 @@ import { nextReadId, type SessionRequest } from "./api";
 import { NamespaceSelector } from "./NamespaceScope";
 import { cancelHelmInstall, helmInstallInputError, helmInstallMessage, installHelm, type HelmInstallCancelRequest, type HelmInstallRequest, type HelmItem } from "./helmApi";
 
-type Props = SessionRequest & { namespace: string; charts: HelmItem[]; onInstalled: () => void };
+type Props = SessionRequest & { contextChart?: HelmItem | null; onContextClose?: () => void; namespace: string; charts: HelmItem[]; onInstalled: () => void };
 const uncertainty = "Installation may already have reached the cluster. Cancellation does not roll it back. Refresh Releases and check the release before retrying.";
 
 export function HelmInstall(props: Props) {
-  return <ScopedHelmInstall key={JSON.stringify([props.clusterId, props.sessionId, props.namespace])} {...props} />;
+  return <ScopedHelmInstall key={JSON.stringify([props.clusterId, props.sessionId, props.namespace, props.contextChart])} {...props} />;
 }
 function ScopedHelmInstall(props: Props) {
   const { snapshot } = useCatalog();
   const cluster = snapshot?.clusters.find(item => item.id === props.clusterId);
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => { if (props.contextChart) setOpen(true); }, [props.contextChart]);
   return <>
     {notice && <Text role="status">{notice}</Text>}
     <TableActionOverlay label="Helm actions"><IconButton label="Install Helm chart" tooltip="Install Helm chart" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}
       isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} /></TableActionOverlay>
     {open && cluster && <InstallEditor {...props} clusterName={cluster.name} contextName={cluster.contextName}
-      onClose={sent => { setOpen(false); if (sent) setNotice(uncertainty); }} onInstalled={() => {
-        setOpen(false); setNotice("Helm release installed. Refreshing inventory…"); props.onInstalled();
+      onClose={sent => { setOpen(false); props.onContextClose?.(); if (sent) setNotice(uncertainty); }} onInstalled={() => {
+        setOpen(false); props.onContextClose?.(); setNotice("Helm release installed. Refreshing inventory…"); props.onInstalled();
       }} />}
   </>;
 }
-function InstallEditor({ clusterId, sessionId, namespace: initialNamespace, charts, clusterName, contextName, onClose, onInstalled }: Props & {
+function InstallEditor({ clusterId, sessionId, namespace: initialNamespace, charts, contextChart, clusterName, contextName, onClose, onInstalled }: Props & {
   clusterName: string; contextName: string; onClose: (sent: boolean) => void;
 }) {
   const [namespace, setNamespace] = useState(initialNamespace);
   const [releaseName, setReleaseName] = useState("");
-  const [chart, setChart] = useState("");
-  const [version, setVersion] = useState("");
+  const [chart, setChart] = useState(contextChart?.name ?? "");
+  const [version, setVersion] = useState(contextChart?.version ?? "");
   const [valuesYaml, setValuesYaml] = useState("{}\n");
   const [validated, setValidated] = useState<HelmInstallRequest | null>(null);
   const [busy, setBusy] = useState(false);

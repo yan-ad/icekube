@@ -5,6 +5,13 @@ export const brandTheme = defineTheme({
   name: 'brand',
   extends: neutralTheme,
 
+  localTokens: {
+    '--color-log-background': '#000000',
+    '--color-log-text': '#f5f5f5',
+    '--color-log-match-background': '#facc15',
+    '--color-log-match-text': '#000000',
+  },
+
   typography: {
     body: {
       family: '-apple-system',

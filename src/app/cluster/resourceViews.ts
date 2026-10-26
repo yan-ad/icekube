@@ -30,7 +30,7 @@ export const resourceViews: readonly ResourceView[] = [
     section: "pods", label: "Pods", kind: "pods", namespaced: true,
     columns: [
       { key: "ready", label: "Ready" }, { key: "restarts", label: "Restarts" },
-      { key: "node", label: "Node" }, { key: "qos", label: "QoS" },
+      { key: "node", label: "Node" }, { key: "controlledBy", label: "Controlled By" }, { key: "qos", label: "QoS" },
     ],
   },
   {
@@ -108,13 +108,13 @@ export const resourceViews: readonly ResourceView[] = [
   {
     section: "horizontal-pod-autoscalers", label: "Horizontal Pod Autoscalers", kind: "horizontalPodAutoscalers", namespaced: true,
     columns: [
-      { key: "min", label: "Min Pods" }, { key: "max", label: "Max Pods" },
+      { key: "target", label: "Target" }, { key: "min", label: "Min Pods" }, { key: "max", label: "Max Pods" },
       { key: "current", label: "Replicas" },
     ],
   },
   {
     section: "vertical-pod-autoscalers", label: "Vertical Pod Autoscalers", kind: "verticalPodAutoscalers", namespaced: true,
-    columns: [{ key: "updateMode", label: "Mode" }],
+    columns: [{ key: "target", label: "Target" }, { key: "updateMode", label: "Mode" }],
   },
   {
     section: "pod-disruption-budgets", label: "Pod Disruption Budgets", kind: "podDisruptionBudgets", namespaced: true,
@@ -198,7 +198,7 @@ export const resourceViews: readonly ResourceView[] = [
   },
   {
     section: "persistent-volume-claims", label: "Persistent Volume Claims", kind: "persistentVolumeClaims", namespaced: true,
-    columns: [{ key: "storageClass", label: "Storage Class" }, { key: "capacity", label: "Size" }],
+    columns: [{ key: "storageClass", label: "Storage Class" }, { key: "volume", label: "Volume" }, { key: "capacity", label: "Size" }],
   },
   {
     section: "persistent-volumes", label: "Persistent Volumes", kind: "persistentVolumes", namespaced: false,

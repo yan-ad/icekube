@@ -28,8 +28,12 @@ type MockWindow = Window & {
   __releasePodStreams: () => void;
   __releasePodSync: () => void;
   __releasePodSyncReads: () => void;
+  __selectPodRowAction: (action: string) => void;
 };
 const route = (section: string) => `/cluster/one?section=${section}`;
+const inspector = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
+const fact = (page: Page, label: string) => inspector(page).getByRole("term").filter({ hasText: new RegExp(`^${label}$`) }).locator("+ dd");
+const mutationDialog = (page: Page) => page.getByRole("dialog");
 const dock = (page: Page) => page.getByRole("complementary", { name: "Pod dock", exact: true });
 
 test("live sync keeps an open actions menu usable across polling and repeated toggles", async ({ page }) => {
@@ -133,8 +137,11 @@ async function navigate(page: Page, section: string) {
   await page.evaluate(hash => { location.hash = hash; }, route(section));
 }
 async function action(page: Page, label: string, name = "api-pod") {
+  const before = (await calls(page, "row_context_menu_show")).length;
   await row(page, name).getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
-  await page.getByRole("menuitem", { name: label, exact: true }).click();
+  const actions: Record<string, string> = { Details: "details", "Edit YAML": "edit", Logs: "logs", Shell: "shell", Attach: "attach", "Port forward": "forward" };
+  await expect.poll(async () => (await calls(page, "row_context_menu_show")).length).toBe(before + 1);
+  await page.evaluate(action => (window as MockWindow).__selectPodRowAction(action), actions[label]);
 }
 async function openLogs(page: Page) {
   await action(page, "Logs");
@@ -149,6 +156,10 @@ async function fixture(page: Page, options: Controls = {}) {
     const streams = new Map<string, { request: Request; sequence: number }>();
     const syncs = new Map<string, { request: Request; sequence: number }>();
     const forwards = new Map<string, Request>();
+    const callbacks = new Map<number, (event: unknown) => void>();
+    const listeners = new Map<number, number>();
+    let callbackId = 0;
+    let menuRequest: { clusterId: string; sessionId: string; requestId: string; actions: string[] } | null = null;
     const streamWaiters: (() => void)[] = [], syncWaiters: (() => void)[] = [], syncReadWaiters: (() => void)[] = [];
     const scope = (r: Request) => ({ clusterId: r.clusterId, sessionId: r.sessionId });
     const resourcePage = (r: Request, status = "Running") => ({
@@ -157,6 +168,7 @@ async function fixture(page: Page, options: Controls = {}) {
       items: r.kind === "namespaces" ? ["team-a", "team-b", "production", "default"].map(name => ({
         name, namespace: null, status: "Active", createdAt: null, node: null, columns: {},
       })) : [{ name: r.kind === "pods" ? control.podName ?? "api-pod" : "api-service", namespace: r.namespace ?? "team-a",
+        uid: r.kind === "pods" ? "pod-uid-123" : "service-uid-123", resourceVersion: "42",
         status, createdAt: "2026-10-01T00:00:00Z", node: null,
         columns: { ready: "1/1", restarts: "2", node: "worker-a", qos: "Burstable" } }],
     });
@@ -166,14 +178,26 @@ async function fixture(page: Page, options: Controls = {}) {
     });
     Object.assign(window, {
       isTauri: true, __podCalls: calls, __podControl: control,
+      __selectPodRowAction: (action: string) => {
+        if (!menuRequest?.actions.includes(action)) throw new Error(`Unavailable row action: ${action}`);
+        const payload = { clusterId: menuRequest.clusterId, sessionId: menuRequest.sessionId, requestId: menuRequest.requestId, action };
+        for (const [id, handler] of [...listeners]) callbacks.get(handler)?.({ event: "icekube://row-context-menu", id, payload });
+        menuRequest = null;
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => listeners.delete(id) },
       __releasePodStreams: () => { control.holdStreams = false; streamWaiters.splice(0).forEach(resolve => resolve()); },
       __releasePodSync: () => { control.holdSync = false; syncWaiters.splice(0).forEach(resolve => resolve()); },
       __releasePodSyncReads: () => { control.holdSyncReads = false; syncReadWaiters.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: {
-        invoke: async (command: string, args?: { request: Request }) => {
+        transformCallback: (callback: (event: unknown) => void) => { const id = ++callbackId; callbacks.set(id, callback); return id; },
+        invoke: async (command: string, args?: { request: Request; handler?: number; eventId?: number }) => {
           const r = { ...args?.request };
           calls.push({ command, request: r });
           switch (command) {
+            case "plugin:event|listen": { const id = ++callbackId; listeners.set(id, args!.handler!); return id; }
+            case "plugin:event|unlisten": listeners.delete(args!.eventId!); return null;
+            case "row_context_menu_show": menuRequest = args!.request as unknown as NonNullable<typeof menuRequest>; return null;
+            case "row_context_menu_cancel": return null;
             case "catalog_list": return { revision: 1, discoveryError: null, webLinks: [], clusters: [
               { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [],
                 color: "#476BA1", pinned: false, status: "disconnected" },
@@ -258,33 +282,40 @@ async function allStreamsClosed(page: Page) {
   }).toBe(true);
 }
 
-test("Pod name and Details reuse a tab; every row action opens the correct dock mode", async ({ page }) => {
+test("Pod name and Details reuse the sidebar; stream actions open only bottom dock tabs", async ({ page }) => {
   await fixture(page);
   await row(page).getByRole("button", { name: "api-pod", exact: true }).click();
-  await expect(dock(page).getByRole("heading", { name: "team-a/api-pod" })).toBeVisible();
-  await expect(dock(page)).toContainText("UID: pod-uid-123 · Resource version: 42");
-  await expect(dock(page)).toContainText("Normal: Started (2)");
-  for (const fact of ["Node: worker-a", "Pod IPs: 10.0.0.8", "Host IPs: 10.0.0.1", "Service account: default", "QoS: Burstable", "Created: 2026-10-01T00:00:00Z"]) {
-    await expect(dock(page)).toContainText(fact);
+  await expect(inspector(page).getByRole("heading", { name: "api-pod", exact: true })).toBeVisible();
+  for (const [label, value] of [["Namespace", "team-a"], ["UID", "pod-uid-123"], ["Resource version", "42"], ["Node", "worker-a"], ["Pod IPs", "10.0.0.8"], ["Host IPs", "10.0.0.1"], ["Service account", "default"], ["QoS", "Burstable"], ["Created", "2026-10-01T00:00:00Z"], ["Reason", "Started"], ["Type", "Normal"], ["Count", "2"]]) {
+    await expect(fact(page, label)).toHaveText(value);
   }
-  await expect(dock(page).getByText(/^Age: \d+[smhd] · Created:/)).toHaveCount(1);
-  await row(page).getByRole("button", { name: "Details", exact: true }).click();
+  await expect(fact(page, "Age")).toHaveText(/^\d+[smhd]$/);
+  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await row(page).getByRole("button", { name: "api-pod", exact: true }).press("Enter");
+  await expect(inspector(page)).toBeVisible();
+  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
   await action(page, "Details");
-  await expect(dock(page).getByRole("tab")).toHaveCount(1);
-  await expect(dock(page).getByRole("textbox", { name: "YAML", exact: true })).toHaveAttribute("readonly", "");
-  for (const [label, mode] of [["Edit YAML", "edit"], ["Logs", "logs"], ["Shell", "shell"], ["Attach", "attach"], ["Port forward", "forward"]]) {
+  await expect(inspector(page)).toHaveCount(1);
+  await expect(dock(page)).toHaveCount(0);
+  await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toHaveAttribute("readonly", "");
+  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await action(page, "Edit YAML");
+  await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toBeEditable();
+  await expect(dock(page)).toHaveCount(0);
+  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  for (const [label, mode] of [["Logs", "logs"], ["Shell", "shell"], ["Attach", "attach"], ["Port forward", "forward"]]) {
     await action(page, label);
     await expect(dock(page).getByRole("tab", { name: `api-pod · ${mode}`, exact: true })).toHaveAttribute("aria-selected", "true");
   }
-  await expect(dock(page).getByRole("tab")).toHaveCount(5);
+  await expect(dock(page).getByRole("tab")).toHaveCount(4);
   for (const c of await calls(page, "cluster_pod_detail")) expect(c.request).toMatchObject({ clusterId: "one", namespace: "team-a", name: "api-pod" });
   await navigate(page, "services");
   await expect(grid(page, "Services")).toContainText("api-service");
-  await expect(dock(page).getByRole("tab")).toHaveCount(5);
+  await expect(dock(page).getByRole("tab")).toHaveCount(4);
   await expect(dock(page).getByRole("button", { name: "Start forward", exact: true })).toBeVisible();
   await navigate(page, "pods");
   await expect(row(page)).toBeVisible();
-  await expect(dock(page).getByRole("tab")).toHaveCount(5);
+  await expect(dock(page).getByRole("tab")).toHaveCount(4);
 });
 
 test("dock minimizes, maximizes, resizes, and provides keyboard tab selection and close", async ({ page }) => {
@@ -317,7 +348,7 @@ test("Pod dock is footer anchored and tab actions close right, other, all, and m
   await fixture(page);
   await page.setViewportSize({ width: 1200, height: 800 });
 
-  await action(page, "Details");
+  await action(page, "Port forward");
   await openLogs(page);
   await action(page, "Shell");
   await expect(dock(page).getByRole("tab")).toHaveCount(3);
@@ -331,23 +362,23 @@ test("Pod dock is footer anchored and tab actions close right, other, all, and m
   expect(geometry.scrollHeight).toBeLessThanOrEqual(geometry.height);
 
   const logs = dock(page).getByRole("tab", { name: "api-pod · logs", exact: true });
-  const details = dock(page).getByRole("tab", { name: "api-pod · details", exact: true });
-  await details.click();
+  const forward = dock(page).getByRole("tab", { name: "api-pod · forward", exact: true });
+  await forward.click();
   await dock(page).getByRole("button", { name: "Tab actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Close tabs to the right", exact: true }).click();
   await expect(dock(page).getByRole("tab")).toHaveCount(1);
-  await expect(details).toHaveAttribute("aria-selected", "true");
+  await expect(forward).toHaveAttribute("aria-selected", "true");
   await allStreamsClosed(page);
 
   await openLogs(page);
   await action(page, "Shell");
   await expect(dock(page).locator(".xterm-helper-textarea")).toHaveCount(1);
   await expect(dock(page).getByRole("tab")).toHaveCount(3);
-  await details.click();
+  await forward.click();
   await dock(page).getByRole("button", { name: "Tab actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Close other tabs", exact: true }).click();
   await expect(dock(page).getByRole("tab")).toHaveCount(1);
-  await expect(details).toHaveAttribute("aria-selected", "true");
+  await expect(forward).toHaveAttribute("aria-selected", "true");
   await allStreamsClosed(page);
 
   await openLogs(page);
@@ -377,6 +408,38 @@ test("StrictMode discarded opens and streams that resolve after tab close are cl
   expect(await calls(page, "cluster_pod_stream_read")).toHaveLength(0);
 });
 
+for (const colorScheme of ["light", "dark"] as const) test(`logs keep a black readable surface and keyboard switches in ${colorScheme} mode`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
+  await fixture(page); await openLogs(page);
+  await dock(page).getByRole("button", { name: "Maximize dock", exact: true }).click();
+  const output = dock(page).getByLabel("Pod logs", { exact: true });
+  await expect(output).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await expect(output).toHaveCSS("color", "rgb(245, 245, 245)");
+  const previous = dock(page).getByRole("switch", { name: "Previous", exact: true });
+  const timestamps = dock(page).getByRole("switch", { name: "Timestamps", exact: true });
+  await expect(previous).not.toBeChecked();
+  await expect(timestamps).toBeChecked();
+  await previous.focus(); await expect(previous).toBeFocused(); await previous.press("Space");
+  await expect(previous).toBeChecked();
+  await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.previous).toBe(true);
+  await timestamps.focus(); await expect(timestamps).toBeFocused(); await timestamps.press("Space");
+  await expect(timestamps).not.toBeChecked();
+  await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.timestamps).toBe(false);
+  await dock(page).getByRole("textbox", { name: "Search buffered logs", exact: true }).fill("ready");
+  const highlight = output.locator("mark");
+  await expect(highlight).toHaveText(/ready/i);
+  await expect(highlight).toHaveCSS("background-color", "rgb(250, 204, 21)");
+  await expect(highlight).toHaveCSS("color", "rgb(0, 0, 0)");
+  await page.emulateMedia({ colorScheme: colorScheme === "light" ? "dark" : "light" });
+  await expect(output).toHaveCSS("background-color", "rgb(0, 0, 0)");
+  await expect(output).toHaveCSS("color", "rgb(245, 245, 245)");
+  await expect(highlight).toHaveCSS("background-color", "rgb(250, 204, 21)");
+  await expect(highlight).toHaveCSS("color", "rgb(0, 0, 0)");
+  await dock(page).getByRole("button", { name: "Clear", exact: true }).click();
+  await expect(output).toHaveText("Waiting for output…");
+  await expect(output).toHaveCSS("background-color", "rgb(0, 0, 0)");
+});
+
 test("logs restart for init/regular container and previous/timestamps; search, pause, wrap and downloads use buffered chunks", async ({ page }) => {
   await fixture(page); await openLogs(page);
   expect((await calls(page, "cluster_pod_stream_open")).at(-1)!.request).toMatchObject({
@@ -387,9 +450,9 @@ test("logs restart for init/regular container and previous/timestamps; search, p
   await dock(page).getByRole("combobox", { name: "Container", exact: true }).click();
   await page.getByRole("option", { name: "setup (init)", exact: true }).click();
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.container).toBe("setup");
-  await dock(page).getByRole("button", { name: "Previous: off", exact: true }).click();
+  await dock(page).getByRole("switch", { name: "Previous", exact: true }).check();
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.previous).toBe(true);
-  await dock(page).getByRole("button", { name: "Timestamps: on", exact: true }).click();
+  await dock(page).getByRole("switch", { name: "Timestamps", exact: true }).uncheck();
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.timestamps).toBe(false);
   await dock(page).getByRole("combobox", { name: "Container", exact: true }).click();
   await page.getByRole("option", { name: "app (container)", exact: true }).click();
@@ -480,15 +543,14 @@ for (const [label, actionName, warning] of [
 ] as const) {
   test(`${label} only mutates after explicit scoped UID/version confirmation`, async ({ page }) => {
     await fixture(page); await action(page, "Details");
-    await dock(page).getByRole("button", { name: "Maximize dock", exact: true }).click();
-    await dock(page).getByRole("button", { name: label, exact: true }).click();
-    const dialog = page.getByRole("dialog");
+    await inspector(page).getByRole("button", { name: label, exact: true }).click();
+    const dialog = mutationDialog(page);
     await expect(dialog).toContainText(warning);
     await expect(dialog).toContainText("Cluster: one. Namespace: team-a. Pod: api-pod. UID: pod-uid-123. Resource version: 42.");
     expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
     await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
     expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
-    await dock(page).getByRole("button", { name: label, exact: true }).click();
+    await inspector(page).getByRole("button", { name: label, exact: true }).click();
     await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();
     await expect(dialog).toHaveCount(0);
     expect((await calls(page, "cluster_pod_mutate")).map(c => c.request)).toEqual([
@@ -499,13 +561,12 @@ for (const [label, actionName, warning] of [
 
 test("YAML edits are retained after conflict; save confirms exact UID/version and edited content", async ({ page }) => {
   await fixture(page, { mutateError: "conflict" }); await action(page, "Edit YAML");
-  await dock(page).getByRole("button", { name: "Maximize dock", exact: true }).click();
-  const yaml = dock(page).getByRole("textbox", { name: "YAML", exact: true });
+  const yaml = inspector(page).getByRole("textbox", { name: "YAML", exact: true });
   await expect(yaml).toBeEditable();
   const edited = `${await yaml.inputValue()}# fixture edit\n`;
   await yaml.fill(edited);
-  await dock(page).getByRole("button", { name: "Save YAML", exact: true }).click();
-  const dialog = page.getByRole("dialog");
+  await inspector(page).getByRole("button", { name: "Save YAML", exact: true }).click();
+  const dialog = mutationDialog(page);
   await expect(dialog).toContainText("Protected server fields are preserved");
   expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
   await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();
@@ -514,7 +575,7 @@ test("YAML edits are retained after conflict; save confirms exact UID/version an
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(yaml).toHaveValue(edited);
   await control(page, { mutateError: undefined });
-  await dock(page).getByRole("button", { name: "Save YAML", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Save YAML", exact: true }).click();
   await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();
   await expect(dialog).toHaveCount(0);
 });
@@ -612,10 +673,10 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
 
 test("late live sync open closes on view disposal; navigation releases the session and pending streams", async ({ page }) => {
   await fixture(page, { holdSync: true, holdStreams: true });
-  await clusterAction(page, "Enable live sync");
-  await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).length).toBeGreaterThan(0);
   await action(page, "Logs");
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).length).toBeGreaterThan(0);
+  await clusterAction(page, "Enable live sync");
+  await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).length).toBeGreaterThan(0);
   await page.evaluate(() => { location.hash = "/catalog"; });
   await page.evaluate(() => { (window as MockWindow).__releasePodStreams(); (window as MockWindow).__releasePodSync(); });
   await allStreamsClosed(page);
@@ -638,13 +699,13 @@ test("invalid stream DTO closes recognizable stream handles and exposes an error
 
 test("details reload retains stale values after failure and scoped child actions reject a replaced UID", async ({ page }) => {
   await fixture(page); await action(page, "Details");
-  await expect(dock(page)).toContainText("Resource version: 42");
+  await expect(fact(page, "Resource version")).toHaveText("42");
   await control(page, { detailError: "resourceUnavailable" });
-  await dock(page).getByRole("button", { name: "Reload details", exact: true }).click();
-  await expect(dock(page).getByRole("alert")).toContainText("Retained details may be stale");
-  await expect(dock(page)).toContainText("Resource version: 42");
+  await inspector(page).getByRole("button", { name: "Reload details", exact: true }).click();
+  await expect(inspector(page).getByRole("alert")).toContainText("Retained details may be stale");
+  await expect(fact(page, "Resource version")).toHaveText("42");
   await control(page, { detailError: undefined, malformedDetails: true });
-  await dock(page).getByRole("button", { name: "Logs", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Logs", exact: true }).click();
   await expect(dock(page).getByRole("tabpanel").filter({ visible: true }).getByRole("alert")).toContainText("unsupported response");
   expect(await calls(page, "cluster_pod_stream_open")).toHaveLength(0);
 });
@@ -729,16 +790,16 @@ test("shell and attach exclude terminated containers; no running containers neve
 });
 
 test("closing an active middle tab selects its neighbor and restores keyboard focus", async ({ page }) => {
-  await fixture(page); await action(page, "Details"); await openLogs(page); await action(page, "Shell");
+  await fixture(page); await action(page, "Port forward"); await openLogs(page); await action(page, "Shell");
   const logs = dock(page).getByRole("tab", { name: "api-pod · logs", exact: true });
   const shell = dock(page).getByRole("tab", { name: "api-pod · shell", exact: true });
   await logs.click();
   await dock(page).getByRole("button", { name: "Close api-pod logs", exact: true }).click();
   await expect(shell).toHaveAttribute("aria-selected", "true"); await expect(shell).toBeFocused();
   await shell.press("Delete");
-  const details = dock(page).getByRole("tab", { name: "api-pod · details", exact: true });
-  await expect(details).toHaveAttribute("aria-selected", "true"); await expect(details).toBeFocused();
-  await details.press("Delete"); await expect(dock(page)).toHaveCount(0);
+  const forward = dock(page).getByRole("tab", { name: "api-pod · forward", exact: true });
+  await expect(forward).toHaveAttribute("aria-selected", "true"); await expect(forward).toBeFocused();
+  await forward.press("Delete"); await expect(dock(page)).toHaveCount(0);
   await expect(row(page).getByRole("button", { name: "api-pod", exact: true })).toBeFocused();
   await allStreamsClosed(page);
 });

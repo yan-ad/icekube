@@ -7,6 +7,7 @@ import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
+import { Switch } from "@astryxdesign/core/Switch";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -14,12 +15,14 @@ import { IconChevronDown, IconChevronUp, IconDots, IconFileText, IconList, IconM
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, podMutate, podStreamClose, podStreamOpen, type PodDetails, type PodForward, type PodIdentity, type PodMode, type PodMutation, type PodRequest, type PodStreamSnapshot } from "./podApi";
 import { PodDetailsView } from "./PodDetailsView";
 import { TerminalView } from "./TerminalView";
+import { useResourceInspector } from "./ResourceInspector";
 
 type Tab = { id: string; pod: PodRequest; mode: PodMode };
 const modeIcons = { details: IconFileText, edit: IconFileText, logs: IconList, shell: IconTerminal2, attach: IconTerminal2, forward: IconPlug };
 type DockApi = { openPod: (pod: PodIdentity, mode: PodMode) => void; tabs: Tab[]; active: string | null; minimized: boolean; setMinimized: (value: boolean) => void; setActive: (id: string) => void; close: (id: string) => void; onMutation?: () => void; error: string | null; outlet?: HTMLElement | null };
 const Context = createContext<DockApi | null>(null);
 export function PodDockProvider({ clusterId, sessionId, children, onMutation, outlet }: { clusterId: string; sessionId: string; children: ReactNode; onMutation?: () => void; outlet?: HTMLElement | null }) {
+  const { openPodDetails, closeInspector } = useResourceInspector();
   const [tabs, setTabs] = useState<Tab[]>([]);
   const alive = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -44,16 +47,16 @@ export function PodDockProvider({ clusterId, sessionId, children, onMutation, ou
     });
   }, []);
   const openPod = useCallback((identity: PodIdentity, mode: PodMode) => {
-    const current = tabsRef.current;
-    const found = (mode === "details" || mode === "edit") && current.find(t => t.pod.namespace === identity.namespace && t.pod.name === identity.name && t.pod.uid === identity.uid && (t.mode === "details" || t.mode === "edit"));
-    if (found) {
-      const next = current.map(t => t.id === found.id ? { ...t, mode } : t);
-      tabsRef.current = next; setTabs(next); setActive(found.id); setMinimized(false); return;
+    if (mode === "details" || mode === "edit") {
+      openPodDetails({ kind: "pods", namespace: identity.namespace, name: identity.name, uid: identity.uid }, mode === "edit");
+      return;
     }
+    closeInspector();
+    const current = tabsRef.current;
     if (current.length >= 12) { setError("Close a Pod tab before opening another. The dock supports 12 tabs."); setMinimized(false); return; }
     const tab: Tab = { id: crypto.randomUUID(), pod: { namespace: identity.namespace, name: identity.name, ...(identity.uid ? { uid: identity.uid } : {}), clusterId, sessionId }, mode };
     const next = [...current, tab]; tabsRef.current = next; setTabs(next); setActive(tab.id); setMinimized(false); setError(null);
-  }, [clusterId, sessionId]);
+  }, [clusterId, sessionId, openPodDetails, closeInspector]);
   return <Context.Provider value={{ openPod, tabs, active, minimized, setMinimized, setActive, close, onMutation, error, outlet }}>{children}</Context.Provider>;
 }
 export function usePodDock() { const value = useContext(Context); if (!value) throw new Error("usePodDock must be used inside PodDockProvider"); return value; }
@@ -97,7 +100,7 @@ export function PodDock() {
   </VStack>;
   return dock.outlet ? createPortal(panel, dock.outlet) : panel;
 }
-function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
+export function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
   const { openPod, onMutation } = usePodDock();
   const [details, setDetails] = useState<PodDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -153,8 +156,8 @@ function StreamPanel({ details, mode, visible, reload }: { details: PodDetails; 
     {reload}
   </>;
   const options = mode === "logs" ? <>
-    <Button label={timestamps ? "Timestamps: on" : "Timestamps: off"} tooltip="Show timestamps" size="sm" variant="ghost" aria-pressed={timestamps} onClick={() => setTimestamps(p => !p)} />
-    <Button label={previous ? "Previous: on" : "Previous: off"} tooltip="Show previous terminated container" size="sm" variant="ghost" aria-pressed={previous} onClick={() => setPrevious(p => !p)} />
+    <Switch label="Timestamps" size="sm" value={timestamps} onChange={setTimestamps} />
+    <Switch label="Previous" labelTooltip="Show previous terminated container" size="sm" value={previous} onChange={setPrevious} />
   </> : mode === "attach" ? <Text as="p" color="secondary">Attach sends input to the container's existing process.</Text> : null;
   return <VStack gap={0} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
     {!snapshot && <HStack gap={2} padding={2} vAlign="center" style={{ flexShrink: 0, minWidth: 0, overflowX: "auto" }}>{toolbar}</HStack>}

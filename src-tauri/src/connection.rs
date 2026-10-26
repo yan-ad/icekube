@@ -20,6 +20,8 @@ mod create_tests;
 pub(crate) mod delete;
 #[cfg(test)]
 mod delete_tests;
+pub(crate) mod detail_facts;
+pub(crate) mod details;
 pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -261,6 +263,7 @@ struct Session {
     reads: HashMap<ResourceKind, ReadSlot>,
     creates: HashMap<ResourceKind, CreateSlot>,
     deletes: HashMap<ResourceKind, delete::DeleteSlot>,
+    detail: details::DetailSlot,
 }
 struct ReadSlot {
     id: u64,
@@ -341,6 +344,7 @@ impl ConnectionEngine {
             reads: HashMap::new(),
             creates: HashMap::new(),
             deletes: HashMap::new(),
+            detail: details::DetailSlot::default(),
         });
         Ok(snapshot)
     }

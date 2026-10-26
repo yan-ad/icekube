@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { Button } from "@astryxdesign/core/Button";
+import { StatusBadge } from "./StatusBadge";
+import { useResourceInspector } from "./ResourceInspector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -11,10 +14,10 @@ import { cancelResources, connectionMessage, errorCode, loadResources, nextReadI
 import { ResourceActions } from "./ResourceActions";
 import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
+import { useResourceRowMenu } from "./RowContextMenu";
 import { NodesTable } from "./NodesTable";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 
-const columns: TableColumn<ResourceItem>[] = [{ key: "name", header: "Name", renderCell: (item) => <Text style={{ overflowWrap: "anywhere" }}>{item.name}</Text> }, { key: "status", header: "Status" }];
 const metricMessages = {
   unavailable: "Usage metrics unavailable; inventory is shown.",
   denied: "Usage metrics denied. Check metrics-server permissions.",
@@ -28,6 +31,11 @@ export function ClusterResources({ clusterId, sessionId, kind }: SessionRequest 
 }
 
 function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kind: ResourceKind }) {
+  const { openResource } = useResourceInspector();
+  const columns: TableColumn<ResourceItem>[] = [
+    { key: "name", header: "Name", renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openResource({ kind: "namespaces", namespace: null, name: item.name, uid: item.uid })} /> },
+    { key: "status", header: "Status", renderCell: (item) => <StatusBadge status={item.status} /> },
+  ];
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<ResourcePage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,6 +77,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const metricState = kind === "nodes" ? page?.metrics : null;
   const selectionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
   const selection = useResourceSelection(items, selectionScope, !loading && !error);
+  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: selectionScope, kind, unavailable: loading || !!error, openResource });
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
@@ -90,11 +99,11 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading} filtered={!!needle} now={now} selection={selection.plugin} /> :
-      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin }}
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
+      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
     {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
-    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} disabled={loading || !!error} onAccepted={selection.remove} onRefresh={() => {
+    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={loading || !!error} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
   </VStack>;

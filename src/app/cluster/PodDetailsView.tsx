@@ -1,10 +1,22 @@
 import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
+import { Heading } from "@astryxdesign/core/Heading";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
+import { ResourceRelationLink } from "./ResourceInspector";
+import { StatusBadge } from "./StatusBadge";
 import type { PodDetails, PodMode, PodMutation } from "./podApi";
-type Props = { details: PodDetails; edit: boolean; onEdit: () => void; onOpen: (mode: PodMode) => void; onAction: (action: PodMutation, yaml?: string) => void };
+
+type Props = {
+  details: PodDetails;
+  edit: boolean;
+  onEdit: () => void;
+  onOpen: (mode: PodMode) => void;
+  onAction: (action: PodMutation, yaml?: string) => void;
+};
+
 function podAge(createdAt: string | null) {
   if (!createdAt) return "Unknown";
   const seconds = Math.floor((Date.now() - Date.parse(createdAt)) / 1000);
@@ -14,22 +26,95 @@ function podAge(createdAt: string | null) {
   if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
 }
+
 export function PodDetailsView({ details, edit, onEdit, onOpen, onAction }: Props) {
   const [yaml, setYaml] = useState(details.yaml);
-  return <VStack gap={4} padding={4} isScrollable height="100%">
-    <HStack gap={2} wrap="wrap"><Text as="h2">{details.namespace}/{details.name}</Text><Button label="Logs" variant="ghost" onClick={() => onOpen("logs")} /><Button label="Shell" variant="ghost" onClick={() => onOpen("shell")} /><Button label="Attach" variant="ghost" onClick={() => onOpen("attach")} /><Button label="Port forward" variant="ghost" onClick={() => onOpen("forward")} /></HStack>
-    <Text as="p">Phase: {details.phase} · UID: {details.uid} · Resource version: {details.resourceVersion}</Text>
-    <VStack gap={1} aria-label="Pod facts">
-      <Text as="p">Node: {details.node ?? "Not scheduled"}</Text>
-      <Text as="p">Pod IPs: {details.podIps.join(", ") || "Not assigned"}</Text>
-      <Text as="p">Host IPs: {details.hostIps.join(", ") || "Not assigned"}</Text>
-      <Text as="p">Service account: {details.serviceAccount ?? "Unknown"}</Text>
-      <Text as="p">QoS: {details.qos ?? "Unknown"}</Text>
-      <Text as="p">Age: {podAge(details.createdAt)} · Created: {details.createdAt ?? "Unknown"}</Text>
+  return <VStack gap={5} padding={4}>
+    <VStack gap={2}>
+      <Heading level={2} wordBreak="break-all">{details.name}</Heading>
+      <HStack gap={2} wrap="wrap">
+        <StatusBadge status={details.phase} />
+        {details.deletionTimestamp && <StatusBadge status="Terminating" />}
+      </HStack>
+      <HStack gap={2} wrap="wrap">
+        <Button label="Logs" variant="ghost" onClick={() => onOpen("logs")} />
+        <Button label="Shell" variant="ghost" onClick={() => onOpen("shell")} />
+        <Button label="Attach" variant="ghost" onClick={() => onOpen("attach")} />
+        <Button label="Port forward" variant="ghost" onClick={() => onOpen("forward")} />
+      </HStack>
     </VStack>
-    <Text as="h3">Containers</Text><VStack gap={1}>{details.containers.map(c => <Text as="p" key={`${c.kind}-${c.name}`}>{c.kind}: {c.name} · {c.image} · {c.state} · {c.ready ? "ready" : "not ready"} · restarts {c.restarts} · ports {c.ports.map(p => `${p.name ?? "unnamed"}:${p.port}/${p.protocol}`).join(", ") || "none"}</Text>)}</VStack>
-    <Text as="h3">Conditions and events</Text><VStack gap={1}>{details.conditions.map(c => <Text as="p" key={c.type}>{c.type}: {c.status}</Text>)}{details.events.map((e, i) => <Text as="p" key={`${e.reason}-${i}`}>{e.type}: {e.reason} ({e.count}){e.lastSeen ? ` · ${e.lastSeen}` : ""}</Text>)}</VStack>
-    <TextArea label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit} rows={14} hasSpellCheck={false} />
-    <HStack gap={2} wrap="wrap">{edit ? <Button label="Save YAML" onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" onClick={onEdit} />}<Button label="Delete" variant="ghost" onClick={() => onAction("delete")} /><Button label="Force delete" variant="ghost" onClick={() => onAction("forceDelete")} />{details.deletionTimestamp && <Button label="Finalize" variant="ghost" onClick={() => onAction("finalize")} />}</HStack>
+
+    <MetadataList title="Pod facts" columns="single" label={{ position: "top" }}>
+      <MetadataListItem label="Namespace">
+        <ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: details.namespace }}>{details.namespace}</ResourceRelationLink>
+      </MetadataListItem>
+      <MetadataListItem label="Phase"><StatusBadge status={details.phase} /></MetadataListItem>
+      {details.deletionTimestamp && <MetadataListItem label="Deletion time"><Text wordBreak="break-all">{details.deletionTimestamp}</Text></MetadataListItem>}
+      <MetadataListItem label="Created"><Text wordBreak="break-all">{details.createdAt ?? "Unknown"}</Text></MetadataListItem>
+      <MetadataListItem label="Age">{podAge(details.createdAt)}</MetadataListItem>
+      <MetadataListItem label="UID"><Text type="code" wordBreak="break-all">{details.uid}</Text></MetadataListItem>
+      <MetadataListItem label="Resource version"><Text type="code" wordBreak="break-all">{details.resourceVersion}</Text></MetadataListItem>
+      <MetadataListItem label="Node">{details.node
+        ? <ResourceRelationLink reference={{ kind: "nodes", namespace: null, name: details.node }}>{details.node}</ResourceRelationLink>
+        : "Not scheduled"}</MetadataListItem>
+      <MetadataListItem label="Service account">{details.serviceAccount
+        ? <ResourceRelationLink reference={{ kind: "serviceAccounts", namespace: details.namespace, name: details.serviceAccount }}>{details.serviceAccount}</ResourceRelationLink>
+        : "Unknown"}</MetadataListItem>
+      <MetadataListItem label="QoS">{details.qos ?? "Unknown"}</MetadataListItem>
+      <MetadataListItem label="Pod IPs"><Text type="code" wordBreak="break-all">{details.podIps.join(", ") || "Not assigned"}</Text></MetadataListItem>
+      <MetadataListItem label="Host IPs"><Text type="code" wordBreak="break-all">{details.hostIps.join(", ") || "Not assigned"}</Text></MetadataListItem>
+    </MetadataList>
+
+    <VStack gap={3}>
+      <Heading level={3}>Conditions</Heading>
+      {details.conditions.length === 0 ? <Text type="supporting">No conditions reported.</Text>
+        : <MetadataList columns="single" label={{ position: "top" }}>
+          {details.conditions.map(condition => <MetadataListItem key={condition.type} label={condition.type}>
+            <StatusBadge status={condition.status} />
+          </MetadataListItem>)}
+        </MetadataList>}
+    </VStack>
+
+    <VStack gap={4}>
+      <Heading level={3}>Containers</Heading>
+      {details.containers.length === 0 && <Text type="supporting">No containers reported.</Text>}
+      {details.containers.map(container => <VStack gap={2} key={`${container.kind}-${container.name}`}>
+        <Heading level={4} wordBreak="break-all">{container.name}</Heading>
+        <MetadataList columns="single" label={{ position: "top" }}>
+          <MetadataListItem label="Kind">{container.kind === "init" ? "Init container" : container.kind === "ephemeral" ? "Ephemeral container" : "Container"}</MetadataListItem>
+          <MetadataListItem label="Image"><Text type="code" wordBreak="break-all">{container.image}</Text></MetadataListItem>
+          <MetadataListItem label="State"><StatusBadge status={container.state} /></MetadataListItem>
+          <MetadataListItem label="Readiness"><StatusBadge status={container.ready ? "Ready" : "Not ready"} /></MetadataListItem>
+          <MetadataListItem label="Restarts">{container.restarts}</MetadataListItem>
+          <MetadataListItem label="Declared ports">{container.ports.length === 0 ? "None reported"
+            : <VStack gap={1}>{container.ports.map((port, index) => <Text key={`${port.port}-${port.protocol}-${index}`} type="code" wordBreak="break-all">
+              {port.name ? `${port.name}: ` : ""}{port.port}/{port.protocol}
+            </Text>)}</VStack>}</MetadataListItem>
+        </MetadataList>
+      </VStack>)}
+    </VStack>
+
+    <VStack gap={3}>
+      <Heading level={3}>Events</Heading>
+      <Text type="supporting">Bounded event snapshot; not a live event stream.</Text>
+      {details.events.length === 0 && <Text type="supporting">No events returned.</Text>}
+      {details.events.map((event, index) => <MetadataList key={`${event.reason}-${index}`} columns="single" label={{ position: "top" }}>
+        <MetadataListItem label="Reason"><Text wordBreak="break-all">{event.reason}</Text></MetadataListItem>
+        <MetadataListItem label="Type"><StatusBadge status={event.type} variant={event.type === "Warning" ? "warning" : "neutral"} /></MetadataListItem>
+        <MetadataListItem label="Count">{event.count}</MetadataListItem>
+        <MetadataListItem label="Last seen"><Text wordBreak="break-all">{event.lastSeen ?? "Unknown"}</Text></MetadataListItem>
+      </MetadataList>)}
+    </VStack>
+
+    <VStack gap={3}>
+      <Heading level={3}>YAML</Heading>
+      <TextArea label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit} rows={14} hasSpellCheck={false} />
+      <HStack gap={2} wrap="wrap">
+        {edit ? <Button label="Save YAML" onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" onClick={onEdit} />}
+        <Button label="Delete" variant="ghost" onClick={() => onAction("delete")} />
+        <Button label="Force delete" variant="ghost" onClick={() => onAction("forceDelete")} />
+        {details.deletionTimestamp && <Button label="Finalize" variant="ghost" onClick={() => onAction("finalize")} />}
+      </HStack>
+    </VStack>
   </VStack>;
 }

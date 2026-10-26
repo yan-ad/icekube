@@ -65,7 +65,7 @@ const calls = (page: Page) => page.evaluate(() => (window as unknown as { __node
 test("nodes table renders the reference columns and Rust facts with readable units", async ({ page }, info) => {
   await fixture(page);
   await expect(table(page).getByRole("columnheader")).toHaveText([
-    "Select all rows", "Name", "CPU", "Memory", "Disk", "Roles", "Taints", "Version", "Internal IP", "Age", "Schedulable", "Conditions",
+    "Select all rows", "Name", "CPU", "Memory", "Disk", "Roles", "Taints", "Version", "Internal IP", "Age", "Schedulable", "Conditions", "Actions",
   ]);
   await expect(page.getByRole("status").filter({ hasText: /^2 items · Page 1$/ })).toBeVisible();
   const first = table(page).getByRole("row").nth(1);
@@ -74,8 +74,11 @@ test("nodes table renders the reference columns and Rust facts with readable uni
   await expect(first).toContainText("25h");
   await expect(first).toContainText("worker");
   await expect(first).toContainText("10.184.0.89, 2001:db8::1");
-  await expect(first).toContainText("MemoryPressure: False");
-  await expect(first).toContainText("CustomCondition: Unknown");
+  const firstConditions = first.getByRole("cell").nth(11);
+  await expect(firstConditions).toContainText("Ready");
+  await expect(firstConditions.getByRole("button", { name: "+2 conditions", exact: true })).toBeVisible();
+  await expect(firstConditions).not.toContainText("MemoryPressure: False");
+  await expect(firstConditions).not.toContainText("CustomCondition: Unknown");
   const cpu = first.getByRole("progressbar", { name: /CPU$/ });
   await expect(cpu).toHaveAttribute("aria-valuenow", "6.7");
   await expect(cpu).toHaveAttribute("aria-valuemax", "23.9");
@@ -84,6 +87,7 @@ test("nodes table renders the reference columns and Rust facts with readable uni
   await expect(second).toContainText("0 / 15.5");
   await expect(second).toContainText("Ready: False");
   await expect(second).toContainText("DiskPressure: True");
+  await expect(second.getByRole("cell").nth(11).getByRole("button")).toHaveCount(0);
   await expect(second.getByRole("cell").nth(10)).toHaveText("False");
   await expect(second.getByRole("cell").nth(9)).toHaveText("N/A");
   await expect(first.getByRole("cell").nth(4)).toHaveText("N/A");

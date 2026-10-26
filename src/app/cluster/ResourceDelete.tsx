@@ -12,7 +12,8 @@ import { cancelResourceDelete, deleteMessage, deleteResource, hasDeleteIdentity,
 import { resourceCreation } from "./resourceViews";
 
 type Props = SessionRequest & { kind: ResourceKind; selected: ResourceItem[]; disabled: boolean;
-  onAccepted: (keys: Set<string>) => void; onRefresh: () => void; onNotice: (notice: string) => void };
+  onAccepted: (keys: Set<string>) => void; onRefresh: () => void; onNotice: (notice: string) => void;
+  contextTarget?: ResourceItem | null; onContextClose?: () => void };
 type Outcome = { key: string; label: string; state: "accepted" | "deleted" | "failed"; message: string };
 const uncertainty = "A deletion may already have reached the API server. Stopping does not undo it. Refresh before retrying; remaining items were not submitted.";
 
@@ -20,12 +21,17 @@ export function ResourceDelete(props: Props) {
   const { snapshot } = useCatalog();
   const cluster = snapshot?.clusters.find(item => item.id === props.clusterId);
   const [targets, setTargets] = useState<DeleteTarget[] | null>(null);
+  useEffect(() => {
+    if (props.contextTarget && hasDeleteIdentity(props.contextTarget) && !props.disabled) {
+      setTargets([{ name: props.contextTarget.name, namespace: props.contextTarget.namespace, uid: props.contextTarget.uid, resourceVersion: props.contextTarget.resourceVersion }]);
+    }
+  }, [props.contextTarget, props.disabled]);
   return <>
     {props.selected.length > 0 && <IconButton label="Delete selected resources" tooltip={`Delete selected resources (${props.selected.length})`}
       icon={<Icon icon={IconTrash} />} size="lg" variant="secondary" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster}
       onClick={() => setTargets(props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })))} />}
-    {targets && cluster && <DeleteConfirmation {...props} targets={targets} clusterName={cluster.name} contextName={cluster.contextName} onClose={() => setTargets(null)} />}
+    {targets && cluster && <DeleteConfirmation {...props} targets={targets} clusterName={cluster.name} contextName={cluster.contextName} onClose={() => { setTargets(null); props.onContextClose?.(); }} />}
   </>;
 }
 function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, contextName, disabled, onAccepted, onRefresh, onNotice, onClose }: Props & {

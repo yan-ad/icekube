@@ -967,7 +967,10 @@ async fn filtered_scan_cancellation_and_invalid_filters_fail_closed() {
         .await,
         Err(ConnectionError::StaleSession)
     );
-    assert!(serde_json::from_value::<ResourceRequest>(json!({"clusterId":"x","sessionId":"y","kind":"pods","readId":1,"filters":{"query":"hit"}})).is_err());
+    assert!(serde_json::from_value::<ResourceRequest>(
+        json!({"clusterId":"x","sessionId":"y","kind":"pods","readId":1,"filters":{"query":"hit"}})
+    )
+    .is_err());
 }
 
 #[tokio::test]
@@ -994,4 +997,92 @@ async fn filtered_scan_time_bound_retains_next_unscanned_page() {
     assert!(page.items.is_empty());
     assert!(page.truncated);
     assert_eq!(page.continue_token.as_deref(), Some("next"));
+}
+
+#[test]
+fn pod_health_distinguishes_ready_completed_warning_and_shutdown() {
+    let base = json!({"metadata":{"name":"pod","namespace":"team"},"spec":{"containers":[{"name":"app"}]},"status":{"phase":"Running","conditions":[{"type":"Ready","status":"True"}],"containerStatuses":[{"name":"app","ready":true,"state":{"running":{}}}]}});
+    let project = |value| resources::project(ResourceKind::Pods, value).unwrap();
+    let healthy = project(base.clone());
+    assert_eq!(healthy.columns["health"], "healthy");
+    assert_eq!(healthy.columns["podReady"], "true");
+    assert!(!healthy.columns.contains_key("warning"));
+
+    for (phase, state, code) in [
+        (
+            "Running",
+            json!({"waiting":{"reason":"CrashLoopBackOff"}}),
+            "ContainerWaiting",
+        ),
+        (
+            "Running",
+            json!({"terminated":{"exitCode":1}}),
+            "ContainerFailed",
+        ),
+        ("Running", json!({"running":{}}), "ContainersNotReady"),
+        ("Failed", json!({"terminated":{"exitCode":1}}), "PodFailed"),
+        ("Pending", json!({}), "PodPending"),
+    ] {
+        let mut value = base.clone();
+        value["status"]["phase"] = json!(phase);
+        value["status"]["conditions"][0]["status"] = json!("False");
+        value["status"]["containerStatuses"][0]["ready"] = json!(false);
+        value["status"]["containerStatuses"][0]["state"] = state;
+        let row = project(value);
+        assert_eq!(row.columns["health"], "warning");
+        assert_eq!(row.columns["warning"], code);
+    }
+    let mut completed = base.clone();
+    completed["status"]["phase"] = json!("Succeeded");
+    completed["status"]["conditions"][0]["status"] = json!("False");
+    completed["status"]["containerStatuses"][0]["ready"] = json!(false);
+    completed["status"]["containerStatuses"][0]["state"] = json!({"terminated":{"exitCode":0}});
+    let completed = project(completed);
+    assert_eq!(completed.columns["health"], "completed");
+    assert!(!completed.columns.contains_key("warning"));
+
+    let mut deleting = base.clone();
+    deleting["metadata"]["deletionTimestamp"] = json!("2026-10-26T12:00:00Z");
+    let row = project(deleting);
+    assert_eq!(row.status, "Terminating");
+    assert_eq!(row.columns["health"], "terminating");
+    assert_eq!(row.columns["terminating"], "true");
+    assert_eq!(row.columns["deletionTimestamp"], "2026-10-26T12:00:00Z");
+
+    let missing =
+        project(json!({"metadata":{"name":"pod","namespace":"team"},"status":{"phase":"Running"}}));
+    assert_eq!(missing.columns["health"], "unknown");
+    assert_eq!(missing.columns["podReady"], "unknown");
+
+    let mut gate = base.clone();
+    gate["status"]["conditions"][0]["status"] = json!("False");
+    gate["spec"]["readinessGates"] = json!([{"conditionType":"example.test/ready"}]);
+    assert_eq!(project(gate).columns["warning"], "ReadinessGateNotReady");
+
+    let mut sidecar = base;
+    sidecar["spec"]["initContainers"] =
+        json!([{"name":"init"},{"name":"sidecar","restartPolicy":"Always"}]);
+    sidecar["status"]["initContainerStatuses"] =
+        json!([{"name":"init","ready":false,"state":{"terminated":{"exitCode":0}}}]);
+    assert_eq!(project(sidecar).columns["warning"], "ContainersNotReady");
+}
+
+#[test]
+fn pod_health_is_bounded_and_never_copies_server_messages_or_container_secrets() {
+    let marker = "PRIVATE-CREDENTIAL";
+    let row = resources::project(ResourceKind::Pods, json!({
+        "metadata":{"name":"pod","namespace":"team","deletionTimestamp":marker,"annotations":{"secret":marker}},
+        "spec":{"containers":[{"name":marker,"env":[{"name":"TOKEN","value":marker}]}],"nodeName":"é\n".repeat(300)},
+        "status":{"phase":"Running","reason":marker,"message":marker,"conditions":[{"type":"Ready","status":"False","reason":marker,"message":marker}],"containerStatuses":[{"name":marker,"ready":false,"state":{"waiting":{"reason":marker,"message":marker}}}]}
+    })).unwrap();
+    assert_eq!(row.status, "Terminating");
+    assert_eq!(row.columns["warning"], "ContainerWaiting");
+    assert!(!row.columns.contains_key("deletionTimestamp"));
+    assert!(row.columns.len() <= 12);
+    assert!(
+        row.columns
+            .values()
+            .all(|value| value.len() <= 256 && !value.chars().any(char::is_control))
+    );
+    assert!(!serde_json::to_string(&row).unwrap().contains(marker));
 }

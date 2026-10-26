@@ -46,7 +46,7 @@ const MINIMAP_SIDE_OPTIONS = [
 ];
 
 const TERMINAL_THEME_OPTIONS = [
-  { label: "Match Freelens Theme", value: "match" },
+  { label: "Match app theme", value: "match" },
   { label: "Dark", value: "dark" },
   { label: "Light", value: "light" },
 ];

@@ -3,9 +3,12 @@ import { defaultPreferences, type Preferences, type PreferencesSnapshot } from "
 
 type Call = { command: string; request?: unknown };
 
-async function fixture(page: Page, options: { initial?: Preferences; saveFail?: string } = {}) {
+async function fixture(page: Page, options: { initial?: Preferences; saveFail?: string; nativeMenu?: boolean } = {}) {
   await page.addInitScript(({ options, defaultPreferences }) => {
     const calls: Call[] = [];
+    const callbacks = new Map<number, (event: unknown) => void>();
+    const listeners = new Map<number, number>();
+    let nextId = 0;
     let state: PreferencesSnapshot = {
       revision: 1,
       preferences: options.initial ?? defaultPreferences,
@@ -13,9 +16,37 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
     Object.assign(window, {
       isTauri: true,
       __prefCalls: calls,
+      ...(options.nativeMenu ? {
+        __ICEKUBE_WINDOW_LAYOUT__: { seamless: true, platform: "macos" },
+      } : {}),
+      __openNativePreferences: () => {
+        for (const [id, handler] of listeners) {
+          callbacks.get(handler)?.({ event: "icekube://open-preferences", id, payload: null });
+        }
+      },
+      __TAURI_EVENT_PLUGIN_INTERNALS__: {
+        unregisterListener: (_event: string, id: number) => listeners.delete(id),
+      },
       __TAURI_INTERNALS__: {
-        invoke: async (command: string, args?: { request: unknown }) => {
+        transformCallback: (callback: (event: unknown) => void) => {
+          const id = ++nextId;
+          callbacks.set(id, callback);
+          return id;
+        },
+        invoke: async (command: string, args?: { request?: unknown; event?: string; handler?: number; eventId?: number }) => {
           calls.push({ command, request: args?.request });
+          if (command === "plugin:event|listen") {
+            if (args?.event !== "icekube://open-preferences" || typeof args.handler !== "number") {
+              throw new Error("Unexpected native event subscription");
+            }
+            const id = ++nextId;
+            listeners.set(id, args.handler);
+            return id;
+          }
+          if (command === "plugin:event|unlisten") {
+            listeners.delete(args?.eventId ?? -1);
+            return null;
+          }
           if (command === "preferences_get") {
             return state;
           }
@@ -54,6 +85,7 @@ test("toolbar preferences button opens preferences dialog", async ({ page }) => 
 test("Cmd+, keyboard shortcut opens preferences dialog", async ({ page }) => {
   await fixture(page);
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "Preferences", exact: true })).toBeVisible();
 
   await page.keyboard.press("ControlOrMeta+,");
   const dialog = page.getByRole("dialog");
@@ -139,4 +171,50 @@ test("cancel closes preferences dialog without saving", async ({ page }) => {
 
   const calls: Call[] = await page.evaluate(() => (window as unknown as { __prefCalls: Call[] }).__prefCalls);
   expect(calls.filter(c => c.command === "preferences_save")).toHaveLength(0);
+});
+
+test("native macOS Preferences menu event opens and reopens the existing dialog", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await fixture(page, { nativeMenu: true });
+  await page.goto("/");
+  await expect.poll(async () => page.evaluate(() =>
+    (window as unknown as { __prefCalls: Call[] }).__prefCalls
+      .some(call => call.command === "plugin:event|listen"),
+  )).toBe(true);
+
+  const openFromMenu = () => page.evaluate(() =>
+    (window as unknown as { __openNativePreferences: () => void }).__openNativePreferences(),
+  );
+  await openFromMenu();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await openFromMenu();
+  await expect(page.getByRole("dialog")).toHaveCount(1);
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await openFromMenu();
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("browser preview does not subscribe to native menu events", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const calls = await page.evaluate(() => (window as unknown as { __prefCalls: Call[] }).__prefCalls);
+  expect(calls.some(call => call.command.startsWith("plugin:event|"))).toBe(false);
+});
+
+test("terminal theme option uses app wording without reference-app branding", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Terminal", exact: true }).click();
+  await expect(dialog.getByRole("combobox", { name: "Terminal theme" })).toContainText("Match app theme");
+  await dialog.getByRole("combobox", { name: "Terminal theme" }).click();
+  await expect(page.getByRole("option", { name: "Match app theme", exact: true })).toBeVisible();
+  await expect(page.getByText(/freelens/i)).toHaveCount(0);
 });

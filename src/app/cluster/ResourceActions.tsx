@@ -6,13 +6,14 @@ import { ResourceCreate } from "./ResourceCreate";
 import { ResourceDelete } from "./ResourceDelete";
 
 type Props = SessionRequest & { kind: ResourceKind; namespace?: string; createLabel?: string;
-  selected: ResourceItem[]; disabled: boolean; onAccepted: (keys: Set<string>) => void; onRefresh: () => void };
+  selected: ResourceItem[]; disabled: boolean; onAccepted: (keys: Set<string>) => void; onRefresh: () => void;
+  contextTarget?: ResourceItem | null; onContextClose?: () => void };
 export function ResourceActions(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   return <>
     {notice && <Text role="status">{notice}</Text>}
     <TableActionOverlay label="Resource actions">
-      <ResourceDelete {...props} onNotice={setNotice} />
+      <ResourceDelete key={props.contextTarget ? JSON.stringify([props.contextTarget.namespace, props.contextTarget.name, props.contextTarget.uid, props.contextTarget.resourceVersion]) : "selection"} {...props} onNotice={setNotice} />
       <ResourceCreate clusterId={props.clusterId} sessionId={props.sessionId} kind={props.kind} namespace={props.namespace}
         label={props.createLabel} inline onNotice={setNotice} onCreated={props.onRefresh} />
     </TableActionOverlay>

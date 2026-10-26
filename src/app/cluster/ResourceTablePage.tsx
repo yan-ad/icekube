@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
-import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { IconSearch, IconDots, IconInfoCircle, IconX } from "@tabler/icons-react";
+import { IconSearch, IconX, IconCircleCheck, IconAlertTriangle, IconHourglass, IconCircleDashed } from "@tabler/icons-react";
+import { Tooltip } from "@astryxdesign/core/Tooltip";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId,
@@ -23,6 +23,23 @@ import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelect
 import { resourceRowKey } from "./deleteApi";
 import { NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
+import { StatusBadge } from "./StatusBadge";
+import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector";
+import type { ResourceReference } from "./detailApi";
+import { useResourceRowMenu } from "./RowContextMenu";
+
+function PodHealth({ item }: { item: ResourceItem }) {
+  const state = item.columns.health;
+  const warning = item.columns.warning;
+  const message = state === "terminating" ? "Terminating: Pod shutdown is in progress"
+    : state === "healthy" ? "Ready: all required containers and readiness gates are ready"
+    : state === "completed" ? "Completed: Pod finished successfully"
+    : state === "warning" ? `Pod needs attention: ${warning?.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "not ready"}` : "Pod readiness unknown";
+  const icon = state === "terminating" ? IconHourglass : state === "healthy" || state === "completed" ? IconCircleCheck : state === "warning" ? IconAlertTriangle : IconCircleDashed;
+  return <Tooltip content={message}><HStack role="img" aria-label={message} vAlign="center" style={{ color: state === "warning" || state === "terminating" ? "var(--color-warning-text, var(--color-text-primary))" : "var(--color-text-secondary)" }}><Icon icon={icon} /></HStack></Tooltip>;
+}
+const relationColumns = new Set(["node", "controlledBy", "storageClass", "volume", "claim", "roleRef", "policy", "target", "class", "involvedObject"]);
+const stateColumns = new Set(["phase", "suspend", "globalDefault", "readOnly", "allowExpansion", "privileged", "hostNetwork"]);
 
 function age(timestamp: string | null, now: number) {
   if (!timestamp) return "N/A";
@@ -33,24 +50,20 @@ function age(timestamp: string | null, now: number) {
   if (seconds < 172800) return `${Math.floor(seconds / 3600)}h`;
   return `${Math.floor(seconds / 86400)}d`;
 }
-function columns(view: ResourceView, now: number, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
+function columns(view: ResourceView, now: number, openResource: (reference: ResourceReference) => void, openRelated: (reference: ResourceReference, column: string) => void, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
+  const reference = (item: ResourceItem): ResourceReference => ({ kind: view.kind!, namespace: item.namespace, name: item.name, uid: item.uid });
   return [
-    { key: "name", header: "Name", width: proportional(2), renderCell: (item) => openPod
-      ? <Button label={item.name} variant="ghost" size="sm" onClick={() => openPod(item, "details")} />
-      : <Text maxLines={1}>{item.name}</Text> },
-    ...(view.namespaced ? [{ key: "namespace", header: "Namespace", renderCell: (item: ResourceItem) => <Text maxLines={1}>{item.namespace ?? "N/A"}</Text> }] : []),
+    { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openPod ? openPod(item, "details") : openResource(reference(item))} /> },
+    ...(view.kind === "pods" ? [{ key: "health", header: "Health", renderCell: (item: ResourceItem) => <PodHealth item={item} /> }] : []),
+    ...(view.namespaced ? [{ key: "namespace", header: "Namespace", renderCell: (item: ResourceItem) => item.namespace ? <ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: item.namespace }}>{item.namespace}</ResourceRelationLink> : <Text>N/A</Text> }] : []),
     ...view.columns.map((column) => ({ key: column.key, header: column.label,
-      renderCell: (item: ResourceItem) => <Text maxLines={1}>{item.columns[column.key] || "N/A"}</Text> })),
+      renderCell: (item: ResourceItem) => relationColumns.has(column.key) && item.columns[column.key]
+        ? column.key === "class" && view.kind === "ingresses" ? <ResourceRelationLink reference={{ kind: "ingressClasses", namespace: null, name: item.columns[column.key] }}>{item.columns[column.key]}</ResourceRelationLink>
+          : <Button label={item.columns[column.key]} variant="ghost" size="sm" onClick={() => openRelated(reference(item), column.key)} />
+        : stateColumns.has(column.key) ? <StatusBadge status={item.columns[column.key]} /> : <Text maxLines={1}>{item.columns[column.key] || "N/A"}</Text> })),
     { key: "age", header: "Age", renderCell: (item) => <Text hasTabularNumbers>{age(item.createdAt, now)}</Text> },
-    { key: "status", header: "Status", renderCell: (item) => <Text maxLines={1}>{item.status}</Text> },
-    ...(openPod ? [{ key: "actions", header: "Actions", renderCell: (item: ResourceItem) => <HStack gap={1}>
-      <IconButton label="Details" tooltip={`Details for ${item.name}`} icon={<Icon icon={IconInfoCircle} />} size="sm" variant="ghost" onClick={() => openPod(item, "details")} />
-      <DropdownMenu presentation="popover" alignment="end" hasChevron={false}
-        renderTrigger={(props) => <IconButton {...props} label={`Actions for ${item.name}`} tooltip="Pod actions" icon={<Icon icon={IconDots} />} size="sm" variant="ghost" />}
-        items={([
-          ["details", "Details"], ["logs", "Logs"], ["shell", "Shell"], ["attach", "Attach"], ["edit", "Edit YAML"], ["forward", "Port forward"],
-        ] as [PodMode, string][]).map(([mode, label]) => ({ label, onClick: () => openPod(item, mode) }))} />
-    </HStack> }] : []),
+    { key: "status", header: "Status", renderCell: (item) => <StatusBadge status={item.status} /> },
+
   ];
 }
 
@@ -84,12 +97,13 @@ function ResourceSnapshot(props: SnapshotProps) {
 function PodSnapshot(props: SnapshotProps) {
   const { openPod } = usePodDock();
   return <ResourceSnapshotContent {...props} openPod={(item, mode) => {
-    if (item.namespace) openPod({ namespace: item.namespace, name: item.name }, mode);
+    if (item.namespace) openPod({ namespace: item.namespace, name: item.name, ...(item.uid ? { uid: item.uid } : {}) }, mode);
   }} />;
 }
 function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token, index, previous, next, openPod, filters, onFilter, onNamespace }: SnapshotProps & {
   openPod?: (item: ResourceItem, mode: PodMode) => void;
 }) {
+  const { openResource, openRelated } = useResourceInspector();
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<ResourcePage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -160,6 +174,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, query, status, group, syncing]);
   const inventoryUnavailable = loading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
+  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
@@ -176,10 +191,10 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
     {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
     {page && (loading || error || syncing && syncStatus !== "syncing") && <Text role="status">Previously fetched {view.label.toLowerCase()} are shown and may be stale.</Text>}
-    {page && <Table aria-label={view.label} data={rows} columns={columns(view, Date.now(), openPod)} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading}
-      plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin }}
+    {page && <Table aria-label={view.label} data={rows} columns={columns(view, Date.now(), openResource, openRelated, openPod)} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading}
+      plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
     {view.kind && <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
-      selected={selection.selected} disabled={inventoryUnavailable} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
+      selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
   </VStack>;
 }

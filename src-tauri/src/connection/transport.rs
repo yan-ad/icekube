@@ -285,8 +285,26 @@ fn resource_page_path(
     continuation: Option<&str>,
     limit: usize,
 ) -> String {
+    let (group, plural) = endpoint(request.kind);
+    let scope = request
+        .namespace
+        .as_ref()
+        .map(|s| format!("/namespaces/{s}"))
+        .unwrap_or_default();
+    let mut path = format!("{group}{scope}/{plural}?limit={limit}&timeoutSeconds=10");
+    if let Some(token) = continuation {
+        let query: String = url::form_urlencoded::Serializer::new(String::new())
+            .append_pair("continue", token)
+            .finish();
+        path.push('&');
+        path.push_str(&query);
+    }
+    path
+}
+
+pub(super) fn endpoint(kind: ResourceKind) -> (&'static str, &'static str) {
     use ResourceKind::*;
-    let (group, plural) = match request.kind {
+    match kind {
         Nodes => ("/api/v1", "nodes"),
         Namespaces => ("/api/v1", "namespaces"),
         Pods => ("/api/v1", "pods"),
@@ -340,21 +358,7 @@ fn resource_page_path(
         ClusterRoles => ("/apis/rbac.authorization.k8s.io/v1", "clusterroles"),
         ClusterRoleBindings => ("/apis/rbac.authorization.k8s.io/v1", "clusterrolebindings"),
         CustomResourceDefinitions => ("/apis/apiextensions.k8s.io/v1", "customresourcedefinitions"),
-    };
-    let scope = request
-        .namespace
-        .as_ref()
-        .map(|s| format!("/namespaces/{s}"))
-        .unwrap_or_default();
-    let mut path = format!("{group}{scope}/{plural}?limit={limit}&timeoutSeconds=10");
-    if let Some(token) = continuation {
-        let query: String = url::form_urlencoded::Serializer::new(String::new())
-            .append_pair("continue", token)
-            .finish();
-        path.push('&');
-        path.push_str(&query);
     }
-    path
 }
 
 // Only this allowlisted request path reaches the client. API error bodies are never surfaced.
@@ -366,7 +370,7 @@ pub(super) async fn get<T: DeserializeOwned>(
 ) -> Result<T> {
     get_with_accept(client, path, limit, cancel, "application/json").await
 }
-async fn get_with_accept<T: DeserializeOwned>(
+pub(super) async fn get_with_accept<T: DeserializeOwned>(
     client: &Client,
     path: &str,
     limit: usize,
@@ -444,4 +448,35 @@ struct List {
 struct ListMetadata {
     #[serde(default, rename = "continue")]
     continue_token: Option<String>,
+}
+
+pub(super) trait ResourceTransport: Sync {
+    fn detail(
+        &self,
+        _client: &Client,
+        _reference: &super::details::ResourceReference,
+        _cancel: &CancellationToken,
+    ) -> impl std::future::Future<Output = Result<serde_json::Value>> + Send {
+        async { Err(ConnectionError::ResourceUnavailable) }
+    }
+}
+pub(super) struct LiveResourceTransport;
+impl ResourceTransport for LiveResourceTransport {
+    async fn detail(
+        &self,
+        client: &Client,
+        reference: &super::details::ResourceReference,
+        cancel: &CancellationToken,
+    ) -> Result<serde_json::Value> {
+        let path = super::details::named_path(reference)?;
+        let accept = if matches!(
+            reference.kind,
+            ResourceKind::Secrets | ResourceKind::ConfigMaps
+        ) {
+            "application/json;as=PartialObjectMetadata;g=meta.k8s.io;v=v1"
+        } else {
+            "application/json"
+        };
+        get_with_accept(client, &path, BODY_LIMIT, cancel, accept).await
+    }
 }

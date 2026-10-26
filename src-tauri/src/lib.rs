@@ -1,5 +1,8 @@
 mod catalog;
 mod connection;
+mod context_menu;
+#[cfg(target_os = "macos")]
+mod menu;
 mod preferences;
 mod updates;
 mod window;
@@ -176,9 +179,14 @@ async fn cluster_connect(
 #[tauri::command]
 async fn cluster_disconnect(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    menus: tauri::State<'_, Arc<context_menu::ContextMenus>>,
     request: connection::SessionRequest,
 ) -> Result<(), connection::ConnectionError> {
-    connections.disconnect(request)
+    let result = connections.disconnect(request);
+    if result.is_ok() {
+        menus.clear();
+    }
+    result
 }
 
 #[tauri::command]
@@ -203,6 +211,21 @@ fn cluster_resources_cancel(
     request: connection::ResourceRequest,
 ) -> Result<(), connection::ConnectionError> {
     connections.cancel_resources(request)
+}
+
+#[tauri::command]
+async fn cluster_resource_detail(
+    engine: tauri::State<'_, connection::ConnectionEngine>,
+    request: connection::details::DetailRequest,
+) -> Result<connection::details::ResourceDetail, connection::ConnectionError> {
+    engine.resource_detail(request).await
+}
+#[tauri::command]
+fn cluster_resource_detail_cancel(
+    engine: tauri::State<'_, connection::ConnectionEngine>,
+    request: connection::details::DetailRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_resource_detail(request)
 }
 
 #[tauri::command]
@@ -349,9 +372,14 @@ pub fn run() {
             app.manage(updater);
 
             window::create_main_window(app)?;
+            context_menu::install(app);
+            #[cfg(target_os = "macos")]
+            menu::install(app)?;
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            context_menu::row_context_menu_show,
+            context_menu::row_context_menu_cancel,
             catalog_list,
             catalog_import_kubeconfig,
             catalog_add_web_link,
@@ -364,6 +392,8 @@ pub fn run() {
             cluster_connection_status,
             cluster_resources,
             cluster_resources_cancel,
+            cluster_resource_detail,
+            cluster_resource_detail_cancel,
             cluster_resource_create,
             cluster_resource_create_cancel,
             cluster_resource_delete,
@@ -398,6 +428,7 @@ pub fn run() {
             if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. })
                 || matches!(event, tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } if label == "main")
             {
+                app.state::<Arc<context_menu::ContextMenus>>().clear();
                 let engine = app.state::<Arc<connection::ConnectionEngine>>();
                 engine.shutdown();
                 tauri::async_runtime::block_on(engine.drain());

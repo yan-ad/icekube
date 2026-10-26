@@ -178,6 +178,13 @@ fullscreen offset. Interactive controls must never be drag targets. Failed
 window actions produce an accessible error instead of an unhandled rejection.
 Only the required window-control capabilities are granted to the main window.
 
+On macOS, the native **IceKube > Preferences…** menu item (⌘,) focuses the main
+window and opens the existing Preferences dialog through a main-webview-scoped
+Tauri event. Rust owns menu construction and preserves the default macOS menu
+actions. The renderer releases its listener on disposal; browser preview never
+subscribes to native menu events. The toolbar button and keyboard shortcut remain
+available, and terminal theme matching is labeled **Match app theme**.
+
 ## Engine boundary
 
 - **Rust/Tauri:** native lifecycle, Kubernetes clients and watches, kubeconfig,
