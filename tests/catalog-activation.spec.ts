@@ -18,7 +18,7 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
         if (options.slow) await new Promise((resolve) => setTimeout(resolve, 250));
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_connect") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, contextName: "dev-context", status: "connected", apiVersion: "v1.34.1", error: null };
-        if (command === "cluster_resources") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, kind: args?.request.kind, readId: args?.request.readId, items: [], truncated: false, fetchedAt: Date.now() };
+        if (command === "cluster_resources") return { ...args?.request, namespace: args?.request.namespace ?? null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: Date.now() };
         if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
         if (command === "catalog_open_web_link") {
           if (options.failOpen) throw "openFailed";
@@ -46,23 +46,23 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
   await page.getByRole("row", { name: "Open cluster Development", exact: true }).getByRole("cell", { name: "kubeconfig", exact: true }).click();
   await expect(page).toHaveURL(/#\/cluster\/cluster-one$/);
-  await expect(page.getByRole("heading", { name: "Development", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("icekube.sidebar-collapsed.v1"))).toBe("false");
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await expect(inset).toBeVisible();
   await expect(inset.getByRole("link", { name: "Nodes", exact: true })).toBeVisible();
-  await expect(page.getByRole("main")).toContainText("Connected");
+  await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("cluster-workspace.png") });
   for (const [name, section] of [["Nodes", "nodes"], ["Workloads", "workloads"], ["Network", "network"], ["Storage", "storage"], ["Helm", "helm"]]) {
     await inset.getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${section}$`));
-    await expect(page.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
+    await expect(inset.getByRole("link", { name, exact: true })).toHaveAttribute("aria-current", "page");
     if (section === "nodes") await expect(page.getByRole("main")).toContainText("No nodes were returned");
     else await expect(page.getByRole("table", { name: `${name} destinations`, exact: true })).toBeVisible();
   }
   expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel"].includes(call.command))).toBe(true);
-  await page.getByRole("link", { name: "Catalog", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
@@ -80,12 +80,12 @@ test("row Enter/Space and pinned cluster activation work; pin/remove buttons do 
   const row = page.getByRole("row", { name: "Open cluster Development", exact: true });
   await row.focus(); await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
-  await page.getByRole("link", { name: "Catalog", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await row.focus(); await page.keyboard.press("Space");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-two$/);
-  await expect(page.getByRole("heading", { name: "Staging", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Staging · / })).toBeAttached();
 });
 
 test("web-link rows and pinned links delegate saved ID to Rust without navigation", async ({ page }) => {
@@ -126,13 +126,13 @@ test("cluster navigation is available in the narrow-window drawer", async ({ pag
   await fixture(page);
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/#/cluster/cluster-one");
-  await expect(page.getByRole("heading", { level: 1, name: "Development", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
   await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("navigation", { name: "Cluster navigation", exact: true })).toBeVisible();
   await dialog.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Events", exact: true }).click();
   await expect(dialog).toBeHidden();
-  await expect(page.getByRole("heading", { level: 2, name: "Events", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Events", exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
@@ -151,7 +151,7 @@ test("workspace sidebar expansion is temporary and history preserves section sco
   await expect(page).toHaveURL(/section=nodes$/);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Catalog", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
 });
 

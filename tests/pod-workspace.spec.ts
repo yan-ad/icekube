@@ -419,6 +419,7 @@ test("shell and attach use xterm write/resize and dispose on disconnect", async 
   await dock(page).getByRole("combobox", { name: "Shell", exact: true }).click();
   await page.getByRole("option", { name: "bash", exact: true }).click();
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.shell).toBe("bash");
+  await dock(page).getByRole("button", { name: "Restore dock", exact: true }).click();
   await action(page, "Attach");
   await expect(dock(page)).toContainText("existing process");
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).at(-1)!.request.mode).toBe("attach");
@@ -492,16 +493,19 @@ test("port forwarding resolves UID, shows loopback engine state and stops on clo
 
 test("live sync updates rows, pauses, retains failures, and closes on namespace change and section navigation without closing the dock", async ({ page }) => {
   await fixture(page); await openLogs(page);
-  const live = page.getByRole("switch", { name: "Live sync", exact: true });
-  await live.click();
-  await expect(page.getByRole("status").filter({ hasText: "Live sync: syncing" })).toBeVisible();
+  await clusterAction(page, "Enable live sync");
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Pause live sync", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
   await expect(grid(page)).toContainText("Succeeded");
   const first = (await calls(page, "cluster_pod_sync_open")).at(-1)!;
   expect(first.request).toMatchObject({ clusterId: "one", kind: "pods", namespace: null, continueToken: null });
-  await page.getByRole("button", { name: "Pause live sync", exact: true }).click();
+  await clusterAction(page, "Pause live sync");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).length).toBeGreaterThan(0);
-  await expect(live).not.toBeChecked();
-  await live.click();
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await clusterAction(page, "Enable live sync");
   await expect(grid(page)).toContainText("Succeeded");
   await control(page, { syncError: "permissionDenied" });
   await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
@@ -513,15 +517,17 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
   for (const name of ["team-a", "team-b", "production", "default"]) await expect(page.getByRole("option", { name, exact: true })).toBeVisible();
   await page.getByRole("option", { name: "team-b", exact: true }).click();
   await expect(grid(page)).toContainText("team-b");
-  await expect(live).not.toBeChecked();
-  await live.click();
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await clusterAction(page, "Enable live sync");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).at(-1)!.request.namespace).toBe("team-b");
   await expect(grid(page)).toContainText("Succeeded");
   const teamBId = `sync-${(await calls(page, "cluster_pod_sync_open")).length}`;
   await namespace.click(); await page.getByRole("option", { name: "production", exact: true }).click();
   await expect(grid(page)).toContainText("production");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).some(c => c.request.syncId === teamBId)).toBe(true);
-  await live.click();
+  await clusterAction(page, "Enable live sync");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).at(-1)!.request.namespace).toBe("production");
   await expect(grid(page)).toContainText("Succeeded");
   const closedBefore = (await calls(page, "cluster_pod_sync_close")).length;
@@ -540,7 +546,7 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
 
 test("late live sync open closes on view disposal; navigation releases the session and pending streams", async ({ page }) => {
   await fixture(page, { holdSync: true, holdStreams: true });
-  await page.getByRole("switch", { name: "Live sync", exact: true }).click();
+  await clusterAction(page, "Enable live sync");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).length).toBeGreaterThan(0);
   await action(page, "Logs");
   await expect.poll(async () => (await calls(page, "cluster_pod_stream_open")).length).toBeGreaterThan(0);
@@ -670,3 +676,8 @@ test("closing an active middle tab selects its neighbor and restores keyboard fo
   await expect(row(page).getByRole("button", { name: "api-pod", exact: true })).toBeFocused();
   await allStreamsClosed(page);
 });
+
+async function clusterAction(page: Page, name: string) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}

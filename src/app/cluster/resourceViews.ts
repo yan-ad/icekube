@@ -24,7 +24,7 @@ export type ResourceView = {
 // Behavior reference: Freelens 088d08513c8c149365dd802c588b9b0b90c6293e,
 // packages/core/src/renderer/components resource lists. No upstream code copied.
 // Name, Namespace, Age and Status belong to the shared table, not these columns.
-// createLabel records reference controls only; mutations require a Rust service.
+// Existing createLabel values preserve the reference controls’ accessible names.
 export const resourceViews: readonly ResourceView[] = [
   {
     section: "pods", label: "Pods", kind: "pods", namespaced: true,
@@ -292,3 +292,48 @@ export const resourceViews: readonly ResourceView[] = [
 export function resourceView(section: string): ResourceView | undefined {
   return resourceViews.find((view) => view.section === section);
 }
+
+// Metadata scaffolds only; required resource-specific fields must be supplied by the user.
+export const resourceCreation = {
+  nodes: { apiVersion: "v1", kind: "Node" },
+  namespaces: { apiVersion: "v1", kind: "Namespace" },
+  pods: { apiVersion: "v1", kind: "Pod" },
+  deployments: { apiVersion: "apps/v1", kind: "Deployment" },
+  daemonSets: { apiVersion: "apps/v1", kind: "DaemonSet" },
+  statefulSets: { apiVersion: "apps/v1", kind: "StatefulSet" },
+  replicaSets: { apiVersion: "apps/v1", kind: "ReplicaSet" },
+  replicationControllers: { apiVersion: "v1", kind: "ReplicationController" },
+  jobs: { apiVersion: "batch/v1", kind: "Job" },
+  cronJobs: { apiVersion: "batch/v1", kind: "CronJob" },
+  configMaps: { apiVersion: "v1", kind: "ConfigMap" },
+  secrets: { apiVersion: "v1", kind: "Secret" },
+  resourceQuotas: { apiVersion: "v1", kind: "ResourceQuota" },
+  limitRanges: { apiVersion: "v1", kind: "LimitRange" },
+  horizontalPodAutoscalers: { apiVersion: "autoscaling/v2", kind: "HorizontalPodAutoscaler" },
+  verticalPodAutoscalers: { apiVersion: "autoscaling.k8s.io/v1", kind: "VerticalPodAutoscaler" },
+  podDisruptionBudgets: { apiVersion: "policy/v1", kind: "PodDisruptionBudget" },
+  priorityClasses: { apiVersion: "scheduling.k8s.io/v1", kind: "PriorityClass" },
+  runtimeClasses: { apiVersion: "node.k8s.io/v1", kind: "RuntimeClass" },
+  leases: { apiVersion: "coordination.k8s.io/v1", kind: "Lease" },
+  services: { apiVersion: "v1", kind: "Service" },
+  endpoints: { apiVersion: "v1", kind: "Endpoints" },
+  ingresses: { apiVersion: "networking.k8s.io/v1", kind: "Ingress" },
+  ingressClasses: { apiVersion: "networking.k8s.io/v1", kind: "IngressClass" },
+  networkPolicies: { apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy" },
+  endpointSlices: { apiVersion: "discovery.k8s.io/v1", kind: "EndpointSlice" },
+  mutatingWebhookConfigurations: { apiVersion: "admissionregistration.k8s.io/v1", kind: "MutatingWebhookConfiguration" },
+  validatingWebhookConfigurations: { apiVersion: "admissionregistration.k8s.io/v1", kind: "ValidatingWebhookConfiguration" },
+  validatingAdmissionPolicies: { apiVersion: "admissionregistration.k8s.io/v1", kind: "ValidatingAdmissionPolicy" },
+  validatingAdmissionPolicyBindings: { apiVersion: "admissionregistration.k8s.io/v1", kind: "ValidatingAdmissionPolicyBinding" },
+  podSecurityPolicies: { apiVersion: "policy/v1beta1", kind: "PodSecurityPolicy" },
+  persistentVolumes: { apiVersion: "v1", kind: "PersistentVolume" },
+  persistentVolumeClaims: { apiVersion: "v1", kind: "PersistentVolumeClaim" },
+  storageClasses: { apiVersion: "storage.k8s.io/v1", kind: "StorageClass" },
+  events: { apiVersion: "v1", kind: "Event" },
+  serviceAccounts: { apiVersion: "v1", kind: "ServiceAccount" },
+  roles: { apiVersion: "rbac.authorization.k8s.io/v1", kind: "Role" },
+  roleBindings: { apiVersion: "rbac.authorization.k8s.io/v1", kind: "RoleBinding" },
+  clusterRoles: { apiVersion: "rbac.authorization.k8s.io/v1", kind: "ClusterRole" },
+  clusterRoleBindings: { apiVersion: "rbac.authorization.k8s.io/v1", kind: "ClusterRoleBinding" },
+  customResourceDefinitions: { apiVersion: "apiextensions.k8s.io/v1", kind: "CustomResourceDefinition" },
+} as const satisfies Record<"nodes" | TableResourceKind, { apiVersion: string; kind: string }>;

@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { resourceViews } from "../src/app/cluster/resourceViews";
+import { resourceCreation, resourceViews } from "../src/app/cluster/resourceViews";
 
 type Call = { command: string; request: Record<string, string | number | null> };
 type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; failContinuation?: boolean; manyRows?: boolean };
@@ -46,6 +46,7 @@ test("changing filters on a continuation page resets pagination and cancels the 
   await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeDisabled();
   await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeDisabled();
   await page.keyboard.press("Escape");
+  await page.mouse.move(0, 0);
   await page.getByRole("button", { name: "Clear filters", exact: true }).click();
   await ready(page);
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
@@ -91,8 +92,9 @@ test("parent menus expose destination tables without resource fan-out", async ({
   await table(page, "Workloads destinations").getByRole("link", { name: "Pods", exact: true }).click();
   await ready(page);
   const connects = await calls(page, "cluster_connect");
+  const before = await calls(page);
   for (const [section, label] of [["config", "Config"], ["network", "Network"], ["storage", "Storage"], ["helm", "Helm"], ["access-control", "Access Control"], ["custom-resources", "Custom Resources"], ["workloads-overview", "Overview"], ["overview", "Cluster"]]) {
-      await navigate(page, section);
+    await navigate(page, section);
     await expect(table(page, `${label} destinations`)).toBeVisible();
     expect(await calls(page)).toEqual(before);
   }
@@ -212,7 +214,7 @@ async function ready(page: Page, name = "Pods") {
   await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
 }
 
-test("all 43 registry views expose their direct route, columns and read-only contract", async ({ page }) => {
+test("all 43 registry views expose their direct route, columns and explicit creation contract", async ({ page }) => {
   test.setTimeout(120_000);
   expect(resourceViews).toHaveLength(43);
   await fixture(page);
@@ -248,12 +250,27 @@ test("all 43 registry views expose their direct route, columns and read-only con
         if (helm) expect(serviceCalls.at(-1)!.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/),
           view: view.section === "helm-charts" ? "charts" : "releases", namespace: null, readId: expect.any(Number) });
       }
-      if (view.createLabel) {
-        const create = page.getByRole("button", { name: view.createLabel, exact: true });
-        await expect(create).toBeDisabled();
+      if (view.kind || view.createLabel) {
+        const createLabel = view.createLabel ?? `Create ${resourceCreation[view.kind!].kind}`;
+        const create = page.getByRole("button", { name: createLabel, exact: true });
         const beforeAction = await calls(page, "cluster_connect");
-        await create.dispatchEvent("click");
+        if (view.kind) {
+          await expect(create).toBeEnabled();
+          await create.click();
+          const editor = page.getByRole("dialog", { name: createLabel, exact: true });
+          await expect(editor).toBeVisible();
+          await expect(editor.getByRole("textbox", { name: "Resource YAML", exact: true })).toHaveValue(
+            `apiVersion: ${resourceCreation[view.kind].apiVersion}\nkind: ${resourceCreation[view.kind].kind}\nmetadata:\n  name: ""\n`,
+          );
+          await expect(editor.getByRole("button", { name: "Validate YAML", exact: true })).toBeEnabled();
+          expect(await calls(page, "cluster_resource_create")).toHaveLength(0);
+          await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+        } else {
+          await expect(create).toBeDisabled();
+          await create.dispatchEvent("click");
+        }
         await expect(page.getByRole("dialog")).toHaveCount(0);
+        expect(await calls(page, "cluster_resource_create")).toHaveLength(0);
         expect(await calls(page, "cluster_connect")).toEqual(beforeAction);
         expect((await page.evaluate(() => (window as MockWindow).__resourceCalls)).every(
           (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list"].includes(call.command),
@@ -443,7 +460,7 @@ for (const section of ["secrets", "config-maps"]) {
   test(`${section} renders metadata only and the IPC parser discards data fields`, async ({ page }) => {
     const view = resourceViews.find((view) => view.section === section)!;
     await fixture(page, { section }); await ready(page, view.label);
-    await expect(page.getByText("Metadata only. Data values and key names are not loaded.", { exact: true })).toBeVisible();
+    await expect(page.getByText("Metadata only. Data values and key names are not loaded.", { exact: true })).toHaveCount(0);
     await expect(table(page, view.label).getByRole("columnheader")).toHaveText(["Name", "Namespace", "Age", "Status"]);
     await expect(page.locator("body")).not.toContainText("PRIVATE_VALUE");
     await expect(page.locator("body")).not.toContainText("private-key-name");

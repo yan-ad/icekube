@@ -156,7 +156,7 @@ test("Helm charts read cached inventory and search locally without enabling inst
   await expect(table).toContainText("Cached HTTP chart");
   await expect(table.getByRole("columnheader")).toHaveText(["Name", "Version", "App version", "Description"]);
   await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(0);
-  await expect(page.getByRole("status").filter({ hasText: "local Helm repository cache" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Charts filters", exact: true })).toBeVisible();
   const before = await calls(page, "helm_table");
   expect(before.at(-1)!.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "charts", namespace: null, readId: expect.any(Number) });
   await page.getByRole("textbox", { name: "Search Charts", exact: true }).fill(" EDGE ");
@@ -183,11 +183,11 @@ test("Helm releases combine local search and status with validated namespace rea
   await expect(table).toContainText("No releases match your filters.");
   expect(await calls(page, "helm_table")).toEqual(before);
   await selectNamespace(page, "production");
-  await expect(page.getByRole("status").filter({ hasText: /namespace production$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("production");
   const productionRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(productionRead).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "releases", namespace: "production", readId: expect.any(Number) });
   await selectNamespace(page, "All namespaces");
-  await expect(page.getByRole("status").filter({ hasText: /all namespaces$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("All namespaces");
   const allNamespacesRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(allNamespacesRead).toEqual({ clusterId: "one", sessionId: productionRead.sessionId, view: "releases", namespace: null, readId: expect.any(Number) });
 });
@@ -238,7 +238,7 @@ test("late Helm results cannot cross namespace scopes", async ({ page }) => {
   await expect.poll(async () => (await calls(page, "helm_cancel")).at(-1)?.request).toEqual(helmCancelScope(canceled));
   await page.evaluate(() => (window as MockWindow).__releaseServices());
   await expect(grid(page, "Helm Releases")).not.toContainText("team-a");
-  await expect(page.getByRole("status").filter({ hasText: /namespace production$/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("production");
 });
 
 test("port table resolves Pod UID before loopback auto-port start, survives navigation, and stops through IPC", async ({ page }) => {

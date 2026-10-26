@@ -20,6 +20,22 @@ async fn catalog_operation(
 }
 
 #[tauri::command]
+async fn helm_install(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::install::HelmInstallRequest,
+) -> Result<connection::helm::install::HelmInstallResult, connection::ConnectionError> {
+    connections.helm_install(request).await
+}
+
+#[tauri::command]
+fn helm_install_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::install::HelmInstallCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.helm_install_cancel(request)
+}
+
+#[tauri::command]
 async fn helm_table(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::helm::HelmRequest,
@@ -188,6 +204,22 @@ fn cluster_resources_cancel(
 }
 
 #[tauri::command]
+async fn cluster_resource_create(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::create::CreateRequest,
+) -> Result<connection::create::CreateResult, connection::ConnectionError> {
+    connections.create(request).await
+}
+
+#[tauri::command]
+fn cluster_resource_create_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::create::CreateCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.cancel_create(request)
+}
+
+#[tauri::command]
 async fn catalog_open_web_link(
     app: tauri::AppHandle,
     engine: tauri::State<'_, Arc<CatalogEngine>>,
@@ -276,6 +308,8 @@ pub fn run() {
             cluster_connection_status,
             cluster_resources,
             cluster_resources_cancel,
+            cluster_resource_create,
+            cluster_resource_create_cancel,
             cluster_pod_detail,
             cluster_pod_mutate,
             cluster_pod_stream_open,
@@ -290,6 +324,8 @@ pub fn run() {
             cluster_pod_sync_read,
             cluster_pod_sync_close,
 
+            helm_install,
+            helm_install_cancel,
             helm_table,
             helm_cancel
         ])

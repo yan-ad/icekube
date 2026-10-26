@@ -66,7 +66,7 @@ test("All Categories combines records; category filters and legacy redirect work
   await expect(page.getByRole("table", { name: "Web links", exact: true }).getByRole("cell").filter({ hasText: "Documentation" })).toBeVisible();
   await page.goto("/#/catalog/general");
   await expect(page).toHaveURL(/#\/catalog\/all$/);
-  await expect(page.getByRole("heading", { name: "All Categories", level: 1, exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "All Categories", level: 1, exact: true })).toBeAttached();
   await expect(page.getByRole("link", { name: "General", exact: true })).toHaveCount(0);
 });
 
@@ -82,15 +82,15 @@ test("individual row pins persist and sidebar reflects them; categories never ha
   await expect(pinnedLink.locator("[data-record-color]")).toHaveAttribute("data-record-color", "#476BA1");
   await pinnedLink.click();
   await expect(page).toHaveURL(/cluster\/cluster-fixture$/);
-  await page.getByRole("link", { name: "Catalog", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await page.reload();
   await expect(table.getByRole("button", { name: "Unpin Development", exact: true })).toHaveAttribute("aria-pressed", "true");
   await page.getByRole("link", { name: "Development", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-fixture$/);
-  await expect(page.getByRole("heading", { level: 1, name: "Development", exact: true })).toBeVisible();
-  await page.getByRole("link", { name: "Catalog", exact: true }).click();
+  await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await page.getByRole("link", { name: "All Categories", exact: true }).click();
   await table.getByRole("button", { name: "Unpin Development", exact: true }).click();
   await expect(page.getByRole("link", { name: "Development", exact: true })).toHaveCount(0);

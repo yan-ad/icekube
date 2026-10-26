@@ -5,6 +5,28 @@ body,
   overscroll-behavior: none;
 }
 
-* {
-  overscroll-behavior: none;
+/* Astryx's inline-only scroll hook strips overflow from plugin inline styles.
+   Target its outer viewport, not the unbounded data-scroll-content child. */
+[data-icekube-table-viewport] {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.table-toolbar {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+}
+
+.table-toolbar-controls {
+  flex: 1 1 auto;
+  min-width: max-content;
+  justify-content: flex-end;
+}
+
+.table-toolbar-controls > * {
+  flex: 0 0 auto;
 }

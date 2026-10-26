@@ -6,7 +6,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { IconSearch, IconDots, IconInfoCircle, IconX, IconPlus } from "@tabler/icons-react";
+import { IconSearch, IconDots, IconInfoCircle, IconX } from "@tabler/icons-react";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId,
@@ -18,6 +18,7 @@ import type { PodMode } from "./podApi";
 import { openPodSync, readPodSync, closePodSync, type PodSyncStatus } from "./podSyncApi";
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
+import { ResourceCreate } from "./ResourceCreate";
 import { NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 
@@ -60,7 +61,7 @@ export function ResourceTablePage({ view, clusterId, sessionId }: SessionRequest
   const filter = (next: Partial<typeof filters>) => { setFilters(current => ({ ...current, ...next })); setTokens([null]); setIndex(0); };
   return <VStack gap={0} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {!view.kind ? view.service === "port-forwarding" ? <PortForwardTablePage clusterId={clusterId} sessionId={sessionId} /> :
-      <HelmTablePage clusterId={clusterId} sessionId={sessionId} view={view.service === "helm-charts" ? "charts" : "releases"} /> : <ResourceSnapshot key={`${view.section}:${namespace}`}
+      <HelmTablePage clusterId={clusterId} sessionId={sessionId} view={view.service === "helm-charts" ? "charts" : "releases"} /> : <ResourceSnapshot key={`${clusterId}:${sessionId}:${view.section}:${namespace}`}
       clusterId={clusterId} sessionId={sessionId} view={view} namespace={namespace} token={tokens[index]} index={index}
       filters={filters} onFilter={filter} onNamespace={scope}
       previous={() => setIndex((value) => value - 1)} next={(token) => {
@@ -155,7 +156,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const statuses = [...new Set([...rows.map(item => item.status), ...(status ? [status] : [])])].sort();
   const groups = [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(group ? [group] : [])])].sort();
   const shown = rows.map(item => ({ ...item, rowId: JSON.stringify([item.namespace, item.name]) }));
-  return <VStack gap={0} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
     <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
       <TextInput label={`Search ${view.label}`} isLabelHidden value={query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
@@ -165,7 +166,6 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       {view.kind === "customResourceDefinitions" && <Selector label="Group" isLabelHidden value={group} onChange={value => onFilter({ group: value })} size="sm" presentation="adaptive" hasSearch
         options={[{ value: "", label: "All groups" }, ...groups.map(value => ({ value, label: value }))]} />}
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
-      {view.createLabel && <IconButton label={view.createLabel} tooltip="Creation is not implemented. This view is read-only." icon={<Icon icon={IconPlus} />} size="sm" variant="ghost" isDisabled />}
     </TableToolbar>
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}
@@ -174,5 +174,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
     {page && <Table aria-label={view.label} data={shown} columns={columns(view, Date.now(), openPod)} density="compact" idKey={(item) => `${item.namespace ?? ""}:${item.name}`} hasHover textOverflow="truncate" aria-busy={loading}
       plugins={{ viewport: tableViewport<ResourceItem>() }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
+    {view.kind && <ResourceCreate clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} label={view.createLabel}
+      onCreated={() => setRevision(value => value + 1)} />}
   </VStack>;
 }

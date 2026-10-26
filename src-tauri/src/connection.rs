@@ -14,6 +14,9 @@ use tokio_util::sync::CancellationToken;
 
 mod auth;
 mod config;
+pub(crate) mod create;
+#[cfg(test)]
+mod create_tests;
 pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -64,6 +67,10 @@ pub enum ConnectionError {
     StoreUnavailable,
     HelmUnavailable,
     Conflict,
+}
+struct CreateSlot {
+    id: u64,
+    cancel: Option<CancellationToken>,
 }
 fn validate_credentials(client: &Client) -> Result<()> {
     if client
@@ -247,6 +254,7 @@ struct Session {
     client: Option<Client>,
     cancel: CancellationToken,
     reads: HashMap<ResourceKind, ReadSlot>,
+    creates: HashMap<ResourceKind, CreateSlot>,
 }
 struct ReadSlot {
     id: u64,
@@ -325,6 +333,7 @@ impl ConnectionEngine {
             client: None,
             cancel: CancellationToken::new(),
             reads: HashMap::new(),
+            creates: HashMap::new(),
         });
         Ok(snapshot)
     }

@@ -25,7 +25,7 @@ async function fixture(page: Page, section = "overview", narrow = false) {
   });
   await page.setViewportSize({ width: narrow ? 360 : 1200, height: 800 });
   await page.goto(`/#/cluster/one?section=${section}`);
-  await expect(page.getByRole("main")).toContainText("API version: v1.35.8");
+  await expect(page.getByRole("table", { name: section === "overview" || section === "not-a-resource" ? "Cluster destinations" : "Deployments", exact: true })).toBeVisible();
 }
 const navigation = (page: Page) => page.getByRole("navigation", { name: "Cluster navigation", exact: true });
 async function onlyReadRequests(page: Page) {
@@ -81,7 +81,7 @@ test("every reference group exposes its children with resource tables or destina
     for (const child of group.children) {
       await nav.getByRole("link", { name: child.label, exact: true }).click();
       await expect(page).toHaveURL(new RegExp(`section=${child.id}$`));
-      await expect(page.getByRole("heading", { level: 2, name: child.label, exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { level: 1, name: `Development · ${child.label}`, exact: true })).toBeAttached();
       const view = resourceViews.find(view => view.section === child.id);
       const tableName = child.id === "helm-charts" ? "Helm Charts" : child.id === "helm-releases" ? "Helm Releases"
         : child.id === "port-forwarding" ? "Port forwards" : view?.label ?? `${child.label} destinations`;
@@ -117,7 +117,7 @@ test("narrow drawer keeps disclosures open but closes on leaf activation", async
 
 test("unknown child IDs are rejected rather than rendered as a resource section", async ({ page }) => {
   await fixture(page, "not-a-resource");
-  await expect(page.getByRole("heading", { level: 2, name: "Cluster", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
   await expect(navigation(page).getByRole("link", { name: "Cluster", exact: true })).toHaveAttribute("aria-current", "page");
   await onlyReadRequests(page);
 });

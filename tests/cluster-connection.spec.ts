@@ -25,7 +25,8 @@ type Options = {
 
 test("delayed disposed opens cannot invalidate the live StrictMode connection", async ({ page }) => {
   await fixture(page, { reorderedOpens: true, openDelay: 100, connectDelay: 250 });
-  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
   await expect(page.getByRole("alert")).toHaveCount(0);
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
 });
@@ -35,9 +36,10 @@ for (const retry of ["refresh", "connect"] as const) {
     await fixture(page, { staleConnectOnce: true });
     await expect(page.getByRole("alert")).toContainText("Connection error [staleSession]");
     const before = await callList(page);
-    if (retry === "refresh") await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
-    else await menuAction(page, "Connect to cluster");
-    await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+    if (retry === "refresh") await clusterAction(page, "Refresh cluster");
+    else await clusterAction(page, "Connect to cluster");
+    await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
     await expect(page.getByRole("alert")).toHaveCount(0);
     const next = (await callList(page)).slice(before.length);
     expect(next.map((call) => call.command)).toEqual(["cluster_disconnect", "cluster_session_open", "cluster_connect"]);
@@ -124,20 +126,18 @@ async function fixture(page: Page, options: Options = {}) {
   }, options);
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto("/#/cluster/one");
-  await expect(page.getByRole("heading", { level: 2, name: "Cluster", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: / · Cluster$/ })).toBeAttached();
   if (options.openDelay && !options.reorderedOpens) await expect(page.getByRole("main")).toContainText("Opening…");
   else if (options.connectDelay) await expect(page.getByRole("main")).toContainText("Connecting…");
   else if (options.connectError || options.connectSnapshotError || options.staleConnectOnce) await expect(page.getByRole("alert")).toBeVisible();
-  else await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  else {
+    await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
+  }
 }
 
 const callList = (page: Page) => page.evaluate(() => (window as unknown as { __connectionCalls: { command: string; request: Record<string, string | number> }[] }).__connectionCalls);
 const section = (page: Page, name: string) => page.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name, exact: true }).click();
 const actions = (page: Page) => page.getByRole("button", { name: "Cluster actions", exact: true });
-const menuAction = async (page: Page, name: string) => {
-  await actions(page).click();
-  await page.getByRole("menuitem", { name, exact: true }).click();
-};
 
 for (const [code, detail] of [
   ["tlsFailed", "The cluster TLS connection could not be verified"],
@@ -163,9 +163,10 @@ for (const [code, detail] of [
     await alert.scrollIntoViewIfNeeded();
     await expect(alert).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
-    await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
+    await clusterAction(page, "Refresh cluster");
     await expect(alert).toHaveCount(0);
-    await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+    await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+    await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
   });
 }
 
@@ -183,6 +184,7 @@ test("section navigation does not reconnect and resource navigation cancels the 
   const initial = await callList(page);
   await section(page, "Nodes");
   await expect(page.getByRole("main")).toContainText("Loading nodes");
+  await expect.poll(async () => (await callList(page)).filter(call => call.command === "cluster_resources" && call.request.kind === "nodes").length).toBe(1);
   const before = await callList(page);
   const previous = before.filter((call) => call.command === "cluster_resources").at(-1)!.request;
   await section(page, "Namespaces");
@@ -190,7 +192,8 @@ test("section navigation does not reconnect and resource navigation cancels the 
   const next = (await callList(page)).slice(before.length);
   expect(next[0]).toEqual({ command: "cluster_resources_cancel", request: previous });
   expect(next[1].command).toBe("cluster_resources");
-  expect(next[1].request).toEqual({ ...previous, kind: "namespaces", namespace: null, continueToken: null, readId: next[1].request.readId });
+  const { query: _query, ...previousScope } = previous;
+  expect(next[1].request).toEqual({ ...previousScope, kind: "namespaces", namespace: null, continueToken: null, readId: next[1].request.readId });
   expect(next[1].request.readId).toBeGreaterThan(previous.readId as number);
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
   expect(initial.filter((call) => call.command === "cluster_connect")).toHaveLength(1);
@@ -202,14 +205,16 @@ test("toolbar cluster refresh releases, reopens, and connects, while resource re
   await expect(page.getByRole("table", { name: "Nodes", exact: true })).toContainText("one-nodes");
   const before = await callList(page);
   const resource = before.filter((call) => call.command === "cluster_resources").at(-1)!.request;
-  await page.getByRole("button", { name: "Refresh nodes", exact: true }).click();
+  await clusterAction(page, "Refresh nodes");
+  await expect.poll(async () => (await callList(page)).length).toBe(before.length + 2);
   const resourceNext = (await callList(page)).slice(before.length);
   expect(resourceNext[0]).toEqual({ command: "cluster_resources_cancel", request: resource });
   expect(resourceNext[1].command).toBe("cluster_resources");
   await section(page, "Cluster");
   const clusterBefore = await callList(page);
-  await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
-  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await clusterAction(page, "Refresh cluster");
+  await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
   const clusterNext = (await callList(page)).slice(clusterBefore.length);
   expect(clusterNext.map((call) => call.command)).toEqual(["cluster_disconnect", "cluster_session_open", "cluster_connect"]);
 });
@@ -241,11 +246,14 @@ test("Meta+r and Control+r refresh the scoped workspace without document reload 
 
 test("refresh shortcut ignores repeat, modifiers, and composing, and is disabled while connecting", async ({ page }) => {
   await fixture(page, { connectDelay: 400 });
-  await expect(page.getByRole("button", { name: "Refresh cluster", exact: true })).toBeDisabled();
+  await actions(page).click();
+  await expect(page.getByRole("menuitem", { name: "Refresh cluster", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
   await page.keyboard.press("Control+r");
   await page.keyboard.press("Meta+r");
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
-  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
   const initial = await callList(page);
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", ctrlKey: true, repeat: true, bubbles: true })));
   await page.evaluate(() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "r", ctrlKey: true, altKey: true, bubbles: true })));
@@ -256,7 +264,7 @@ test("refresh shortcut ignores repeat, modifiers, and composing, and is disabled
 
 test("canceling automatic connection leaves the workspace disconnected until explicit refresh", async ({ page }) => {
   await fixture(page, { connectDelay: 450 });
-  await menuAction(page, "Cancel connection");
+  await clusterAction(page, "Cancel connection");
   await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^Disconnected$/ })).toHaveText("Disconnected");
   await page.waitForTimeout(550);
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
@@ -266,8 +274,9 @@ test("canceling automatic connection leaves the workspace disconnected until exp
   await section(page, "Nodes");
   await expect(page.getByRole("main")).toContainText("Refresh to reconnect");
   expect((await callList(page)).filter((call) => call.command === "cluster_resources")).toHaveLength(0);
-  await page.getByRole("button", { name: "Refresh nodes", exact: true }).click();
-  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await clusterAction(page, "Refresh nodes");
+  await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
 });
 
 test("cluster actions menu exposes connection and metadata actions, and Escape closes it", async ({ page }) => {
@@ -281,19 +290,22 @@ test("cluster actions menu exposes connection and metadata actions, and Escape c
   await actions(page).click();
   await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
   await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^Disconnected$/ })).toHaveText("Disconnected");
-  await menuAction(page, "Show saved metadata");
+  await clusterAction(page, "Show saved metadata");
   await actions(page).click();
   await expect(page.getByRole("menuitem", { name: "Connect to cluster", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page.getByRole("button", { name: "Refresh cluster", exact: true })).toBeEnabled();
+  await actions(page).click();
+  await expect(page.getByRole("menuitem", { name: "Refresh cluster", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
-  await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
-  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await clusterAction(page, "Refresh cluster");
+  await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^(Opening…|Connecting…)$/ })).toHaveCount(0);
 });
 
-test("metadata toggle and Catalog breadcrumb are keyboard reachable and preserve focus", async ({ page }, testInfo) => {
+test("metadata toggle and Catalog navigation are keyboard reachable and preserve focus", async ({ page }, testInfo) => {
   await fixture(page, { clusterName: "A very long Development cluster name that should remain compact", contextName: "A very long context identifier" });
-  const catalog = page.getByRole("link", { name: "Catalog", exact: true });
+  const catalog = page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true });
   await catalog.focus();
   await expect(catalog).toBeFocused();
   await catalog.press("Enter");
@@ -322,7 +334,12 @@ test("resource actions preserve empty and truncated states", async ({ page }) =>
   await fixture(page, { empty: true, truncated: true });
   await section(page, "Nodes");
   await expect(page.getByRole("table", { name: "Nodes", exact: true })).toContainText("No nodes were returned");
-  await expect(page.getByRole("main")).toContainText("This is not the total");
+  await expect(page.getByRole("main")).toContainText("Results are limited; no continuation is available.");
   await section(page, "Namespaces");
   await expect(page.getByRole("table", { name: "Namespaces", exact: true })).toContainText("No namespaces were returned");
 });
+
+async function clusterAction(page: Page, name: string) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}

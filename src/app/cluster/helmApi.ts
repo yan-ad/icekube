@@ -47,3 +47,40 @@ export async function loadHelm(request: HelmRequest): Promise<HelmPage> {
   }
   return value as HelmPage;
 }
+
+export type HelmInstallCancelRequest = SessionRequest & { readId: number };
+export type HelmInstallRequest = HelmInstallCancelRequest & {
+  namespace: string; releaseName: string; chart: string; version: string | null; valuesYaml: string; dryRun: boolean;
+};
+export type HelmInstallResult = SessionRequest & { namespace: string; releaseName: string; chart: string; created: boolean };
+const installScope = (request: HelmInstallCancelRequest) => text(request.clusterId) && !!request.clusterId && text(request.sessionId) && !!request.sessionId
+  && Number.isSafeInteger(request.readId) && request.readId > 0;
+export function helmInstallInputError(request: Pick<HelmInstallRequest, "namespace" | "releaseName" | "chart" | "version" | "valuesYaml">): string | null {
+  if (!validNamespace(request.namespace)) return "Choose a specific namespace.";
+  if (!validNamespace(request.releaseName) || request.releaseName.length > 53) return "Release name must be a lowercase DNS label of at most 53 characters.";
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]*\/[a-zA-Z0-9][a-zA-Z0-9_.-]*$/.test(request.chart) || request.chart.length > 253) return "Chart must be repository/name, not a path or URL.";
+  if (request.version !== null && (!/^[a-zA-Z0-9][a-zA-Z0-9.+_-]*$/.test(request.version) || request.version.length > 128)) return "Enter a valid chart version or leave it blank.";
+  if (new TextEncoder().encode(request.valuesYaml).length > 256 * 1024) return "Values YAML must be at most 256 KiB.";
+  return null;
+}
+export async function installHelm(request: HelmInstallRequest): Promise<HelmInstallResult> {
+  request = { ...request };
+  if (!installScope(request) || helmInstallInputError(request) || typeof request.dryRun !== "boolean") throw "invalidInput";
+  if (!isTauri()) throw "connectionFailed";
+  const value = await invoke<unknown>("helm_install", { request });
+  if (!record(value) || value.clusterId !== request.clusterId || value.sessionId !== request.sessionId
+    || value.namespace !== request.namespace || value.releaseName !== request.releaseName || value.chart !== request.chart || value.created !== !request.dryRun) throw "invalidResponse";
+  return value as HelmInstallResult;
+}
+export async function cancelHelmInstall(request: HelmInstallCancelRequest): Promise<void> {
+  if (!installScope(request)) throw "invalidInput";
+  if (!isTauri()) return;
+  const result = await invoke<unknown>("helm_install_cancel", { request });
+  if (result !== undefined && result !== null) throw "invalidResponse";
+}
+export function helmInstallMessage(reason: unknown): string {
+  if (reason === "helmUnavailable") return "Helm is unavailable. Install Helm on the desktop app's PATH and restart Icekube.";
+  if (reason === "conflict") return "Helm installation failed. Check the release and repository configuration before retrying. Diagnostic output is withheld.";
+  if (reason === "invalidInput") return "Helm rejected the installation input. Check the chart, version, release name and values YAML.";
+  return connectionMessage(errorCode(reason));
+}

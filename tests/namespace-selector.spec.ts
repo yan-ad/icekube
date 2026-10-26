@@ -49,7 +49,7 @@ test("a replacement session on the same cluster starts a fresh namespace cache",
   await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
   await expect(selector(page)).toHaveCount(0);
   await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceNames = ["new-session-only"]; });
-  await page.getByRole("button", { name: "Refresh pods", exact: true }).click();
+  await clusterAction(page, "Refresh pods");
   await connected(page);
   const current = (await calls(page, "namespaces")).at(-1)!.request;
   expect(current.sessionId).not.toBe(old.sessionId);
@@ -153,7 +153,7 @@ async function choose(page: Page, name: string) {
 
 test("fetches namespaces immediately for Pods and exposes a searchable accessible selector", async ({ page }) => {
   await fixture(page); await connected(page);
-  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await clusterAction(page, "Next page");
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toContainText("next-pod");
   expect(await calls(page, "namespaces")).toHaveLength(1);
   await selector(page).click();
@@ -172,8 +172,10 @@ test("sorts options and selecting one immediately scopes the server request and 
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toContainText("team-a-pod");
   const podReads = await calls(page, "pods");
   expect(podReads.at(-1)!.request).toMatchObject({ namespace: "team-a", continueToken: null });
-  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
-  await expect(page.getByText(/namespace team-a/)).toBeVisible();
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(selector(page)).toContainText("team-a");
   await selector(page).click();
   const options = await page.getByRole("option").allTextContents();
   expect(options).toEqual(["All namespaces", "default", "kube-system", "production", "team-a", "team-b"]);
@@ -278,7 +280,7 @@ test("namespace navigation does not cancel the current view's async resource rea
   const cancels = await page.evaluate(() => (window as MockWindow).__namespaceCalls.filter((call) => call.command === "cluster_resources_cancel"));
   expect(cancels.some((call) => call.request.readId === podRequest.readId && call.request.namespace === "team-a")).toBe(true);
   await page.evaluate(() => (window as MockWindow).__releasePods());
-  await expect(page.getByText(/namespace team-b/)).toBeVisible();
+  await expect(selector(page)).toContainText("team-b");
   expect((await calls(page, "pods")).at(-1)!.request).toMatchObject({ namespace: "team-b" });
 });
 
@@ -291,4 +293,9 @@ for (const malformed of ["namespaceDuplicate", "namespaceInvalid", "namespaceRep
     expect(await calls(page, "namespaces")).toHaveLength(malformed === "namespaceRepeatedToken" ? 2 : 1);
     await expect(page.getByRole("table", { name: "Pods", exact: true })).toContainText("all-pod");
   });
+}
+
+async function clusterAction(page: Page, name: string) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
 }

@@ -8,6 +8,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { IconChevronLeft, IconChevronRight, IconSearch } from "@tabler/icons-react";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceKind, type ResourcePage, type SessionRequest } from "./api";
+import { ResourceCreate } from "./ResourceCreate";
 import { NodesTable } from "./NodesTable";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 
@@ -64,7 +65,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   }, [clusterId, sessionId, kind, revision, query, needle, token, index]);
   const items = page?.items ?? [];
   const metricState = kind === "nodes" ? page?.metrics : null;
-  return <VStack gap={0} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
         setQuery(value); setTokens([null]); setIndex(0); setLoading(true);
@@ -88,5 +89,8 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
       <Table data={page.items} columns={columns} idKey="name" density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>() }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
     {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
+    <ResourceCreate clusterId={clusterId} sessionId={sessionId} kind={kind} onCreated={() => {
+      setTokens([null]); setIndex(0); setRevision(value => value + 1);
+    }} />
   </VStack>;
 }

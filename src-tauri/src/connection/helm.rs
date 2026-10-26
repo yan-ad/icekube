@@ -14,6 +14,9 @@ use tokio_util::sync::CancellationToken;
 const OUTPUT_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 500;
 
+#[path = "helm_install.rs"]
+pub(crate) mod install;
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase")]
 pub enum HelmView {
@@ -58,6 +61,7 @@ struct HelmSlot {
 
 #[derive(Debug, Default)]
 pub struct HelmRuntime {
+    install: install::InstallRuntime,
     slots: Mutex<HashMap<HelmScope, HelmSlot>>,
 }
 
@@ -402,12 +406,28 @@ async fn supervise_with_deadline(
     cancel: CancellationToken,
     deadline: std::time::Duration,
 ) -> Result<Vec<u8>> {
+    supervise_owned(executable, args, file, cancel, deadline, None).await
+}
+
+async fn supervise_owned(
+    executable: PathBuf,
+    args: Vec<OsString>,
+    file: tempfile::NamedTempFile,
+    cancel: CancellationToken,
+    deadline: std::time::Duration,
+    directory: Option<tempfile::TempDir>,
+) -> Result<Vec<u8>> {
     if cancel.is_cancelled() {
         return Err(ConnectionError::StaleSession);
     }
+    let retain = directory.is_none();
     let mut command = CommandWrap::with_new(executable, |command| {
+        if let Some(directory) = &directory {
+            command.current_dir(directory.path());
+        }
         command
             .args(args)
+            .env_remove("HELM_DEBUG")
             .env("KUBECONFIG", file.path())
             .env("HELM_DRIVER", "secret")
             .env_remove("HELM_KUBECONTEXT")
@@ -450,7 +470,7 @@ async fn supervise_with_deadline(
         result = tokio::time::timeout(deadline, async {
             let (status, output, _) = tokio::try_join!(
                 async { child.wait().await.map_err(|_| ConnectionError::ConnectionFailed) },
-                read_output(stdout, true), read_output(stderr, false))?;
+                read_output(stdout, retain), read_output(stderr, false))?;
             if !status.success() { return Err(ConnectionError::Conflict); }
             Ok(output)
         }) => result.unwrap_or(Err(ConnectionError::Timeout)),
@@ -458,6 +478,7 @@ async fn supervise_with_deadline(
     let _ = child.start_kill();
     let _ = child.wait().await;
     drop(file);
+    drop(directory);
     result
 }
 async fn read_output(mut reader: impl AsyncRead + Unpin, retain: bool) -> Result<Vec<u8>> {

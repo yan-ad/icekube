@@ -5,10 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:inspect": "ICEKUBE_REACT_DEVTOOLS=1 vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:inspect": "ICEKUBE_REACT_DEVTOOLS=1 tauri dev",
+    "devtools": "HOST=127.0.0.1 PORT=8097 REACT_DEVTOOLS_PORT=8097 react-devtools"
   },
   "dependencies": {
     "@astryxdesign/cli": "^0.7.3",
@@ -34,6 +37,7 @@
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react": "^6.0.2",
+    "react-devtools": "8.0.0",
     "typescript": "~6.0.3",
     "vite": "^8.0.16"
   }

@@ -5,8 +5,30 @@ import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(() => ({
-  plugins: [react(), tailwind()],
+export default defineConfig(({ command }) => ({
+  plugins: [
+    react(),
+    tailwind(),
+    {
+      name: "icekube-react-devtools",
+      transformIndexHtml(html) {
+        if (command !== "serve" || process.env.ICEKUBE_REACT_DEVTOOLS !== "1") {
+          return html;
+        }
+
+        return {
+          html,
+          tags: [
+            {
+              tag: "script",
+              attrs: { src: "http://127.0.0.1:8097" },
+              injectTo: "head-pre",
+            },
+          ],
+        };
+      },
+    },
+  ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

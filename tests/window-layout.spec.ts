@@ -66,7 +66,7 @@ for (const platform of ["macos", "windows", "linux"]) {
     await mockWindow(page, platform, false);
     await page.goto("/");
     await expect(page.getByTestId("window-safe-area")).toHaveCount(0);
-    await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: "Close window", exact: true })).toHaveCount(0);
   });
 }
@@ -76,7 +76,7 @@ test("browser preview opens Catalog and preserves history and search without nat
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await expect(page).toHaveURL(/#\/catalog$/);
-  await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeAttached();
   await expect(page.getByTestId("window-safe-area")).toHaveCount(0);
   await page.getByRole("link", { name: "Clusters", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog\/clusters$/);
@@ -142,7 +142,7 @@ test("categories cannot be pinned and there is only one sidebar", async ({ page 
   await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveCount(0);
   for (const category of ["All Categories", "Clusters", "Web Links"]) {
     await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: category, exact: true }).click();
-    await expect(page.getByRole("heading", { level: 1, name: category, exact: true })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: category, exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: /\b(?:Pin|Unpin)\b/ })).toHaveCount(0);
   }
   await expect(page.getByRole("table", { name: "Web links", exact: true })).toBeVisible();

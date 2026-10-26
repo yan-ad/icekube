@@ -1,15 +1,15 @@
 import { useEffect, useState } from "react";
-import { Button } from "@astryxdesign/core/Button";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { IconPlus, IconRefresh, IconSearch } from "@tabler/icons-react";
+import { IconSearch } from "@tabler/icons-react";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { nextReadId, type SessionRequest } from "./api";
 import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type HelmView } from "./helmApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { HelmInstall } from "./HelmInstall";
 import { NamespaceSelector } from "./NamespaceScope";
 
 export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & { view: HelmView }) {
@@ -53,12 +53,10 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       { key: "updated", header: "Updated", renderCell: (item: HelmItem) => <Text maxLines={1}>{item.updated || "N/A"}</Text> },
     ]),
   ];
-  return <VStack gap={3} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+  return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
     <TableToolbar label={label} count={scopedPage ? `${items.length} / ${rows.length}` : undefined}>
       <TextInput label={`Search ${label}`} isLabelHidden placeholder={`Search ${label}…`} startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
       {view === "releases" && <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />}
-      <Button label="Reload" icon={<IconRefresh />} isIconOnly tooltip="Reload" size="sm" isDisabled={loading} onClick={() => setRevision((value) => value + 1)} />
-      <Button label="Install" icon={<IconPlus />} isIconOnly size="sm" isDisabled tooltip="Installation is not available. This view is read-only." />
       {view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}
     </TableToolbar>
     {loading && <Text role="status">Loading Helm {view}…</Text>}
@@ -70,5 +68,6 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
         emptyState={<VStack gap={2} padding={6}><Text>{query || status ? `No ${view} match your filters.` : `No ${view} were returned.`}</Text>
           <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>} />
     </>}
+    <HelmInstall clusterId={clusterId} sessionId={sessionId} namespace={namespace} charts={view === "charts" ? rows : []} onInstalled={() => setRevision(value => value + 1)} />
   </VStack>;
 }
