@@ -9,6 +9,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextArea } from "@astryxdesign/core/TextArea";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlus } from "@tabler/icons-react";
+import { TableActionOverlay } from "./TableToolbar";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { nextReadId, type SessionRequest } from "./api";
 import { NamespaceSelector } from "./NamespaceScope";
@@ -27,9 +28,9 @@ function ScopedHelmInstall(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   return <>
     {notice && <Text role="status">{notice}</Text>}
-    <IconButton label="Install Helm chart" tooltip="Install Helm chart" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
-      style={{ position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
-      isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} />
+    <TableActionOverlay label="Helm actions"><IconButton label="Install Helm chart" tooltip="Install Helm chart" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
+      style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}
+      isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} /></TableActionOverlay>
     {open && cluster && <InstallEditor {...props} clusterName={cluster.name} contextName={cluster.contextName}
       onClose={sent => { setOpen(false); if (sent) setNotice(uncertainty); }} onInstalled={() => {
         setOpen(false); setNotice("Helm release installed. Refreshing inventory…"); props.onInstalled();

@@ -9,7 +9,7 @@ import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table"
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlayerStop, IconPlus, IconSearch, IconTrash } from "@tabler/icons-react";
-import { TableToolbar, tableViewport } from "./TableToolbar";
+import { TableActionOverlay, TableToolbar, tableViewport } from "./TableToolbar";
 import type { SessionRequest } from "./api";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
@@ -147,7 +147,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     { key: "actions", header: "Actions", renderCell: (item) => <Button label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} ${item.namespace}/${item.name} on port ${item.localPort}`} icon={item.status === "stopped" || item.status === "error" ? <IconTrash /> : <IconPlayerStop />} isIconOnly tooltip={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} forward`} size="sm" variant="ghost" isDisabled={busy} onClick={() => void stop(item.id)} /> },
   ];
 
-  return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
+  return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
       <TableToolbar label="Port Forwarding" count={forwards ? `${items.length} / ${forwards.length}` : undefined}>
         <TextInput label="Search forwards" isLabelHidden placeholder="Search forwards…" startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
         <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />
@@ -158,9 +158,9 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
     {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>() }}
       emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Choose Create port forward to enter a namespace, Pod, and ports.</Text></VStack>} />}
-    <IconButton label="Create port forward" tooltip="Create port forward" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
-      style={{ position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
-      isDisabled={busy} onClick={() => { setCreateError(null); setCreateOpen(true); }} />
+    <TableActionOverlay label="Port forward actions"><IconButton label="Create port forward" tooltip="Create port forward" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
+      style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}
+      isDisabled={busy} onClick={() => { setCreateError(null); setCreateOpen(true); }} /></TableActionOverlay>
     <Dialog isOpen={createOpen} onOpenChange={open => { if (!busy) setCreateOpen(open); }} purpose={busy ? "required" : "form"} width="min(32rem, 100%)">
       <DialogHeader title="Create port forward" onOpenChange={busy ? undefined : setCreateOpen} />
       <VStack gap={3} padding={4} style={{ minHeight: 0, overflowY: "auto" }}>

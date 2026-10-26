@@ -21,10 +21,10 @@ export function ResourceDelete(props: Props) {
   const cluster = snapshot?.clusters.find(item => item.id === props.clusterId);
   const [targets, setTargets] = useState<DeleteTarget[] | null>(null);
   return <>
-    <IconButton label="Delete selected resources" tooltip={`Delete selected resources (${props.selected.length})`}
+    {props.selected.length > 0 && <IconButton label="Delete selected resources" tooltip={`Delete selected resources (${props.selected.length})`}
       icon={<Icon icon={IconTrash} />} size="lg" variant="secondary" elevation="med"
-      style={{ borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster || props.selected.length === 0}
-      onClick={() => setTargets(props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })))} />
+      style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster}
+      onClick={() => setTargets(props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })))} />}
     {targets && cluster && <DeleteConfirmation {...props} targets={targets} clusterName={cluster.name} contextName={cluster.contextName} onClose={() => setTargets(null)} />}
   </>;
 }

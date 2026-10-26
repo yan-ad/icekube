@@ -53,7 +53,7 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       { key: "updated", header: "Updated", renderCell: (item: HelmItem) => <Text maxLines={1}>{item.updated || "N/A"}</Text> },
     ]),
   ];
-  return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
+  return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={label} count={scopedPage ? `${items.length} / ${rows.length}` : undefined}>
       <TextInput label={`Search ${label}`} isLabelHidden placeholder={`Search ${label}…`} startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
       {view === "releases" && <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />}

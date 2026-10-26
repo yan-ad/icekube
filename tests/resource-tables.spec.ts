@@ -31,6 +31,46 @@ test("table headers stay below the fixed filter toolbar while rows scroll", asyn
   await expect(page.getByRole("textbox", { name: "Search Resource Quotas", exact: true })).toBeVisible();
 });
 
+for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as const) test(`floating actions cover rows without intercepting selection at ${width} in ${colorScheme}`, async ({ page }) => {
+  await page.emulateMedia({ colorScheme });
+  await fixture(page, { section: "resource-quotas", manyRows: true });
+  await page.setViewportSize({ width, height: 900 });
+  if (width === 390) await page.getByRole("table", { name: "Resource Quotas", exact: true }).evaluate(element => { element.style.zoom = "1.25"; });
+  const overlay = page.getByRole("group", { name: "Resource actions", exact: true });
+  const viewport = page.locator("[data-icekube-table-viewport]");
+  const create = overlay.getByRole("button", { name: /Create/, exact: false });
+  const remove = overlay.getByRole("button", { name: "Delete selected resources", exact: true });
+  await expect(create).toBeVisible(); await expect(remove).toHaveCount(0);
+  const frame = (await viewport.boundingBox())!, fade = (await overlay.boundingBox())!;
+  expect(Math.abs(frame.y + frame.height - fade.y - fade.height)).toBeLessThan(2);
+  expect(fade.y).toBeLessThan(frame.y + frame.height - 40);
+  const styles = await overlay.evaluate(element => {
+    const style = getComputedStyle(element);
+    return { events: style.pointerEvents, background: style.backgroundImage, surface: style.getPropertyValue("--color-background-surface").trim() };
+  });
+  expect(styles.events).toBe("none"); expect(styles.background).toContain("linear-gradient(to top");
+  expect(styles.background).toContain("rgba(0, 0, 0, 0)"); expect(styles.surface).not.toBe("");
+  const behind = await viewport.getByRole("checkbox").evaluateAll((elements, fade) => elements.findIndex(element => {
+    const rect = element.getBoundingClientRect();
+    return rect.y > fade.y && rect.bottom < fade.y + fade.height;
+  }), fade);
+  expect(behind).toBeGreaterThan(0);
+  const checkbox = viewport.getByRole("checkbox").nth(behind);
+  const hit = (await checkbox.locator("..").boundingBox())!;
+  await page.mouse.click(hit.x + hit.width / 2, hit.y + hit.height / 2); await expect(checkbox).toBeChecked(); await expect(remove).toBeEnabled();
+  await page.getByRole("button", { name: "Clear selection", exact: true }).click(); await expect(remove).toHaveCount(0);
+  await viewport.evaluate(element => { element.scrollTop = element.scrollHeight; });
+  const last = viewport.getByRole("checkbox", { name: "Select team-a/resource-77", exact: true });
+  const lastBox = (await last.boundingBox())!;
+  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual((await overlay.boundingBox())!.y);
+  await last.click(); await expect(last).toBeChecked(); await expect(remove).toBeEnabled();
+  await expect(create).toHaveCSS("pointer-events", "auto"); await expect(remove).toHaveCSS("pointer-events", "auto");
+  await create.click(); await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape"); await remove.click(); await expect(page.getByRole("dialog")).toContainText("team-a/resource-77");
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+});
+
 test("changing filters on a continuation page resets pagination and cancels the exact read", async ({ page }) => {
   await fixture(page); await ready(page);
   await clusterAction(page, "Next page");

@@ -65,7 +65,7 @@ Project-specific guidance for AI coding agents.
   Do not suppress real loading, empty, or error states to make the UI look clean.
 - All Categories replaces General and shows both entity kinds, not a setup page.
   Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
-  checkout, not `taulens`; record the commit before implementing another workflow.
+  checkout, not `icekube`; record the commit before implementing another workflow.
 - Catalog import stays metadata-only until authentication/connection lifecycle
   support is separately approved. Default-file discovery is built in and
   reads only `~/.kube/config` on catalog load/Refresh,

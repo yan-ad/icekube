@@ -27,7 +27,7 @@ function ScopedResourceCreate(props: Props) {
   return <>
     {!props.onNotice && notice && <Text role="status">{notice}</Text>}
     <IconButton label={label} tooltip={label} icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
-      style={props.inline ? { borderRadius: "var(--radius-container)" } : { position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
+      style={props.inline ? { pointerEvents: "auto", borderRadius: "var(--radius-container)" } : { position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
       isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} />
     {open && cluster && <CreateEditor {...props} label={label} clusterName={cluster.name} contextName={cluster.contextName}
       onClose={(sent) => { setOpen(false); if (sent) { setNotice(uncertainty); props.onNotice?.(uncertainty); } }} onCreated={() => {

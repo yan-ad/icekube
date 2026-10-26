@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "icekube",
+  "productName": "IceKube",
   "version": "0.1.0",
   "identifier": "ad.yan.icekube",
   "build": {
@@ -14,12 +14,16 @@
       {
         "label": "main",
         "create": false,
-        "title": "icekube",
+        "title": "IceKube",
         "width": 1024,
         "height": 720,
         "minWidth": 360,
         "minHeight": 320,
-        "maximized": true
+        "maximized": true,
+        "trafficLightPosition": {
+          "x": 16,
+          "y": 24
+        }
       }
     ],
     "security": {
@@ -28,13 +32,25 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "",
+      "endpoints": [
+        "https://github.com/yan-ad/taulens/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

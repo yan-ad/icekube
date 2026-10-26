@@ -19,12 +19,22 @@ export function TableToolbar({ label, count, children }: { label: string; count?
   </HStack>;
 }
 
+export function TableActionOverlay({ children, label }: { children: ReactNode; label: string }) {
+  return <HStack role="group" aria-label={label} gap={2} hAlign="end" vAlign="end" padding={4}
+    style={{ position: "absolute", insetInline: 0, bottom: 0, zIndex: 2,
+      paddingTop: "var(--spacing-10)", pointerEvents: "none",
+      background: "linear-gradient(to top, var(--color-background-surface), transparent)" }}>
+    <HStack gap={2} style={{ pointerEvents: "auto" }}>{children}</HStack>
+  </HStack>;
+}
+
 export function tableViewport<T extends Record<string, unknown>>(): TablePlugin<T> {
   return {
     transformScrollWrapper: props => ({ ...props, htmlProps: { ...props.htmlProps,
       "data-icekube-table-viewport": "",
       tabIndex: 0,
-      style: { ...props.htmlProps?.style, flex: "1 1 auto", minHeight: 0, minWidth: 0 },
+      // Scrollable clearance lets the final row rise above the floating actions.
+      style: { ...props.htmlProps?.style, flex: "1 1 auto", minHeight: 0, minWidth: 0, paddingBottom: "calc(var(--spacing-10) * 2 + var(--spacing-4))", scrollPaddingBottom: "calc(var(--spacing-10) * 2 + var(--spacing-4))" },
     } }),
     transformHeaderCell: props => ({ ...props, htmlProps: { ...props.htmlProps,
       style: { ...props.htmlProps?.style, position: "sticky", top: 0, zIndex: 1, background: "var(--color-background-surface)" },

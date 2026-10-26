@@ -1,0 +1,126 @@
+name: Release Apple Silicon
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-apple-silicon
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate runner
+        run: test "$(uname -m)" = arm64
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.2'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Validate exact tag and updater configuration
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: cargo xtask verify-release "$RELEASE_TAG"
+      - name: Validate required signing secrets
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          python3 - <<'PY'
+          import os, sys
+          required = ['TAURI_SIGNING_PRIVATE_KEY', 'TAURI_SIGNING_PRIVATE_KEY_PASSWORD',
+                      'APPLE_CERTIFICATE', 'APPLE_CERTIFICATE_PASSWORD', 'APPLE_SIGNING_IDENTITY',
+                      'APPLE_ID', 'APPLE_PASSWORD', 'APPLE_TEAM_ID']
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              sys.exit('Missing required GitHub secrets: ' + ', '.join(missing))
+          if not os.environ['APPLE_SIGNING_IDENTITY'].startswith('Developer ID Application:'):
+              sys.exit('APPLE_SIGNING_IDENTITY must be a Developer ID Application identity')
+          PY
+      - name: Install frozen frontend dependencies
+        run: bun install --frozen-lockfile
+      - name: Test release tooling
+        run: cargo test --manifest-path xtask/Cargo.toml --locked
+      - name: Build signed notarized DMG and draft release
+        id: tauri
+        # v0 resolved to this commit on 2026-10-26. Intentionally not the newer v1 API.
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          tauriScript: bun run tauri
+          args: --target aarch64-apple-darwin --bundles dmg -- --locked
+          tagName: ${{ github.ref_name }}
+          releaseCommitish: ${{ github.sha }}
+          releaseName: 'Icekube ${{ github.ref_name }}'
+          releaseBody: 'Apple Silicon macOS DMG, with signed updater archive and manifest.'
+          releaseDraft: true
+          prerelease: false
+          includeUpdaterJson: true
+          uploadPlainBinary: false
+      - name: Verify uploaded assets before publishing
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_ID: ${{ steps.tauri.outputs.releaseId }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess, sys
+          def gh(*args):
+              return subprocess.check_output(['gh', *args], timeout=60)
+          repo, tag, rid = (os.environ[x] for x in ['GH_REPO', 'RELEASE_TAG', 'RELEASE_ID'])
+          release = json.loads(gh('api', f'repos/{repo}/releases/{rid}'))
+          if release['tag_name'] != tag or not release['draft']:
+              sys.exit('Expected an exact-tag draft release; refusing to overwrite a published release')
+          assets = release['assets']
+          names = [a['name'] for a in assets]
+          for suffix in ['.dmg', '.app.tar.gz', '.app.tar.gz.sig']:
+              if sum(n.endswith(suffix) for n in names) != 1:
+                  sys.exit(f'Expected exactly one {suffix} asset')
+          if set(names) != {n for n in names if n.endswith(('.dmg', '.app.tar.gz', '.app.tar.gz.sig'))} | {'latest.json'}:
+              sys.exit('Unexpected release assets')
+          manifest_asset = next(a for a in assets if a['name'] == 'latest.json')
+          manifest = json.loads(gh('api', '-H', 'Accept: application/octet-stream', f"repos/{repo}/releases/assets/{manifest_asset['id']}"))
+          if manifest['version'].removeprefix('v') != tag.removeprefix('v') or set(manifest['platforms']) != {'darwin-aarch64', 'darwin-aarch64-app'}:
+              sys.exit('Updater manifest version/platform mismatch')
+          platform = manifest['platforms']['darwin-aarch64']
+          if manifest['platforms']['darwin-aarch64-app'] != platform:
+              sys.exit('Updater app platform entry differs from legacy platform entry')
+          archive = next(n for n in names if n.endswith('.app.tar.gz'))
+          from urllib.parse import unquote
+          if unquote(platform['url']) != f'https://github.com/{repo}/releases/download/{tag}/{archive}':
+              sys.exit('Updater URL does not point at this exact release archive')
+          signature_asset = next(a for a in assets if a['name'] == archive + '.sig')
+          signature = gh('api', '-H', 'Accept: application/octet-stream', f"repos/{repo}/releases/assets/{signature_asset['id']}").decode().strip()
+          if not signature or platform['signature'].strip() != signature:
+              sys.exit('Updater signature differs from uploaded signature')
+          gh('release', 'edit', tag, '--draft=false', '--latest')
+          PY

@@ -69,7 +69,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const metricState = kind === "nodes" ? page?.metrics : null;
   const selectionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
   const selection = useResourceSelection(items, selectionScope, !loading && !error);
-  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
+  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
         setQuery(value); setTokens([null]); setIndex(0); setLoading(true);

@@ -559,7 +559,7 @@ workflow contract; they do not establish real-cluster or native OS behavior.
 
 Behavior-only reference: local `/Users/user1/Kerjaa/freelens`,
 `v1.10.3-533-gcd07118f`, commit `cd07118f843c4a69f937a319a37a7c12ef2c92d8`.
-No upstream source code was copied. `taulens` is not the reference checkout.
+No upstream source code was copied. `icekube` is not the reference checkout.
 
 | Workflow/source under `packages/core/src/` | Expected interaction / Rust owner | UI states / acceptance |
 | --- | --- | --- |

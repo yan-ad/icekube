@@ -160,7 +160,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, query, status, group, syncing]);
   const inventoryUnavailable = loading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
-  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
+  return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
       <TextInput label={`Search ${view.label}`} isLabelHidden value={query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}

@@ -78,7 +78,7 @@ async function fixture(page: Page, section = "config-maps", options: Controls = 
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/#/cluster/one?section=${section}`);
   await expect(all(page)).toBeEnabled();
-  await expect(remove(page)).toBeDisabled();
+  await expect(remove(page)).toHaveCount(0);
 }
 test.afterEach(async ({ page }) => {
   expect(await page.evaluate(() => (window as MockWindow).__deleteUnexpected ?? [])).toEqual([]);
@@ -97,6 +97,8 @@ for (const { section, kind, namespaced } of registry) test(`${kind}: selected id
   expect(await calls(page)).toEqual([]);
   await dialog(page).getByRole("button", { name: "Delete 1 resource", exact: true }).click();
   await expect(dialog(page)).toContainText("1 accepted or deleted; 0 failed");
+  await expect(page.getByRole("group", { name: "Resource actions", exact: true }).getByRole("button", { name: "Delete selected resources", exact: true })).toHaveCount(0);
+  await expect(dialog(page).getByLabel("Deletion results")).toContainText("alpha:");
   const requests = await calls(page);
   expect(requests).toHaveLength(1);
   expect(requests[0].request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), kind, readId: expect.any(Number), name: "alpha", namespace: ns, uid: "alpha-uid", resourceVersion: "11" });
@@ -108,15 +110,16 @@ test("individual, indeterminate, select-all, deselect and keyboard clear exclude
   await fixture(page, "config-maps", { missing: true });
   await expect(row(page, "no-uid")).toBeDisabled(); await expect(row(page, "no-version")).toBeDisabled();
   await row(page).focus(); await page.keyboard.press("Space");
+  await expect(remove(page)).toBeVisible();
   await expect(row(page)).toBeChecked(); await expect(all(page)).toBeChecked({ indeterminate: true });
   await expect(page.getByRole("status").filter({ hasText: /^1 selected$/ })).toBeVisible();
   await all(page).check(); await expect(row(page, "beta")).toBeChecked();
   await expect(page.getByRole("status").filter({ hasText: /^2 selected$/ })).toBeVisible();
   await row(page).uncheck(); await expect(all(page)).toBeChecked({ indeterminate: true });
   await page.getByRole("button", { name: "Clear selection", exact: true }).focus(); await page.keyboard.press("Enter");
-  await expect(remove(page)).toBeDisabled(); await expect(row(page, "beta")).not.toBeChecked();
+  await expect(remove(page)).toHaveCount(0); await expect(row(page, "beta")).not.toBeChecked();
   await all(page).focus(); await page.keyboard.press("Space"); await expect(row(page)).toBeChecked();
-  await page.keyboard.press("Space"); await expect(remove(page)).toBeDisabled();
+  await page.keyboard.press("Space"); await expect(remove(page)).toHaveCount(0);
   expect(await calls(page)).toEqual([]);
 });
 
@@ -182,12 +185,12 @@ for (const dismissal of ["Cancel", "Escape"]) test(`${dismissal} dismisses confi
 
 test("select-all is current-page only; page and filter changes do not resurrect selection", async ({ page }) => {
   await fixture(page, "config-maps", { paginated: true }); await all(page).check();
-  await clusterAction(page, "Next page"); await expect(row(page, "gamma")).toBeEnabled(); await expect(remove(page)).toBeDisabled();
+  await clusterAction(page, "Next page"); await expect(row(page, "gamma")).toBeEnabled(); await expect(remove(page)).toHaveCount(0);
   await all(page).check(); await remove(page).click(); await expect(dialog(page).getByRole("listitem")).toHaveText(["team-a/gamma"]);
   await page.keyboard.press("Escape"); await clusterAction(page, "Previous page");
   await expect(row(page)).toBeEnabled(); await expect(row(page)).not.toBeChecked();
   await row(page).check(); await page.getByRole("textbox", { name: "Search Config Maps", exact: true }).fill("alpha");
-  await expect(remove(page)).toBeDisabled(); await expect(row(page)).toBeEnabled();
+  await expect(remove(page)).toHaveCount(0); await expect(row(page)).toBeEnabled();
   await page.getByRole("button", { name: "Clear filters", exact: true }).click();
   await expect(row(page, "beta")).toBeEnabled(); await expect(row(page)).not.toBeChecked();
   expect(await calls(page)).toEqual([]);
@@ -199,7 +202,7 @@ for (const change of ["namespace", "route", "session"]) test(`${change} change r
   else if (change === "route") await page.evaluate(() => { location.hash = "/cluster/one?section=services"; });
   else { await clusterAction(page, "Disconnect"); await clusterAction(page, "Connect to cluster"); }
   await expect(row(page, "alpha", change === "namespace" ? "team-b" : "team-a")).toBeEnabled();
-  await expect(remove(page)).toBeDisabled(); expect(await calls(page)).toEqual([]);
+  await expect(remove(page)).toHaveCount(0); expect(await calls(page)).toEqual([]);
 });
 
 for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width}px actions stay bottom-right, Delete immediately left of Create${dock ? " with Pod dock" : ""}`, async ({ page }) => {
@@ -208,6 +211,8 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
   await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toHaveCount(0);
   if (dock) { await page.getByRole("button", { name: "alpha", exact: true }).click(); await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible(); }
   const group = page.getByRole("group", { name: "Resource actions", exact: true });
+  await expect(group).toHaveCSS("pointer-events", "none");
+  await expect(group).toHaveCSS("background-image", /linear-gradient/);
   const create = group.getByRole("button").last();
   await expect(remove(page)).toBeInViewport(); await expect(create).toBeInViewport();
   const del = (await remove(page).boundingBox())!, add = (await create.boundingBox())!;
@@ -216,6 +221,8 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
   const parent = (await group.locator("..").boundingBox())!;
   expect(parent.y + parent.height - del.y - del.height).toBeLessThan(40);
   if (dock) { const panel = (await page.getByRole("complementary", { name: "Pod dock", exact: true }).boundingBox())!; expect(del.y + del.height).toBeLessThanOrEqual(panel.y); }
+  await create.click(); await expect(dialog(page)).toContainText("Resource YAML");
+  await page.keyboard.press("Escape"); await remove(page).click(); await expect(dialog(page)).toContainText("team-a/alpha");
 });
 
 test("sequential bounded batch ignores double confirm and distinguishes accepted from gone", async ({ page }) => {
@@ -230,7 +237,7 @@ test("sequential bounded batch ignores double confirm and distinguishes accepted
   expect(await page.evaluate(() => (window as MockWindow).__deleteMaxActive)).toBe(1);
   await expect(dialog(page).getByLabel("Deletion results")).toContainText("grace periods or finalizers may still apply");
   await expect(page.getByRole("table").getByText("alpha", { exact: true })).toBeVisible();
-  await dialog(page).getByRole("button", { name: "Close", exact: true }).filter({ hasText: /^Close$/ }).click(); await expect(remove(page)).toBeDisabled();
+  await dialog(page).getByRole("button", { name: "Close", exact: true }).filter({ hasText: /^Close$/ }).click(); await expect(remove(page)).toHaveCount(0);
   expect(await calls(page, "cluster_resource_delete_cancel")).toEqual([]);
 });
 
@@ -284,7 +291,7 @@ test("live Pod replacement UID drops selection instead of selecting the same nam
   await fixture(page, "pods"); await clusterAction(page, "Enable live sync");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).length).toBe(1);
   await row(page).check(); await controls(page, { replacement: true });
-  await expect(remove(page)).toBeDisabled(); await expect(row(page)).not.toBeChecked();
+  await expect(remove(page)).toHaveCount(0); await expect(row(page)).not.toBeChecked();
   await row(page).check(); await remove(page).click(); await dialog(page).getByRole("button", { name: "Delete 1 resource", exact: true }).click();
   await expect(dialog(page)).toContainText("1 accepted or deleted; 0 failed");
   expect((await calls(page))[0].request.uid).toBe("alpha-replacement");
@@ -315,6 +322,6 @@ test("status filter changes reset selection even when the same objects remain vi
   await page.getByRole("combobox", { name: "Status", exact: true }).click();
   await page.getByRole("option", { name: "Running", exact: true }).click();
   await expect(row(page)).toBeEnabled(); await expect(row(page)).not.toBeChecked();
-  await expect(remove(page)).toBeDisabled();
+  await expect(remove(page)).toHaveCount(0);
   expect(await calls(page)).toEqual([]);
 });
