@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 type Request = Record<string, string | number | null>;
 type Call = { command: string; request: Request };
-type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; holdCancel?: boolean; detailFailure?: string; stopFailure?: string; forwardStatus?: string };
+type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; holdCancel?: boolean; detailFailure?: string; stopFailure?: string; forwardStatus?: string; holdDetail?: boolean; holdStart?: boolean; startFailure?: string };
 type MockWindow = Window & { __serviceCalls: Call[]; __serviceControls: Controls; __releaseServices: () => void; __releaseHelmCancels: () => void; __externalOpens: string[] };
 const grid = (page: Page, name: string) => page.getByRole("table", { name, exact: true });
 
@@ -12,7 +12,7 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   const previous = (await calls(page, "helm_table")).at(-1)!.request;
   const previousCancels = await calls(page, "helm_cancel");
   await controls(page, { hold: true, holdCancel: true });
-  await page.getByRole("button", { name: "Reload", exact: true }).click();
+  await refreshHelm(page);
   await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
   const pending = (await calls(page, "helm_table")).at(-1)!.request;
   expect(pending).toEqual({ ...previous, readId: expect.any(Number) });
@@ -36,7 +36,7 @@ test("stopped and errored forwards use Remove and remove the actual session reco
   const table = grid(page, "Port forwards");
   await expect(table).toContainText("api-pod");
   await controls(page, { forwardStatus: "stopped" });
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshForwards(page);
   await expect(page.getByRole("button", { name: "Remove team-a/api-pod on port 49152", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove team-a/api-pod on port 49152", exact: true }).click();
   await expect(table).toContainText("No active port forwards were returned.");
@@ -46,6 +46,18 @@ const calls = (page: Page, command: string) => page.evaluate((command) => (windo
 const navigate = (page: Page, section: string) => page.evaluate((section) => { location.hash = `/cluster/one?section=${section}`; }, section);
 const controls = (page: Page, value: Controls) => page.evaluate((value) => Object.assign((window as MockWindow).__serviceControls, value), value);
 const helmCancelScope = ({ clusterId, sessionId, view, readId }: Request) => ({ clusterId, sessionId, view, readId });
+async function refreshHelm(page: Page) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Refresh helm-releases", exact: true }).click();
+  await page.keyboard.press("Tab");
+  await page.mouse.move(0, 0);
+}
+async function refreshForwards(page: Page) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Refresh port-forwarding", exact: true }).click();
+  await page.keyboard.press("Tab");
+  await page.mouse.move(0, 0);
+}
 async function selectNamespace(page: Page, namespace: string) {
   const selector = page.getByRole("button", { name: /^(?:Pod namespace|Namespace)(?:\s|$)/ });
   await expect(selector).toBeVisible();
@@ -121,11 +133,14 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
             ...(control.malformed === "session" ? { sessionId: "old-session" } : {}) }));
         }
         if (command === "cluster_pod_detail") {
+          if (control.holdDetail) await new Promise<void>((resolve) => pending.push(resolve));
           if (control.detailFailure) throw control.detailFailure;
           return { ...request, uid: "resolved-pod-uid", resourceVersion: "123", phase: "Running", node: null, podIps: [], hostIps: [], serviceAccount: null,
             qos: null, createdAt: null, deletionTimestamp: null, containers: [], conditions: [], yaml: "", events: [] };
         }
         if (command === "cluster_pod_forward_start") {
+          if (control.holdStart) await new Promise<void>((resolve) => pending.push(resolve));
+          if (control.startFailure) throw control.startFailure;
           const item = { clusterId: request.clusterId, sessionId: request.sessionId, id: "forward-one", namespace: request.namespace, name: request.name,
             remotePort: request.remotePort, localPort: request.localPort || 49152, status: "running", error: null };
           forwards.push(item); return item;
@@ -144,13 +159,14 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
 }
 
 async function startForward(page: Page) {
+  if (!await page.getByRole("dialog").count()) await page.getByRole("button", { name: "Create port forward", exact: true }).click();
   await selectNamespace(page, "team-a");
   await page.getByRole("textbox", { name: "Pod", exact: true }).fill("api-pod");
   await page.getByRole("textbox", { name: "Port", exact: true }).fill("8080");
   await page.getByRole("button", { name: "Start forward", exact: true }).click();
 }
 
-test("Helm charts read cached inventory and search locally without enabling installation", async ({ page }) => {
+test("Helm charts search cached inventory locally and open explicit installation without sending a request", async ({ page }) => {
   await fixture(page, "helm-charts");
   const table = grid(page, "Helm Charts");
   await expect(table).toContainText("Cached HTTP chart");
@@ -164,9 +180,22 @@ test("Helm charts read cached inventory and search locally without enabling inst
   await page.getByRole("textbox", { name: "Search Charts", exact: true }).fill("absent");
   await expect(table).toContainText("No charts match your filters.");
   expect(await calls(page, "helm_table")).toEqual(before);
-  const install = page.getByRole("button", { name: "Install", exact: true });
-  await expect(install).toBeDisabled(); await install.dispatchEvent("click");
+  const install = page.getByRole("button", { name: "Install Helm chart", exact: true });
+  await expect(install).toBeEnabled(); await install.click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText("Cluster: Development");
+  await expect(dialog).toContainText("Context: dev");
+  await expect(dialog.getByRole("textbox", { name: "Release name", exact: true })).toHaveValue("");
+  await expect(dialog.getByRole("textbox", { name: "Chart repository/name", exact: true })).toHaveValue("");
+  await expect(dialog.getByRole("textbox", { name: "Values YAML", exact: true })).toHaveValue("{}\n");
+  await expect(dialog.getByRole("button", { name: "Run server dry-run", exact: true })).toBeDisabled();
+  await expect(dialog.getByRole("button", { name: "Install release", exact: true })).toHaveCount(0);
+  expect(await calls(page, "helm_install")).toEqual([]);
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  expect(await calls(page, "helm_install")).toEqual([]);
+  expect(await calls(page, "helm_install_cancel")).toEqual([]);
   expect(await calls(page, "helm_table")).toEqual(before);
 });
 
@@ -199,7 +228,7 @@ for (const [failure, message] of [["helmUnavailable", "Helm is not installed"], 
     await expect(grid(page, "Helm Releases")).toHaveCount(0);
     await expect(page.getByText(/were returned/)).toHaveCount(0);
     await controls(page, { failure: "" });
-    await page.getByRole("button", { name: "Reload", exact: true }).click();
+    await refreshHelm(page);
     await expect(grid(page, "Helm Releases")).toContainText("edge");
   });
 }
@@ -229,7 +258,7 @@ test("late Helm results cannot cross namespace scopes", async ({ page }) => {
   await fixture(page);
   await expect(grid(page, "Helm Releases")).toContainText("edge");
   await controls(page, { hold: true });
-  await page.getByRole("button", { name: "Reload", exact: true }).click();
+  await refreshHelm(page);
   await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
   const canceled = (await calls(page, "helm_table")).at(-1)!.request;
   await controls(page, { hold: false });
@@ -245,6 +274,7 @@ test("port table resolves Pod UID before loopback auto-port start, survives navi
   await fixture(page, "port-forwarding");
   const table = grid(page, "Port forwards");
   await expect(table).toContainText("No active port forwards were returned.");
+  await page.getByRole("button", { name: "Create port forward", exact: true }).click();
   await expect(page.getByRole("button", { name: "Start forward", exact: true })).toBeDisabled();
   await expect(page.getByRole("textbox", { name: "Local port", exact: true })).toHaveValue("0");
   await startForward(page);
@@ -281,7 +311,7 @@ test("forward filters are local and failed refresh retains honest stale rows", a
   await page.getByRole("option", { name: "running", exact: true }).click();
   await expect(grid(page, "Port forwards")).toContainText("api-pod");
   await controls(page, { failure: "network" });
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshForwards(page);
   await expect(page.getByRole("alert")).toContainText("Retained forward states may be stale");
   await expect(grid(page, "Port forwards")).toContainText("api-pod");
 });
@@ -292,7 +322,7 @@ test("forward errors never impersonate empty lists and failed UID resolution can
   await expect(grid(page, "Port forwards")).toHaveCount(0);
   await expect(page.getByText(/were returned/)).toHaveCount(0);
   await controls(page, { failure: "" });
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshForwards(page);
   await expect(grid(page, "Port forwards")).toContainText("No active port forwards were returned.");
   await startForward(page);
   await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
@@ -303,7 +333,83 @@ test("forward response rejects another session rather than replacing retained ro
   await fixture(page, "port-forwarding"); await expect(grid(page, "Port forwards")).toBeVisible();
   await startForward(page); await expect(grid(page, "Port forwards")).toContainText("api-pod");
   await controls(page, { malformed: "session" });
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await refreshForwards(page);
   await expect(page.getByRole("alert")).toContainText("unsupported response");
   await expect(grid(page, "Port forwards")).toContainText("api-pod");
+});
+
+
+test("forward creation FAB opens a bounded accessible form, validates ports, and cancels without IPC", async ({ page }) => {
+  await fixture(page, "port-forwarding");
+  await expect(grid(page, "Port forwards")).toBeVisible();
+  const fab = page.getByRole("button", { name: "Create port forward", exact: true });
+  await expect(fab).toBeVisible();
+  await expect(fab).toHaveText("");
+  await expect(page.getByRole("button", { name: "Refresh", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Pod", exact: true })).toHaveCount(0);
+  await page.setViewportSize({ width: 390, height: 600 });
+  const bounds = await fab.boundingBox();
+  expect(bounds).not.toBeNull();
+  expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+  expect(bounds!.y + bounds!.height).toBeLessThanOrEqual(600);
+  await fab.focus();
+  await page.keyboard.press("Enter");
+  const dialog = page.getByRole("dialog", { name: "Create port forward", exact: true });
+  await expect(dialog).toBeVisible();
+  const dialogBounds = await dialog.boundingBox();
+  expect(dialogBounds!.x).toBeGreaterThanOrEqual(0);
+  expect(dialogBounds!.x + dialogBounds!.width).toBeLessThanOrEqual(390);
+  await selectNamespace(page, "team-a");
+  await dialog.getByRole("textbox", { name: "Pod", exact: true }).fill("Bad Pod");
+  await dialog.getByRole("textbox", { name: "Port", exact: true }).fill("65536");
+  await dialog.getByRole("textbox", { name: "Local port", exact: true }).fill("-1");
+  await expect(dialog.getByRole("button", { name: "Start forward", exact: true })).toBeDisabled();
+  await expect(dialog).toContainText("Enter a valid Pod name.");
+  await expect(dialog).toContainText("Use a port from 1 to 65535.");
+  await expect(dialog).toContainText("Use 0 or a port from 1 to 65535.");
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(fab).toBeFocused();
+  expect(await calls(page, "cluster_pod_detail")).toEqual([]);
+  expect(await calls(page, "cluster_pod_forward_start")).toEqual([]);
+});
+
+test("forward start errors stay in the dialog and allow retry", async ({ page }) => {
+  await fixture(page, "port-forwarding", { startFailure: "permissionDenied" });
+  await startForward(page);
+  const dialog = page.getByRole("dialog", { name: "Create port forward", exact: true });
+  await expect(dialog.getByRole("alert")).toContainText("Kubernetes permissions");
+  await expect(dialog.getByRole("textbox", { name: "Pod", exact: true })).toHaveValue("api-pod");
+  await controls(page, { startFailure: "" });
+  await dialog.getByRole("button", { name: "Start forward", exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(grid(page, "Port forwards")).toContainText("api-pod");
+});
+
+test("late forward UID resolution cannot start after its view is disposed", async ({ page }) => {
+  await fixture(page, "port-forwarding", { holdDetail: true });
+  await startForward(page);
+  await expect.poll(async () => (await calls(page, "cluster_pod_detail")).length).toBe(1);
+  await navigate(page, "helm-charts");
+  await expect(grid(page, "Helm Charts")).toBeVisible();
+  await page.evaluate(() => (window as MockWindow).__releaseServices());
+  await navigate(page, "port-forwarding");
+  await expect(grid(page, "Port forwards")).toBeVisible();
+  expect(await calls(page, "cluster_pod_forward_start")).toEqual([]);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
+test("a late started forward stays owned by the workspace session", async ({ page }) => {
+  await fixture(page, "port-forwarding", { holdStart: true });
+  await startForward(page);
+  await expect.poll(async () => (await calls(page, "cluster_pod_forward_start")).length).toBe(1);
+  await expect(page.getByRole("alertdialog").getByRole("button", { name: "Cancel", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("alertdialog")).toBeVisible();
+  await navigate(page, "helm-charts");
+  await expect(grid(page, "Helm Charts")).toBeVisible();
+  await page.evaluate(() => (window as MockWindow).__releaseServices());
+  await navigate(page, "port-forwarding");
+  await expect(grid(page, "Port forwards")).toContainText("api-pod");
+  expect(await calls(page, "cluster_pod_forward_stop")).toEqual([]);
 });

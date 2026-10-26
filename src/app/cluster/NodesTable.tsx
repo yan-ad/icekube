@@ -1,11 +1,12 @@
 import { VStack } from "@astryxdesign/core/Stack";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
-import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
+import { Table, proportional, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import type { ResourceItem } from "./api";
 import type { Usage } from "./nodeContract";
 import { tableViewport } from "./TableToolbar";
+import { resourceRowKey } from "./deleteApi";
 
 function cores(value: number): string {
   return value === 0 ? "0" : value < 0.01 ? "<0.01" : value.toFixed(value < 10 ? 2 : 1);
@@ -41,7 +42,7 @@ function age(value: string | null, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function NodesTable({ items, loading, filtered, now }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number }) {
+export function NodesTable({ items, loading, filtered, now, selection }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem> }) {
   const columns: TableColumn<ResourceItem>[] = [
     { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Text maxLines={1}>{item.name}</Text> },
     { key: "cpu", header: "CPU", width: proportional(1), renderCell: (item) => <UsageCell name={item.name} resource="CPU" usage={item.node?.cpu} /> },
@@ -60,8 +61,8 @@ export function NodesTable({ items, loading, filtered, now }: { items: ResourceI
         condition.type === "Ready" && condition.status === "True" ? "Ready" : `${condition.type}: ${condition.status}`).join(" · ")}</Text>;
     } },
   ];
-  return <Table data={items} columns={columns} idKey="name" density="compact" hasHover textOverflow="truncate"
-    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>() }}
+  return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate"
+    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}) }}
     emptyState={<VStack padding={6} gap={2}>
       <Text>{filtered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
       <Text color="secondary">{filtered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>

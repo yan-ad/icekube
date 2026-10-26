@@ -171,7 +171,7 @@ fn validate(request: &HelmInstallRequest) -> Result<()> {
     let value =
         serde_yaml_ng::Value::deserialize(documents.next().ok_or(ConnectionError::InvalidInput)?)
             .map_err(|_| ConnectionError::InvalidInput)?;
-    if !value.is_mapping() || documents.next().is_some() {
+    if !matches!(value, serde_yaml_ng::Value::Mapping(_)) || documents.next().is_some() {
         return Err(ConnectionError::InvalidInput);
     }
     Ok(())

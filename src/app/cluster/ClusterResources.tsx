@@ -8,7 +8,9 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { IconChevronLeft, IconChevronRight, IconSearch } from "@tabler/icons-react";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceKind, type ResourcePage, type SessionRequest } from "./api";
-import { ResourceCreate } from "./ResourceCreate";
+import { ResourceActions } from "./ResourceActions";
+import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelection";
+import { resourceRowKey } from "./deleteApi";
 import { NodesTable } from "./NodesTable";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 
@@ -65,6 +67,8 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   }, [clusterId, sessionId, kind, revision, query, needle, token, index]);
   const items = page?.items ?? [];
   const metricState = kind === "nodes" ? page?.metrics : null;
+  const selectionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
+  const selection = useResourceSelection(items, selectionScope, !loading && !error);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
@@ -78,6 +82,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
           if (!page?.continueToken) return;
           setLoading(true); setTokens((previous) => [...previous.slice(0, index + 1), page.continueToken]); setIndex((value) => value + 1);
         }} />
+      <ResourceSelectionSummary count={selection.selected.length} clear={selection.clear} />
     </TableToolbar>}
     {loading && <Text role="status">Loading {kind}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
@@ -85,11 +90,11 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading} filtered={!!needle} now={now} /> :
-      <Table data={page.items} columns={columns} idKey="name" density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>() }}
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading} filtered={!!needle} now={now} selection={selection.plugin} /> :
+      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
     {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
-    <ResourceCreate clusterId={clusterId} sessionId={sessionId} kind={kind} onCreated={() => {
+    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} disabled={loading || !!error} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
   </VStack>;

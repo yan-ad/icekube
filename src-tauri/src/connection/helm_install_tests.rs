@@ -41,7 +41,11 @@ fn input_boundary() {
     ] {
         let mut r = request();
         r.values_yaml = yaml.into();
-        assert_eq!(validate(&r), Err(ConnectionError::InvalidInput));
+        assert_eq!(
+            validate(&r),
+            Err(ConnectionError::InvalidInput),
+            "values YAML: {yaml:?}"
+        );
     }
     let mut r = request();
     r.values_yaml = "x".repeat(VALUES_LIMIT + 1);
@@ -58,6 +62,23 @@ fn input_boundary() {
         let mut r = request();
         r.version = Some(v.into());
         assert!(validate(&r).is_err());
+    }
+}
+#[test]
+fn values_require_an_untagged_mapping_document() {
+    for yaml in ["{}", "---\nreplicas: 2\n", "replicas: 2\n..."] {
+        let mut r = request();
+        r.values_yaml = yaml.into();
+        assert_eq!(validate(&r), Ok(()), "values YAML: {yaml:?}");
+    }
+    for yaml in ["!tag {}", "!tag\nreplicas: 2", "!values {replicas: 2}"] {
+        let mut r = request();
+        r.values_yaml = yaml.into();
+        assert_eq!(
+            validate(&r),
+            Err(ConnectionError::InvalidInput),
+            "values YAML: {yaml:?}"
+        );
     }
 }
 #[test]

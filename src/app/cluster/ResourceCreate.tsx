@@ -12,7 +12,7 @@ import { nextReadId, type ResourceKind, type SessionRequest } from "./api";
 import { cancelResourceCreate, createMessage, createResource, creationNamespaced, type CreateCancelRequest, type CreateResult } from "./createApi";
 import { resourceCreation } from "./resourceViews";
 
-type Props = SessionRequest & { kind: ResourceKind; namespace?: string; label?: string; onCreated: () => void };
+type Props = SessionRequest & { kind: ResourceKind; namespace?: string; label?: string; onCreated: () => void; inline?: boolean; onNotice?: (notice: string) => void };
 const uncertainty = "Creation may already have reached the API server. Cancellation does not roll it back. Refresh the inventory and check the resource before retrying.";
 
 export function ResourceCreate(props: Props) {
@@ -25,13 +25,14 @@ function ScopedResourceCreate(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const label = props.label ?? `Create ${resourceCreation[props.kind].kind}`;
   return <>
-    {notice && <Text role="status">{notice}</Text>}
+    {!props.onNotice && notice && <Text role="status">{notice}</Text>}
     <IconButton label={label} tooltip={label} icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
-      style={{ position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
+      style={props.inline ? { borderRadius: "var(--radius-container)" } : { position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
       isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} />
     {open && cluster && <CreateEditor {...props} label={label} clusterName={cluster.name} contextName={cluster.contextName}
-      onClose={(sent) => { setOpen(false); if (sent) setNotice(uncertainty); }} onCreated={() => {
-        setOpen(false); setNotice(`${resourceCreation[props.kind].kind} created. Refreshing inventory…`); props.onCreated();
+      onClose={(sent) => { setOpen(false); if (sent) { setNotice(uncertainty); props.onNotice?.(uncertainty); } }} onCreated={() => {
+        const message = `${resourceCreation[props.kind].kind} created. Refreshing inventory…`;
+        setOpen(false); setNotice(message); props.onNotice?.(message); props.onCreated();
       }} />}
   </>;
 }

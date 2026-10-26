@@ -65,7 +65,7 @@ const calls = (page: Page) => page.evaluate(() => (window as unknown as { __node
 test("nodes table renders the reference columns and Rust facts with readable units", async ({ page }, info) => {
   await fixture(page);
   await expect(table(page).getByRole("columnheader")).toHaveText([
-    "Name", "CPU", "Memory", "Disk", "Roles", "Taints", "Version", "Internal IP", "Age", "Schedulable", "Conditions",
+    "Select all rows", "Name", "CPU", "Memory", "Disk", "Roles", "Taints", "Version", "Internal IP", "Age", "Schedulable", "Conditions",
   ]);
   await expect(page.getByRole("status").filter({ hasText: /^2 items · Page 1$/ })).toBeVisible();
   const first = table(page).getByRole("row").nth(1);
@@ -84,10 +84,10 @@ test("nodes table renders the reference columns and Rust facts with readable uni
   await expect(second).toContainText("0 / 15.5");
   await expect(second).toContainText("Ready: False");
   await expect(second).toContainText("DiskPressure: True");
-  await expect(second.getByRole("cell").nth(9)).toHaveText("False");
-  await expect(second.getByRole("cell").nth(8)).toHaveText("N/A");
-  await expect(first.getByRole("cell").nth(3)).toHaveText("N/A");
-  await expect(first.getByRole("cell").nth(3)).not.toContainText("100Gi");
+  await expect(second.getByRole("cell").nth(10)).toHaveText("False");
+  await expect(second.getByRole("cell").nth(9)).toHaveText("N/A");
+  await expect(first.getByRole("cell").nth(4)).toHaveText("N/A");
+  await expect(first.getByRole("cell").nth(4)).not.toContainText("100Gi");
   await expect(first).toContainText("v1.35.8-gke.123456789");
   await page.screenshot({ path: info.outputPath("nodes-table.png") });
 });

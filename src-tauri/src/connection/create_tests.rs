@@ -223,36 +223,41 @@ async fn malformed_oversize_and_mismatched_responses_are_not_success() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn in_flight_cancel_disconnect_and_timeout_bound_transport() {
     for mode in ["cancel", "disconnect", "timeout"] {
         let (_root, _catalog, engine, id, _) = fixture();
         let started = std::sync::Arc::new(tokio::sync::Notify::new());
         let signal = started.clone();
-        let client = Client::new(
-            transport::CancelService(tower::service_fn(move |r: Request<Body>| {
-                let signal = signal.clone();
-                async move {
-                    if r.uri().path() == "/version" {
-                        return Ok::<_, std::io::Error>(Response::new(Body::from(
-                            br#"{"gitVersion":"v1.36"}"#.to_vec(),
-                        )));
-                    }
-                    signal.notify_one();
-                    std::future::pending::<std::result::Result<Response<Body>, std::io::Error>>()
-                        .await
+        let service = tower::service_fn(move |r: Request<Body>| {
+            let signal = signal.clone();
+            async move {
+                if r.uri().path() == "/version" {
+                    return Ok::<_, std::io::Error>(Response::new(Body::from(
+                        br#"{"gitVersion":"v1.36"}"#.to_vec(),
+                    )));
                 }
-            })),
-            "default",
-        );
+                signal.notify_one();
+                std::future::pending::<std::result::Result<Response<Body>, std::io::Error>>().await
+            }
+        });
+        // Keep the transport's equal deadline from racing the engine timeout assertion.
+        let client = if mode == "timeout" {
+            Client::new(service, "default")
+        } else {
+            Client::new(transport::CancelService(service), "default")
+        };
         let lease = connected(&engine, id, client).await;
+        assert_eq!(lease.status, "connected", "{mode}: {lease:?}");
         let engine = std::sync::Arc::new(engine);
         let mut r = request(ResourceKind::Pods);
         r.cluster_id = lease.cluster_id.clone();
         r.session_id = lease.session_id.clone();
         let worker = engine.clone();
         let work = tokio::spawn(async move { worker.create(r).await });
-        started.notified().await;
+        tokio::time::timeout(Duration::from_secs(5), started.notified())
+            .await
+            .unwrap_or_else(|_| panic!("{mode}: create transport did not start"));
         // A different operation ID must not cancel this request.
         engine
             .cancel_create(CreateCancelRequest {
@@ -273,9 +278,17 @@ async fn in_flight_cancel_disconnect_and_timeout_bound_transport() {
                 })
                 .unwrap(),
             "disconnect" => engine.disconnect(tests::identity(&lease)).unwrap(),
-            _ => tokio::time::advance(DEADLINE + Duration::from_secs(1)).await,
+            _ => {
+                tokio::time::pause();
+                tokio::time::advance(DEADLINE + Duration::from_secs(1)).await;
+                tokio::time::resume();
+            }
         }
-        let error = work.await.unwrap().unwrap_err();
+        let error = tokio::time::timeout(Duration::from_secs(5), work)
+            .await
+            .unwrap_or_else(|_| panic!("{mode}: create task did not finish"))
+            .unwrap()
+            .unwrap_err();
         assert_eq!(
             error,
             if mode == "timeout" {

@@ -18,7 +18,9 @@ import type { PodMode } from "./podApi";
 import { openPodSync, readPodSync, closePodSync, type PodSyncStatus } from "./podSyncApi";
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
-import { ResourceCreate } from "./ResourceCreate";
+import { ResourceActions } from "./ResourceActions";
+import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelection";
+import { resourceRowKey } from "./deleteApi";
 import { NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 
@@ -155,7 +157,9 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const rows = page?.items ?? [];
   const statuses = [...new Set([...rows.map(item => item.status), ...(status ? [status] : [])])].sort();
   const groups = [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(group ? [group] : [])])].sort();
-  const shown = rows.map(item => ({ ...item, rowId: JSON.stringify([item.namespace, item.name]) }));
+  const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, query, status, group, syncing]);
+  const inventoryUnavailable = loading || !!error || syncing && syncStatus !== "syncing";
+  const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden", paddingBottom: "calc(var(--spacing-10) + var(--spacing-8))" }}>
     <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
@@ -166,15 +170,16 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       {view.kind === "customResourceDefinitions" && <Selector label="Group" isLabelHidden value={group} onChange={value => onFilter({ group: value })} size="sm" presentation="adaptive" hasSearch
         options={[{ value: "", label: "All groups" }, ...groups.map(value => ({ value, label: value }))]} />}
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
+      <ResourceSelectionSummary count={selection.selected.length} clear={selection.clear} />
     </TableToolbar>
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
     {page && (loading || error || syncing && syncStatus !== "syncing") && <Text role="status">Previously fetched {view.label.toLowerCase()} are shown and may be stale.</Text>}
-    {page && <Table aria-label={view.label} data={shown} columns={columns(view, Date.now(), openPod)} density="compact" idKey={(item) => `${item.namespace ?? ""}:${item.name}`} hasHover textOverflow="truncate" aria-busy={loading}
-      plugins={{ viewport: tableViewport<ResourceItem>() }}
+    {page && <Table aria-label={view.label} data={rows} columns={columns(view, Date.now(), openPod)} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading}
+      plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
-    {view.kind && <ResourceCreate clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} label={view.createLabel}
-      onCreated={() => setRevision(value => value + 1)} />}
+    {view.kind && <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
+      selected={selection.selected} disabled={inventoryUnavailable} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
   </VStack>;
 }

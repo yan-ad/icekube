@@ -160,7 +160,7 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
           if (control.failure) throw control.failure;
           const columns = Object.fromEntries(view.columns.map((column) => [column.key, `fact-${column.key}`]));
           const item = (name: string, namespace: string | null, status: string, group: string) => ({
-            name, namespace, status, createdAt: "2026-01-01T00:00:00Z", node: null,
+            name, namespace, uid: `uid-${namespace ?? "cluster"}-${name}`, resourceVersion: "123", status, createdAt: "2026-01-01T00:00:00Z", node: null,
             columns: request.kind === "customResourceDefinitions" ? { ...columns, group } : columns,
             data: { "private-key-name": "PRIVATE_VALUE_MUST_NOT_ESCAPE" },
             stringData: { "another-private-key": "ANOTHER_PRIVATE_VALUE" },
@@ -229,7 +229,7 @@ test("all 43 registry views expose their direct route, columns and explicit crea
         ? ["Name", "Version", "App version", "Description"]
         : ["Name", "Namespace", "Chart", "App version", "Status", "Revision", "Updated"])
         : forward ? ["Name", "Namespace", "Pod", "Port", "Local Port", "Address", "Status", "Actions"]
-        : ["Name", ...(view.namespaced ? ["Namespace"] : []), ...view.columns.map((column) => column.label), "Age", "Status", ...(view.kind === "pods" ? ["Actions"] : [])]);
+        : ["Select all rows", "Name", ...(view.namespaced ? ["Namespace"] : []), ...view.columns.map((column) => column.label), "Age", "Status", ...(view.kind === "pods" ? ["Actions"] : [])]);
       await expect(page.getByText(/service is not implemented|unavailable because|Live .* data is not implemented yet/)).toHaveCount(0);
       if (view.kind) {
         await expect(grid.getByRole("row")).toHaveCount(3);
@@ -250,8 +250,8 @@ test("all 43 registry views expose their direct route, columns and explicit crea
         if (helm) expect(serviceCalls.at(-1)!.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/),
           view: view.section === "helm-charts" ? "charts" : "releases", namespace: null, readId: expect.any(Number) });
       }
-      if (view.kind || view.createLabel) {
-        const createLabel = view.createLabel ?? `Create ${resourceCreation[view.kind!].kind}`;
+      if (view.kind || view.createLabel || helm) {
+        const createLabel = helm ? "Install Helm chart" : view.createLabel ?? `Create ${resourceCreation[view.kind!].kind}`;
         const create = page.getByRole("button", { name: createLabel, exact: true });
         const beforeAction = await calls(page, "cluster_connect");
         if (view.kind) {
@@ -264,6 +264,14 @@ test("all 43 registry views expose their direct route, columns and explicit crea
           );
           await expect(editor.getByRole("button", { name: "Validate YAML", exact: true })).toBeEnabled();
           expect(await calls(page, "cluster_resource_create")).toHaveLength(0);
+          await editor.getByRole("button", { name: "Cancel", exact: true }).click();
+        } else if (helm) {
+          await expect(create).toBeEnabled();
+          await create.click();
+          const editor = page.getByRole("dialog", { name: createLabel, exact: true });
+          await expect(editor).toBeVisible();
+          await expect(editor.getByRole("button", { name: "Run server dry-run", exact: true })).toBeDisabled();
+          expect(await calls(page, "helm_install")).toHaveLength(0);
           await editor.getByRole("button", { name: "Cancel", exact: true }).click();
         } else {
           await expect(create).toBeDisabled();
@@ -461,7 +469,7 @@ for (const section of ["secrets", "config-maps"]) {
     const view = resourceViews.find((view) => view.section === section)!;
     await fixture(page, { section }); await ready(page, view.label);
     await expect(page.getByText("Metadata only. Data values and key names are not loaded.", { exact: true })).toHaveCount(0);
-    await expect(table(page, view.label).getByRole("columnheader")).toHaveText(["Name", "Namespace", "Age", "Status"]);
+    await expect(table(page, view.label).getByRole("columnheader")).toHaveText(["Select all rows", "Name", "Namespace", "Age", "Status"]);
     await expect(page.locator("body")).not.toContainText("PRIVATE_VALUE");
     await expect(page.locator("body")).not.toContainText("private-key-name");
     const parsed = await page.evaluate(async () => {
@@ -472,7 +480,9 @@ for (const section of ["secrets", "config-maps"]) {
     });
     expect(parsed).toHaveLength(2);
     for (const item of parsed) {
-      expect(Object.keys(item).sort()).toEqual(["columns", "createdAt", "name", "namespace", "node", "status"]);
+      expect(Object.keys(item).sort()).toEqual(["columns", "createdAt", "name", "namespace", "node", "resourceVersion", "status", "uid"]);
+      expect(item.uid).toBe(`uid-${item.namespace}-${item.name}`);
+      expect(item.resourceVersion).toBe("123");
       expect(item.columns).toEqual({}); expect(item.node).toBeNull();
       expect(JSON.stringify(item)).not.toMatch(/private-key|PRIVATE_VALUE|data|stringData/);
     }

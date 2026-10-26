@@ -32,9 +32,11 @@ saved web links open
 in the default OS browser through a Rust-owned saved-ID command.
 The workspace workflows include bounded resource inventories, Pod LIST/WATCH sync,
 protected Pod details/YAML and confirmed mutations, logs, exec/attach, loopback
-forwards, and read-only Helm chart/release inventory. Resource tables are ordinary
-workspace navigation; there is no Resource tables toggle or preference. Other resource
-creation and Helm installation remain disabled.
+forwards, Helm chart/release inventory, and explicit Helm installation. Resource tables are ordinary
+workspace navigation; there is no Resource tables toggle or preference. All 41 allowlisted
+Kubernetes resource kinds expose metadata-scaffold YAML creation with server dry-run
+and confirmation, plus checkbox selection and confirmed deletion. API availability,
+schema validity and RBAC remain server-enforced; scaffolds are not complete manifests.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
 ## Existing visual direction
@@ -344,8 +346,10 @@ Namespace selection immediately scopes the resource read in Rust, resets its
 continuation, and disposes the previous read. A changed namespace also disposes the
 old Pod LIST/WATCH sync before the replacement is started, so late results cannot
 cross scopes. The same selector and immediate-selection contract is used by the
-Helm releases page and the port-forward form. Search/Status filters still operate
-on the currently loaded resource page. The port-forward table's existing namespace
+Helm releases page and the port-forward form. Kubernetes Search/Status filters scan
+continuation pages in Rust within explicit bounds (10 pages, 1,000 scanned items,
+5 seconds, 100 returned matches), retaining the next unscanned continuation when partial.
+The port-forward table's existing namespace
 filter still filters loaded local sessions; it does not change to a cluster-resource
 read or a namespace-discovery request.
 
@@ -363,28 +367,92 @@ Behavior-only reference: local `/Volumes/Data/Kerjaa/freelens`, commit
 `088d08513c8c149365dd802c588b9b0b90c6293e`. No upstream code was copied.
 `connection.rs`, `connection/transport.rs`, and `connection/resources.rs` own
 allowlisted GETs, namespace/pagination validation, bounded safe projections, and
-session/read cancellation. The renderer only filters the current loaded page.
+session/read cancellation. Kubernetes filtering now belongs to Rust; Helm and local
+forward inventories retain loaded-row filtering.
 Namespace selection immediately changes the Rust request scope and resets continuation.
-Search and Status are local filters; CRD Definitions also has a Group filter.
+Search and Status are bounded server-side scans; CRD Definitions also has a Group filter.
 Continuation pages are bounded to 100 items and never presented as a total.
 
 | Source under `packages/core/src/renderer/components/` | Expected interaction / UI limits | Acceptance |
 | --- | --- | --- |
-| `nodes/` | Independent Nodes table and local search; safe node facts and optional metrics remain available independently; `connection/transport/nodes.rs`, `connection/metrics.rs` | `src-tauri/src/connection/node_tests.rs`; `tests/nodes-table.spec.ts` |
-| `workloads-{pods,deployments,daemonsets,statefulsets,replicasets,replication-controllers,jobs,cronjobs}/` | Per-kind columns, namespace scope, local search/status; distinguish current/desired replicas and CronJob active references without exposing payloads | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
-| `config-{maps,secrets,resource-quotas,limit-ranges,horizontal-pod-autoscalers,vertical-pod-autoscalers,pod-disruption-budgets,priority-classes,runtime-classes,leases,mutating-webhook-configurations,validating-webhook-configurations,validating-admission-policies,validating-admission-policy-bindings}/` | Safe spec/count columns; Secrets/ConfigMaps remain metadata-only, with no data or key names; reference Secret/Quota creation buttons are disabled | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
+| `nodes/` | Independent Nodes table and bounded Rust search; safe node facts and optional metrics remain available independently; `connection/transport/nodes.rs`, `connection/metrics.rs` | `src-tauri/src/connection/node_tests.rs`; `tests/nodes-table.spec.ts` |
+| `workloads-{pods,deployments,daemonsets,statefulsets,replicasets,replication-controllers,jobs,cronjobs}/` | Per-kind columns, namespace scope, bounded search/status; distinguish current/desired replicas and CronJob active references without exposing payloads | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
+| `config-{maps,secrets,resource-quotas,limit-ranges,horizontal-pod-autoscalers,vertical-pod-autoscalers,pod-disruption-budgets,priority-classes,runtime-classes,leases,mutating-webhook-configurations,validating-webhook-configurations,validating-admission-policies,validating-admission-policy-bindings}/` | Safe spec/count columns; Secrets/ConfigMaps inventory remains metadata-only, with no data or key names; creation uses explicit YAML/dry-run/confirmation | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
 | `network-{services,endpoints,endpoint-slices,ingresses,ingress-classes,policies}/`, `storage-{volume-claims,volumes,classes}/` | Resource tables and filters; counts are labeled as counts rather than addresses; missing values remain N/A | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
-| `namespaces/route.tsx`, `events/events.tsx`, `user-management/*/view.tsx`, `pod-security-policies/pod-security-policies.tsx` | Namespace labels and role subjects are counts only; event messages are not projected; namespace/access-control creation buttons are disabled; removed PSP API returns unavailable, never empty | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
-| `custom-resource-definitions/view.tsx` | Definition group/version/scope columns and local Group filter; no arbitrary custom-resource URL or payload fetching | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
-| `helm-charts/{helm-charts,helm-chart-details}.tsx`, `helm-releases/releases.tsx`, `network-port-forwards/` | Rust-owned Helm chart/release tables and a Rust-owned port-forward session table; Install and resource creation remain disabled, but forward start/stop is implemented | `tests/service-tables.spec.ts`; `src-tauri/src/connection/helm_tests.rs`, `pod_runtime_tests.rs` |
+| `namespaces/route.tsx`, `events/events.tsx`, `user-management/*/view.tsx`, `pod-security-policies/pod-security-policies.tsx` | Namespace labels and role subjects are counts only; event messages are not projected; creation requires dry-run/confirmation; removed PSP API returns unavailable, never empty | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
+| `custom-resource-definitions/view.tsx` | Definition group/version/scope columns and bounded Rust Group filter; no arbitrary custom-resource URL or payload fetching | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
+| `helm-charts/{helm-charts,helm-chart-details}.tsx`, `helm-releases/releases.tsx`, `network-port-forwards/` | Rust-owned Helm chart/release tables, explicit installation, and a Rust-owned port-forward session table with start/stop | `tests/service-tables.spec.ts`; `src-tauri/src/connection/helm_tests.rs`, `pod_runtime_tests.rs` |
 
 Replacement views retain loading, empty, filtered-empty, failed, stale, partial,
-disconnected, and unsupported-API states. Filters are explicitly page-local;
+disconnected, and unsupported-API states. Kubernetes scans are explicitly bounded;
 metadata count columns intentionally differ from Freelens payload-rich views.
 Acceptance uses mocked IPC and synthetic Kubernetes objects only. It does not
 establish real-cluster authentication, native window behavior, or feature parity.
 
+### Resource checkboxes and confirmed deletion
+
+Behavior-only reference: `/Users/user1/Kerjaa/freelens`, commit
+`cd07118f843c4a69f937a319a37a7c12ef2c92d8`, inspected 2026-10-26:
+`packages/core/src/renderer/components/item-object-list/content.tsx` (row checkboxes,
+select-all of enabled visible items, selected-item removal confirmation),
+`packages/core/src/common/item.store.ts` (ID-based selection),
+`packages/core/src/renderer/components/add-remove-buttons/add-remove-buttons.tsx`
+(adjacent remove/add actions), and `packages/core/src/common/k8s-api/kube-object.store.ts`
+(selected resource removal). No upstream source was copied or adapted.
+
+`ResourceSelection.tsx` uses Astryx controlled selection with accessible row names,
+a mixed-state header checkbox, a count and Clear selection. Selection is confined
+to the currently displayed Kubernetes page and resets on filter, page, namespace,
+kind or session changes. Refresh/live updates retain only visible matching UIDs;
+a replacement with the same name is not selected. Rows lacking UID/resourceVersion
+remain readable but cannot be selected. Inventory DTOs project only bounded identity
+metadata, never whole objects or Secret contents.
+
+`ResourceActions.tsx` groups Delete immediately left of Create at the bottom right,
+outside the scrolling viewport and above the Pod dock. Delete is disabled without
+selection or while inventory is loading/failed. Confirmation captures exact targets
+and shows cluster, context and namespace/name identities. There is no destructive
+action on checkbox activation or dialog open. Unlike Freelens's parallel Promise.all
+removal, Icekube submits at most one mutation at a time, at most the 100 displayed
+resources, and retains per-item success/failure results. Accepted targets are
+deselected as each response arrives; failed targets remain selected if still visible.
+Stopping a partially completed batch retains those known results alongside the
+active request's uncertainty. Refresh or a non-syncing live state invalidates an
+open confirmation and stops queued submissions. There is no automatic
+retry or optimistic claim that accepted resources have disappeared.
+
+Rust owner: `connection/delete.rs` behind `cluster_resource_delete` and
+`cluster_resource_delete_cancel`. Each single-resource operation validates session,
+kind, namespace/name, UID and version; performs a bounded preflight GET; then sends
+DELETE to an allowlisted path with UID/resourceVersion preconditions and Background
+propagation. Normal grace periods/finalizers remain intact; there is no collection
+delete, force deletion, renderer URL, persisted selection, or raw server diagnostics.
+Delete has an independent per-kind cancellation lane and monotonic request IDs.
+Stop/Escape/view disposal cancels exact pending work and prevents queued submissions;
+submitted deletes cannot be rolled back. Responses distinguish deletion accepted
+from completed deletion, and errors/cancellation preserve outcome uncertainty.
+
+States: unselected, partially selected, all displayed rows selected, disabled/stale,
+confirmation, submitting, partial failure, accepted, canceled/uncertain, and disposed.
+Acceptance: all 41 Kubernetes kinds, keyboard/checkbox isolation, mixed-state header,
+scope reset, UID replacement, exact IPC identity, sequential deletes, partial errors,
+response validation, duplicate guard, cancellation/late-result isolation, and
+1440/390-width FAB placement with/without Pod dock in `tests/resource-delete.spec.ts`;
+precondition/path/response/cancellation tests in `connection/delete_tests.rs`;
+identity redaction in `tests/resource-identity.spec.ts` and `resources.rs` unit tests.
+Helm releases and local forward sessions are not generic Kubernetes deletion targets;
+their uninstall/stop operations are separate workflows.
+
 ### Helm and forward table services
+
+Creation actions are bottom-right icon buttons: Kubernetes tables open YAML
+creation, both Helm pages open chart installation, and Port Forwarding opens its
+namespace/Pod/ports dialog. Dialog open alone sends no mutation. Refresh remains
+in the top-row Cluster actions menu; starting a forward resolves the exact Pod UID
+before submitting through Rust. Narrow-window bounds, keyboard focus return,
+validation, failed-start retry and late-start ownership are covered in
+`tests/service-tables.spec.ts`; Helm dry-run/confirmation and cancellation are
+covered in `tests/helm-install.spec.ts` and `connection/helm_install_tests.rs`.
 
 `connection/helm.rs` invokes an installed Helm executable from Rust with fixed
 arguments, not a shell command. Charts uses `helm search repo -o json` against the
@@ -396,7 +464,8 @@ projects at most 500 rows, and supervises the process group/job with cancellatio
 deadline, kill/reap, and temporary-file cleanup. Read IDs reject superseded work.
 Missing Helm, failure, malformed output, loading, legitimate empty, filtered-empty,
 partial, and retained stale inventory are distinct states. Helm's own list limit can
-make releases partial even below the display cap. Install stays disabled.
+make releases partial even below the display cap. Installation is a separate explicit
+Rust-owned dry-run/confirmation flow, not a side effect of reading either table.
 
 The forward table is an inventory of this workspace's Rust-owned sessions, not an
 API resource list. It can start a forward after resolving the exact Pod UID, filter
@@ -408,7 +477,8 @@ an external browser or exposes a non-loopback listener.
 ### Pod tables, details, and sessions
 
 The Pod table is a bounded Rust projection of a Kubernetes `LIST`, with an optional
-Rust-owned `WATCH` sync on the first page. Its **Live sync** switch remains opt-in;
+Rust-owned `WATCH` sync on the first page. Its **Enable/Pause live sync** action in
+the top-row Cluster actions menu remains opt-in;
 it controls Pod LIST/WATCH, not access to resource tables. The engine validates the object kind,
 namespace, identity, resource version, continuation, and typed watch event before
 projecting safe row fields. Typed snapshots carry a monotonic IPC sequence; raw
@@ -416,8 +486,13 @@ watch objects never reach the renderer. It keeps a sorted inventory capped at 10
 items, relists
 on an expired or incomplete watch, and reports partial data rather than presenting a
 total. Namespace changes, continuation changes, refresh, disabling Live sync, workspace
-changes, and disconnect cancel the exact owned read or sync. The renderer applies only local
-search, status, and loaded-page filters.
+changes, and disconnect cancel the exact owned read or sync. Search/status filters
+leave live mode and use the bounded Rust continuation scan described above.
+`PodSyncRuntime::start` spawns tracked tasks on the explicit Tauri app runtime,
+not an assumed thread-local Tokio runtime. The ordinary-thread regression
+`sync_start_from_native_command_thread_uses_app_runtime_and_drains` covers this
+native command-thread boundary; browser repeat-toggle/held-read tests cover UI
+cleanup, not a native OS crash reproduction.
 
 Selecting a Pod name or row action opens a cluster/session-scoped reusable bottom
 dock. Details fetches the Pod and its related events through Rust, and retains stale details when a
@@ -437,8 +512,8 @@ environment, commands, volumes, and credentials are preserved in the live object
 not sent as editable payloads or overwritten with redaction markers. Kubernetes may
 still reject immutable spec changes. Delete, force-delete,
 finalize, and replacement require explicit confirmation and exact Pod UID/resource
-version checks. Creation controls outside the Pod workflow remain disabled; this is
-not a general mutation or feature-parity claim.
+version checks. Generic resource creation/deletion is separately bounded to the
+41 allowlisted kinds described above, not a mutation or feature-parity guarantee.
 
 Logs use the Kubernetes API log stream through Rust and publish bounded ring-buffer
 snapshots over typed IPC. Tail, previous-container, and timestamp choices are scoped

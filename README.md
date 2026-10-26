@@ -16,6 +16,35 @@ Say goodbye to clunky kube managed experience and don't loose all of your RAM us
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
 
+## Resource selection and deletion
+
+Kubernetes resource tables have row checkboxes and a select-all checkbox for the
+displayed page. The selection count and Clear selection appear in the filter row.
+Selection resets when you change filters, pages, namespaces, or workspace sessions;
+it never selects unseen continuation pages. Rows without safe UID/version metadata
+cannot be selected.
+
+Delete sits at the bottom right, immediately beside Create. Review the selected
+names, cluster, and context in its confirmation dialog before submitting. Rust
+checks each resource's UID and version again and deletes resources one at a time
+with Kubernetes preconditions. Successful requests are deselected; failures remain
+visible in the results. An accepted deletion can still be waiting for grace periods
+or finalizers. Stop cancels pending work, not deletions already sent to the server;
+known results are retained, and accepted targets stay deselected. Refresh before
+retrying an uncertain result. Loading, failed, or non-syncing live inventory cannot
+start a deletion; becoming stale invalidates an open confirmation.
+
+This applies to the 41 allowlisted Kubernetes resource kinds. Helm uninstall and
+local port-forward stop/remove are separate workflows, not generic resource deletes.
+Automated coverage uses synthetic objects and mocked IPC; it does not establish
+real-cluster success or native window behavior.
+
+Create opens YAML creation on Kubernetes tables, Install opens chart installation
+on both Helm pages, and Create port forward opens the namespace/Pod/ports form.
+These actions sit at the bottom right; Refresh and Live sync remain in Cluster
+actions. Resource creation and Helm installation require server dry-run followed
+by confirmation. Opening a dialog alone does not submit a mutation.
+
 ## Standalone React DevTools (development only)
 
 Icekube can opt into the standalone React DevTools bridge for local React 19

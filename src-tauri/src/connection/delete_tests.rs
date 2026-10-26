@@ -559,25 +559,3 @@ async fn deadline_cancels_transport_and_releases_slot() {
     );
     tokio::time::resume();
 }
-
-#[tokio::test(start_paused = true)]
-async fn diagnose_create_paused_setup() {
-    let (_root, _catalog, engine, id, _) = fixture();
-    let started = Arc::new(tokio::sync::Notify::new());
-    let signal = started.clone();
-    let client = Client::new(transport::CancelService(tower::service_fn(move |r: Request<Body>| {
-        let signal = signal.clone();
-        async move {
-            if r.uri().path() == "/version" {
-                return Ok::<_, std::io::Error>(Response::new(Body::from(tests::normal("/version").1)));
-            }
-            signal.notify_one();
-            std::future::pending::<std::result::Result<Response<Body>, std::io::Error>>().await
-        }
-    })), "default");
-    let lease = connected(&engine, id, client).await;
-    eprintln!("diagnostic lease status={} error={:?}", lease.status, lease.error);
-    let r = create::CreateRequest {cluster_id:lease.cluster_id,session_id:lease.session_id,kind:ResourceKind::Pods,namespace:None,yaml:"apiVersion: v1\nkind: Pod\nmetadata:\n  name: sample\n".into(),dry_run:true,read_id:1};
-    let mut work = Box::pin(engine.create(r));
-    tokio::select! { biased; result = &mut work => eprintln!("diagnostic create result={result:?}"), _ = started.notified() => eprintln!("diagnostic request started") }
-}
