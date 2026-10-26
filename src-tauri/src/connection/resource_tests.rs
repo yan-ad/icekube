@@ -184,7 +184,14 @@ fn fixed_endpoints_cover_every_resource_kind_and_wire_spelling() {
         let mut request = request(kind);
         assert_eq!(
             transport::resource_path(&request),
-            format!("{path}?limit=100&timeoutSeconds=10")
+            format!(
+                "{path}?limit={}&timeoutSeconds=10",
+                if kind == ResourceKind::CustomResourceDefinitions {
+                    10
+                } else {
+                    100
+                }
+            )
         );
         request.namespace = Some("team-a".into());
         assert_eq!(
@@ -193,6 +200,9 @@ fn fixed_endpoints_cover_every_resource_kind_and_wire_spelling() {
         );
     }
 }
+
+#[path = "crd_fetch_tests.rs"]
+mod crd_fetch_tests;
 
 #[test]
 fn workload_facts_use_observed_current_and_spec_desired_values() {

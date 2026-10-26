@@ -299,7 +299,7 @@ test("all 43 registry views expose their direct route, columns and explicit crea
           await create.click();
           const editor = page.getByRole("dialog", { name: createLabel, exact: true });
           await expect(editor).toBeVisible();
-          await expect(editor.getByRole("textbox", { name: "Resource YAML", exact: true })).toHaveValue(
+          await expect(editor.getByRole("textbox", { name: "Resource YAML", exact: true })).toHaveText(
             `apiVersion: ${resourceCreation[view.kind].apiVersion}\nkind: ${resourceCreation[view.kind].kind}\nmetadata:\n  name: ""\n`,
           );
           await expect(editor.getByRole("button", { name: "Validate YAML", exact: true })).toBeEnabled();

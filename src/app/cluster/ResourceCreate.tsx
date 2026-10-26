@@ -5,7 +5,7 @@ import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
+import { YamlEditor } from "../components/YamlEditor";
 import { IconPlus } from "@tabler/icons-react";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { nextReadId, type ResourceKind, type SessionRequest } from "./api";
@@ -100,7 +100,7 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
       </VStack>
       {validated ? <Text>Server dry-run passed. Confirm creation of this exact resource. Manifest contents are hidden during confirmation.</Text> : <>
         <Text>Metadata scaffold only. Fill in a name and all required resource-specific fields. YAML is kept only in this dialog and sent to the Rust engine; do not paste credentials you do not intend to send to this cluster.</Text>
-        <TextArea label="Resource YAML" value={yaml} rows={14} hasSpellCheck={false} autoComplete="off" isReadOnly={busy}
+        <YamlEditor label="Resource YAML" value={yaml} rows={14} isReadOnly={busy}
           onChange={value => { if (!active.current) { setYaml(value); setValidated(null); setError(null); } }} />
       </>}
       {error && <Text role="alert">{error}</Text>}

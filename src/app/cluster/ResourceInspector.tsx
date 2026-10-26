@@ -1,6 +1,9 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconX, IconArrowsMaximize, IconArrowsMinimize, IconRefresh } from "@tabler/icons-react";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -75,28 +78,88 @@ export function ResourceRelationLink({ reference, children, navigate = true }: {
 export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
   const { selection, isOpen, closeInspector } = useResourceInspector();
   const panel = useRef<HTMLElement | null>(null);
+  const [width, setWidth] = useState(54);
+  const [expanded, setExpanded] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [minimum, setMinimum] = useState(20);
+  const drag = useRef<{ id: number; target: HTMLElement; x: number; width: number; parent: number } | null>(null);
+  const endDrag = useCallback(() => {
+    const current = drag.current;
+    drag.current = null;
+    if (current?.target.hasPointerCapture(current.id)) current.target.releasePointerCapture(current.id);
+    setDragging(false);
+  }, []);
+  useEffect(() => {
+    if (!isOpen) { endDrag(); setExpanded(false); }
+  }, [isOpen, endDrag]);
+  useEffect(() => {
+    const parent = panel.current?.parentElement;
+    if (!parent) return;
+    const measure = () => {
+      const parentWidth = parent.getBoundingClientRect().width;
+      const rem = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      if (parentWidth > 0) setMinimum(Math.min(45, 14 * rem / parentWidth * 100));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(parent);
+    return () => { observer.disconnect(); const current = drag.current; drag.current = null;
+      if (current?.target.hasPointerCapture(current.id)) current.target.releasePointerCapture(current.id); };
+  }, []);
   useEffect(() => {
     if (!isOpen) return;
     const timer = requestAnimationFrame(() => panel.current?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('dialog[open], [role="menu"]')) return;
+      if (event.composedPath().some(target => target instanceof HTMLElement &&
+        (target.isContentEditable || target.matches('input, textarea, select, [role="textbox"], [role="terminal"]')))) return;
       event.preventDefault(); closeInspector();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => { cancelAnimationFrame(timer); window.removeEventListener("keydown", onKeyDown); };
   }, [isOpen, closeInspector]);
-  if (!isOpen || !selection) return null;
+  const boundedWidth = Math.max(minimum, Math.min(75, width));
+  const resize = (next: number) => { setExpanded(false); setWidth(Math.max(minimum, Math.min(75, next))); };
   const title = selection?.type === "summary" ? selection.summary.title : selection ? `${resourceKindLabel(selection.reference.kind)}: ${selection.reference.name}` : "Resource details";
-  return <VStack as="aside" role="region" aria-label="Resource details" ref={panel} tabIndex={-1} gap={0}
-    style={{ flex: "0 0 min(42rem, 54%)", minWidth: 0, minHeight: 0, overflow: "hidden", borderInlineStart: "var(--border-width-thin) solid var(--color-border-subtle)", background: "var(--color-background-primary)" }}>
-    <Layout height="fill" header={<HStack padding={3} gap={2} vAlign="center" hAlign="between"><Heading level={2} wordBreak="break-all">{title}</Heading><Button label="Close" size="sm" variant="ghost" onClick={closeInspector} /></HStack>} content={<LayoutContent isScrollable padding={0}>
+  return <VStack as="aside" role={isOpen ? "region" : undefined} aria-label={isOpen ? "Resource details" : undefined}
+    aria-hidden={!isOpen} inert={!isOpen} ref={panel} tabIndex={isOpen ? -1 : undefined} gap={0}
+    className="resource-inspector" data-open={isOpen} data-dragging={dragging} data-expanded={expanded}
+    style={{ "--inspector-width": `${expanded ? 75 : boundedWidth}%` } as CSSProperties}>
+    {isOpen && selection && <>
+    <HStack role="separator" aria-label="Resize resource details" aria-orientation="vertical" tabIndex={0}
+      aria-valuemin={Math.ceil(minimum)} aria-valuemax={75} aria-valuenow={Math.round(expanded ? 75 : boundedWidth)} aria-valuetext={`${Math.round(expanded ? 75 : boundedWidth)}% of workspace`}
+      className="resource-inspector-resize"
+      onPointerDown={event => {
+        if (event.button !== 0 || !event.isPrimary) return;
+        event.preventDefault(); event.currentTarget.focus();
+        const parent = panel.current!.parentElement!.getBoundingClientRect().width;
+        drag.current = { id: event.pointerId, target: event.currentTarget, x: event.clientX, width: panel.current!.getBoundingClientRect().width, parent };
+        event.currentTarget.setPointerCapture(event.pointerId); setDragging(true);
+      }}
+      onPointerMove={event => { const current = drag.current; if (current?.id === event.pointerId) resize((current.width + current.x - event.clientX) / current.parent * 100); }}
+      onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
+      onKeyDown={event => {
+        const current = expanded ? 75 : boundedWidth;
+        const next = event.key === "Home" ? minimum : event.key === "End" ? 75 : event.key === "ArrowLeft" ? current + 2 : event.key === "ArrowRight" ? current - 2 : null;
+        if (next !== null) { event.preventDefault(); resize(next); }
+      }} />
+    <Layout height="fill" header={<HStack padding={3} gap={2} vAlign="center" hAlign="between" wrap="wrap">
+      <Heading level={2} wordBreak="break-all" style={{ minWidth: 0, flex: "1 1 8rem" }}>{title}</Heading>
+      <HStack gap={1}>
+        {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
+        <IconButton label={expanded ? "Restore inspector width" : "Expand inspector"} tooltip={expanded ? "Restore inspector width" : "Expand inspector"} icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} />} size="sm" variant="ghost" onClick={() => { endDrag(); setExpanded(value => !value); }} />
+        <IconButton label="Close inspector" tooltip="Close inspector" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={closeInspector} />
+      </HStack>
+    </HStack>} content={<LayoutContent isScrollable padding={0}>
       {selection && isOpen && (selection.type === "summary" ? <VStack padding={4} gap={3}>
         {selection.summary.status && <StatusBadge status={selection.summary.status} />}
         <MetadataList label={{ position: "top" }}>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</MetadataList>
       </VStack> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
-        <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.reference])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} /> :
-        <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} />)}
+        <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.reference, revision])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} /> :
+        <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={setLoading} />)}
     </LayoutContent>} />
+    </>}
   </VStack>;
 }
 
@@ -111,7 +174,7 @@ function InspectedPod({ clusterId, sessionId, reference, edit }: SessionRequest 
     [clusterId, sessionId, reference.namespace, reference.name, reference.uid]);
   return <PodTab tab={{ id: "resource-inspector", mode: edit ? "edit" : "details", pod }} visible />;
 }
-function ResourceDetails({ clusterId, sessionId, selection }: SessionRequest & { selection: Extract<Selection, { type: "resource" }> }) {
+function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingChange }: SessionRequest & { selection: Extract<Selection, { type: "resource" }>; revision: number; onLoadingChange: (loading: boolean) => void }) {
   const { navigateResource } = useResourceInspector();
   const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -120,7 +183,7 @@ function ResourceDetails({ clusterId, sessionId, selection }: SessionRequest & {
   useEffect(() => {
     let disposed = false;
     const request = { clusterId, sessionId, reference: selection.reference, readId: nextReadId() };
-    setLoading(true); setError(null);
+    setLoading(true); onLoadingChange(true); setError(null);
     void loadResourceDetail(request).then(next => {
       if (disposed) return;
       if (selection.relatedColumn) {
@@ -130,13 +193,12 @@ function ResourceDetails({ clusterId, sessionId, selection }: SessionRequest & {
       } else setDetail(next);
     }).catch(reason => {
       if (!disposed) setError(reason === "conflict" ? "This resource was replaced. Close details and select its current row." : reason === "resourceUnavailable" || reason === "notFound" ? "This resource or relationship is no longer available. Refresh the list and try again." : connectionMessage(errorCode(reason)));
-    }).finally(() => { if (!disposed) setLoading(false); });
+    }).finally(() => { if (!disposed) { setLoading(false); onLoadingChange(false); } });
     return () => { disposed = true; void cancelResourceDetail(request).catch(() => {}); };
-  }, [clusterId, sessionId, selection, revision, navigateResource]);
+  }, [clusterId, sessionId, selection, revision, navigateResource, onLoadingChange]);
   const view = resourceViews.find(view => view.kind === selection.reference.kind);
   const labels = new Map(view?.columns.map(column => [column.key, column.label]) ?? []);
   return <VStack padding={4} gap={4} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-    <HStack gap={2}><Button label="Refresh details" variant="ghost" size="sm" isDisabled={loading} onClick={() => setRevision(value => value + 1)} /></HStack>
     {loading && <Text role="status">Loading resource details…</Text>}
     {error && <Text role="alert">{detail ? "Retained details may be stale. " : ""}{error}</Text>}
     {detail && <>

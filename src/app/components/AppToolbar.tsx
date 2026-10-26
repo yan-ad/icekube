@@ -18,7 +18,7 @@ import {
 import { useNavigationHistory } from "../layouts/use-navigation-history";
 import { WindowToolbar } from "../layouts/WindowFrame";
 import { getWindowLayout } from "../layouts/window-layout";
-import { CatalogForms } from "../catalog/CatalogForms";
+import { CatalogRefreshButton } from "../catalog/CatalogForms";
 import { useWorkspaceRefresh } from "../cluster/WorkspaceRefresh";
 import { RestartUpdateButton } from "../updates/RestartUpdateButton";
 import { usePreferences } from "../preferences/PreferencesProvider";
@@ -113,7 +113,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         onClick={onSearch}
         aria-keyshortcuts="Control+k Meta+k"
       />
-      {isCatalog && <CatalogForms />}
+      {isCatalog && <CatalogRefreshButton />}
       {clusterId && items.length > 0 && <DropdownMenu presentation="popover" alignment="end" hasChevron={false}
         renderTrigger={props => <IconButton {...props} label="Cluster actions" tooltip="Cluster actions" icon={<Icon icon={IconDots} />} variant="ghost" />}
         items={items} />}

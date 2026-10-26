@@ -297,7 +297,7 @@ test("Pod name and Details reuse the sidebar; stream actions open only bottom do
   await action(page, "Details");
   await expect(inspector(page)).toHaveCount(1);
   await expect(dock(page)).toHaveCount(0);
-  await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toHaveAttribute("readonly", "");
+  await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toHaveAttribute("aria-readonly", "true");
   await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
   await action(page, "Edit YAML");
   await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toBeEditable();
@@ -563,7 +563,7 @@ test("YAML edits are retained after conflict; save confirms exact UID/version an
   await fixture(page, { mutateError: "conflict" }); await action(page, "Edit YAML");
   const yaml = inspector(page).getByRole("textbox", { name: "YAML", exact: true });
   await expect(yaml).toBeEditable();
-  const edited = `${await yaml.inputValue()}# fixture edit\n`;
+  const edited = `${await yaml.textContent()}# fixture edit\n`;
   await yaml.fill(edited);
   await inspector(page).getByRole("button", { name: "Save YAML", exact: true }).click();
   const dialog = mutationDialog(page);
@@ -573,7 +573,7 @@ test("YAML edits are retained after conflict; save confirms exact UID/version an
   await expect(dialog.getByRole("alert")).toContainText("The Pod changed or was replaced");
   expect((await calls(page, "cluster_pod_mutate"))[0].request).toMatchObject({ action: "replace", uid: "pod-uid-123", resourceVersion: "42", yaml: edited });
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
-  await expect(yaml).toHaveValue(edited);
+  await expect(yaml).toHaveText(edited);
   await control(page, { mutateError: undefined });
   await inspector(page).getByRole("button", { name: "Save YAML", exact: true }).click();
   await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();

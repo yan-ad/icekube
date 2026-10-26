@@ -6,7 +6,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Selector } from "@astryxdesign/core/Selector";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
+import { YamlEditor } from "../components/YamlEditor";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlus } from "@tabler/icons-react";
 import { TableActionOverlay } from "./TableToolbar";
@@ -112,7 +112,7 @@ function InstallEditor({ clusterId, sessionId, namespace: initialNamespace, char
           onChange={value => edit(() => setChart(value))} isDisabled={busy} />}
         <TextInput label="Chart repository/name" value={chart} onChange={value => edit(() => setChart(value))} isReadOnly={busy} autoComplete="off" placeholder="repository/chart" />
         <TextInput label="Chart version (optional)" value={version} onChange={value => edit(() => setVersion(value))} isReadOnly={busy} autoComplete="off" />
-        <TextArea label="Values YAML" value={valuesYaml} onChange={value => edit(() => setValuesYaml(value))} rows={10} hasSpellCheck={false} autoComplete="off" isReadOnly={busy} />
+        <YamlEditor label="Values YAML" value={valuesYaml} onChange={value => edit(() => setValuesYaml(value))} rows={10} isReadOnly={busy} />
         <Text type="supporting">Values stay in this dialog and are sent only to the Rust engine. Helm may store supplied values in the cluster release record.</Text>
       </>}
       {error && <Text role="alert">{error}</Text>}

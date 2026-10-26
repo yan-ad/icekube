@@ -66,7 +66,8 @@ export function WindowToolbar({
         gap={0}
         vAlign="center"
         data-testid={hasChrome ? "window-safe-area" : undefined}
-        style={{ minHeight: chromeHeight, flexShrink: 0, userSelect: "none" }}
+        style={{ minHeight: chromeHeight, flexShrink: 0, userSelect: "none",
+          paddingRight: hasChrome && platform === "macos" ? "var(--spacing-3)" : undefined }}
       >
         {hasChrome && platform === "macos" && (
           <StackItem

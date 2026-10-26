@@ -4,7 +4,7 @@ import { Heading } from "@astryxdesign/core/Heading";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
-import { TextArea } from "@astryxdesign/core/TextArea";
+import { YamlEditor } from "../components/YamlEditor";
 import { ResourceRelationLink } from "./ResourceInspector";
 import { StatusBadge } from "./StatusBadge";
 import type { PodDetails, PodMode, PodMutation } from "./podApi";
@@ -108,7 +108,7 @@ export function PodDetailsView({ details, edit, onEdit, onOpen, onAction }: Prop
 
     <VStack gap={3}>
       <Heading level={3}>YAML</Heading>
-      <TextArea label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit} rows={14} hasSpellCheck={false} />
+      <YamlEditor label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit} rows={14} />
       <HStack gap={2} wrap="wrap">
         {edit ? <Button label="Save YAML" onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" onClick={onEdit} />}
         <Button label="Delete" variant="ghost" onClick={() => onAction("delete")} />

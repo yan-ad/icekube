@@ -58,7 +58,7 @@ test("late old dry-run cannot approve or cancel a new dialog's pending validatio
   await openEditor(page); await validate(page, manifest.replace("héllo 🌨", "new dialog"));
   const current = (await calls(page))[1].request;
   expect(current.readId).toBeGreaterThan(old.readId as number);
-  await expect(editor(page)).toHaveAttribute("readonly", "");
+  await expect(editor(page)).toHaveAttribute("aria-readonly", "true");
   await expect.poll(async () => (await calls(page, "cluster_resource_create_cancel")).map(c => c.request)).toEqual([cancelScope(old)]);
   await release(page);
   await expect(dialog(page)).toContainText("Server dry-run passed");
@@ -167,7 +167,7 @@ test("registry covers every supported create kind with no service placeholder", 
 for (const [section, kind, kubeKind, apiVersion, namespaced] of registry) {
   test(`${kind}: FAB opens the expected metadata-only scaffold`, async ({ page }) => {
     await fixture(page, section); await openEditor(page);
-    await expect(editor(page)).toHaveValue(`apiVersion: ${apiVersion}\nkind: ${kubeKind}\nmetadata:\n  name: ""\n`);
+    await expect(editor(page)).toHaveText(`apiVersion: ${apiVersion}\nkind: ${kubeKind}\nmetadata:\n  name: ""\n`);
     await expect(dialog(page)).toContainText(`Kind: ${kubeKind} (${apiVersion})`);
     await expect(dialog(page)).toContainText(namespaced ? "From manifest; default if omitted" : "Cluster-scoped");
     await expect(dialog(page).getByLabel("Creation target")).toContainText("Cluster: Development");
@@ -180,7 +180,7 @@ for (const [section, kind, kubeKind, apiVersion, namespaced] of registry) {
 
 test("dry-run precedes explicit confirm; IPC preserves exact UTF-8 YAML and scoped identity; success refreshes", async ({ page }) => {
   await fixture(page); await namespace(page, "team-a"); await openEditor(page);
-  await expect(editor(page)).toHaveValue(/namespace: team-a\n$/);
+  await expect(editor(page)).toHaveText(/namespace: team-a\n$/);
   const reads = (await calls(page, "cluster_resources")).filter(c => c.request.kind === "configMaps").length;
   await validate(page);
   await expect(dialog(page)).toContainText("Server dry-run passed");
@@ -204,7 +204,7 @@ test("dry-run precedes explicit confirm; IPC preserves exact UTF-8 YAML and scop
 test("Edit YAML invalidates approval and requires a fresh dry-run even before further editing", async ({ page }) => {
   await fixture(page); await openEditor(page); await validate(page);
   await dialog(page).getByRole("button", { name: "Edit YAML", exact: true }).click();
-  await expect(editor(page)).toHaveValue(manifest);
+  await expect(editor(page)).toHaveText(manifest);
   await expect(dialog(page).getByRole("button", { name: "Create ConfigMap", exact: true })).toHaveCount(0);
   const changed = manifest.replace("héllo 🌨", "changed");
   await validate(page, changed);
@@ -223,7 +223,7 @@ for (const [failure, message] of [
   await fixture(page); await controls(page, { failure }); await openEditor(page); await validate(page);
   await expect(dialog(page).getByRole("alert")).toContainText(message);
   await expect(dialog(page).getByRole("alert")).not.toContainText("synthetic-secret-9x");
-  await expect(editor(page)).toHaveValue(manifest);
+  await expect(editor(page)).toHaveText(manifest);
   expect((await calls(page)).map(c => c.request.dryRun)).toEqual([true]);
   await controls(page, { failure: "" });
   await dialog(page).getByRole("button", { name: "Validate YAML", exact: true }).click();
@@ -234,7 +234,7 @@ for (const malformed of ["null", "array", "clusterId", "sessionId", "kind", "nam
   test(`rejects malformed dry-run ${malformed} without losing YAML or enabling POST`, async ({ page }) => {
     await fixture(page); await namespace(page, "team-a"); await controls(page, { malformed }); await openEditor(page); await validate(page);
     await expect(dialog(page).getByRole("alert")).toContainText("unsupported response");
-    await expect(editor(page)).toHaveValue(manifest);
+    await expect(editor(page)).toHaveText(manifest);
     expect((await calls(page)).map(c => c.request.dryRun)).toEqual([true]);
   });
 }
@@ -249,7 +249,7 @@ test("UTF-8 byte limit rejects before IPC and preserves the oversized editor con
   const yaml = manifest + "#" + "é".repeat(132000);
   await validate(page, yaml);
   await expect(dialog(page).getByRole("alert")).toContainText("256 KiB");
-  await expect(editor(page)).toHaveValue(yaml);
+  await expect(editor(page)).toHaveText(yaml);
   expect(await calls(page)).toEqual([]);
 });
 
@@ -261,7 +261,7 @@ for (const phase of ["dry-run", "post"] as const) test(`duplicate ${phase} activ
   const button = dialog(page).getByRole("button", { name: phase === "post" ? "Create ConfigMap" : "Validate YAML", exact: true });
   await button.evaluate(node => { node.dispatchEvent(new MouseEvent("click", { bubbles: true })); node.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
   await expect.poll(async () => (await calls(page)).length).toBe(phase === "post" ? 2 : 1);
-  if (phase === "dry-run") await expect(editor(page)).toHaveAttribute("readonly", "");
+  if (phase === "dry-run") await expect(editor(page)).toHaveAttribute("aria-readonly", "true");
   await release(page);
   if (phase === "post") await expect(dialog(page)).toHaveCount(0);
   else await expect(dialog(page)).toContainText("Server dry-run passed");
@@ -292,7 +292,7 @@ for (const disposal of ["cancel", "escape", "route", "session", "namespace"] as 
     const connected = (await calls(page, "cluster_connect")).at(-1)!.request;
     expect(connected.sessionId).not.toBe(dry.sessionId);
   }
-  await expect(editor(page)).not.toHaveValue(manifest);
+  await expect(editor(page)).not.toHaveText(manifest);
   await expect(dialog(page)).not.toContainText("Server dry-run passed");
   expect((await calls(page)).map(c => c.request.dryRun)).toEqual([true]);
   expect(await calls(page, "cluster_resource_create_cancel")).toHaveLength(1);
@@ -311,7 +311,7 @@ test("cancel after POST warns of uncertainty, cancels exactly that POST, and ign
   await expect(page.getByRole("status").filter({ hasText: uncertainty })).toBeVisible();
   await expect.poll(async () => (await calls(page, "cluster_resource_create_cancel")).map(c => c.request)).toEqual([cancelScope(post)]);
   await release(page); await openEditor(page);
-  await expect(editor(page)).not.toHaveValue(manifest);
+  await expect(editor(page)).not.toHaveText(manifest);
   expect(await calls(page, "cluster_resources")).toHaveLength(reads);
   expect((await calls(page)).map(c => c.request.dryRun)).toEqual([true, false]);
 });
@@ -321,7 +321,7 @@ for (const failure of ["conflict", "network", "identity"] as const) test(`POST $
   const reads = await calls(page, "cluster_resources");
   await controls(page, failure === "identity" ? { postName: "different" } : { postFailure: failure });
   await dialog(page).getByRole("button", { name: "Create ConfigMap", exact: true }).click();
-  await expect(editor(page)).toHaveValue(manifest);
+  await expect(editor(page)).toHaveText(manifest);
   await expect(dialog(page).getByRole("alert")).toContainText(failure === "conflict" ? "already exists" : failure === "identity" ? "unsupported response" : "could not be reached");
   await expect(dialog(page)).toContainText(uncertainty);
   expect(await calls(page, "cluster_resources")).toEqual(reads);

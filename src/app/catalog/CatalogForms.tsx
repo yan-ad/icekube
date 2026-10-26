@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { IconPlus, IconRefresh, IconDots, IconLink } from "@tabler/icons-react";
-import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { IconPlus, IconRefresh, IconLink } from "@tabler/icons-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -11,21 +10,26 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { useCatalog } from "./CatalogProvider";
 import { IconButton } from "@astryxdesign/core/IconButton";
 
+export function CatalogRefreshButton() {
+  const { run, busy, available } = useCatalog();
+  return (
+    <IconButton
+      label="Refresh catalog"
+      tooltip="Refresh catalog"
+      icon={<Icon icon={IconRefresh} />}
+      variant="ghost"
+      isDisabled={busy || !available}
+      onClick={() => void run("catalog_list")}
+    />
+  );
+}
+
 export function CatalogForms() {
   const { run, busy, available, error, snapshot } = useCatalog();
   const [mode, setMode] = useState<"import" | "link" | null>(null);
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
-  const [compact, setCompact] = useState(
-    () => window.matchMedia("(max-width: 64rem)").matches,
-  );
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 64rem)");
-    const update = () => setCompact(media.matches);
-    media.addEventListener("change", update);
-    return () => media.removeEventListener("change", update);
-  }, []);
   function close() {
     if (!busy) {
       setMode(null);
@@ -49,64 +53,30 @@ export function CatalogForms() {
   const disabled = busy || !available || !snapshot;
   return (
     <>
-      {compact ? (
-        <DropdownMenu
-          presentation="popover"
-          alignment="end"
-          renderTrigger={(props) => (
-            <IconButton
-              {...props}
-              label="Catalog actions"
-              tooltip="Catalog actions"
-              variant="ghost"
-              icon={<Icon icon={IconDots} />}
-            />
-          )}
-          items={[
-            {
-              label: "Add config",
-              icon: IconPlus,
-              isDisabled: disabled,
-              onClick: () => setMode("import"),
-            },
-            {
-              label: "Add web link",
-              icon: IconLink,
-              isDisabled: disabled,
-              onClick: () => setMode("link"),
-            },
-            {
-              label: "Refresh catalog",
-              icon: IconRefresh,
-              isDisabled: busy || !available,
-              onClick: () => void run("catalog_list"),
-            },
-          ]}
-        />
-      ) : (
-        <HStack gap={2} style={{ flexShrink: 0 }}>
-          <Button
+      <HStack gap={2} style={{ flexShrink: 0 }}>
+          <IconButton
             label="Add config"
+            tooltip="Add config"
             icon={<Icon icon={IconPlus} />}
-            variant="ghost"
+            variant="primary"
+            size="lg"
+            elevation="med"
+            style={{ borderRadius: "var(--radius-container)" }}
             isDisabled={disabled}
             onClick={() => setMode("import")}
           />
-          <Button
+          <IconButton
             label="Add web link"
-            variant="ghost"
+            tooltip="Add web link"
+            icon={<Icon icon={IconLink} />}
+            variant="primary"
+            size="lg"
+            elevation="med"
+            style={{ borderRadius: "var(--radius-container)" }}
             isDisabled={disabled}
             onClick={() => setMode("link")}
           />
-          <IconButton
-            label="Refresh catalog"
-            icon={<Icon icon={IconRefresh} />}
-            variant="ghost"
-            isDisabled={busy || !available}
-            onClick={() => void run("catalog_list")}
-          />
-        </HStack>
-      )}
+      </HStack>
       <Dialog
         isOpen={mode !== null}
         onOpenChange={(open) => {

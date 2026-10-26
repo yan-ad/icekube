@@ -59,7 +59,7 @@ test.afterEach(async ({ page }) => { expect(await page.evaluate(() => (window as
 for (const view of ["charts", "releases"]) test(`${view}: enabled FAB, explicit namespace, dry-run then confirmation and install refresh`, async ({ page }) => {
   await fixture(page, view); await open(page);
   await expect(dialog(page).getByRole("button", { name: "Run server dry-run", exact: true })).toBeDisabled();
-  await expect(dialog(page).getByRole("textbox", { name: "Values YAML", exact: true })).toHaveValue("{}\n");
+  await expect(dialog(page).getByRole("textbox", { name: "Values YAML", exact: true })).toHaveText("{}\n");
   await fill(page);
   const values = "privateFixture: synthetic-secret-9x\n";
   await dialog(page).getByRole("textbox", { name: "Values YAML", exact: true }).fill(values);
@@ -100,7 +100,7 @@ test("editing invalidates dry-run and retains values", async ({ page }) => {
 for (const malformed of ["clusterId", "sessionId", "namespace", "releaseName", "chart", "created"]) test(`reject mismatched ${malformed}`, async ({ page }) => {
   await fixture(page); await control(page, { malformed }); await open(page); await fill(page); await dryRun(page);
   await expect(dialog(page).getByRole("alert")).toContainText("unsupported response");
-  await expect(dialog(page).getByRole("textbox", { name: "Values YAML", exact: true })).toHaveValue("{}\n");
+  await expect(dialog(page).getByRole("textbox", { name: "Values YAML", exact: true })).toHaveText("{}\n");
   expect((await calls(page)).map(call => call.request.dryRun)).toEqual([true]);
 });
 for (const post of [false, true]) test(`${post ? "install" : "dry-run"} sanitized failure and uncertainty`, async ({ page }) => {

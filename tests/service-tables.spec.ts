@@ -188,7 +188,7 @@ test("Helm charts search cached inventory locally and open explicit installation
   await expect(dialog).toContainText("Context: dev");
   await expect(dialog.getByRole("textbox", { name: "Release name", exact: true })).toHaveValue("");
   await expect(dialog.getByRole("textbox", { name: "Chart repository/name", exact: true })).toHaveValue("");
-  await expect(dialog.getByRole("textbox", { name: "Values YAML", exact: true })).toHaveValue("{}\n");
+  await expect(dialog.getByRole("textbox", { name: "Values YAML", exact: true })).toHaveText("{}\n");
   await expect(dialog.getByRole("button", { name: "Run server dry-run", exact: true })).toBeDisabled();
   await expect(dialog.getByRole("button", { name: "Install release", exact: true })).toHaveCount(0);
   expect(await calls(page, "helm_install")).toEqual([]);

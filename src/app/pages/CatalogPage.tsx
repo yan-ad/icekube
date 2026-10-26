@@ -23,9 +23,10 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { catalogError } from "../catalog/api";
+import { CatalogForms } from "../catalog/CatalogForms";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { RecordIcon, kindIcons, type CatalogKind } from "../catalog/RecordIcon";
-import { TableToolbar, tableViewport } from "../cluster/TableToolbar";
+import { TableActionOverlay, TableToolbar, tableViewport } from "../cluster/TableToolbar";
 
 type CatalogRow = {
   id: string;
@@ -109,9 +110,9 @@ export default function CatalogPage() {
         <HStack gap={2} vAlign="center">
           <RecordIcon kind={item.category} color={item.color} />
           <VStack gap={1}>
-            <Text>{item.name}</Text>
+            <Text color="accent">{item.name}</Text>
             {item.url && (
-              <Text type="supporting" style={{ overflowWrap: "anywhere" }}>
+              <Text type="supporting" color="accent" style={{ overflowWrap: "anywhere" }}>
                 {item.url}
               </Text>
             )}
@@ -206,8 +207,8 @@ export default function CatalogPage() {
       <Layout
         height="fill"
         content={
-          <LayoutContent padding={6} isScrollable={false}>
-            <VStack gap={0} style={{ height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
+          <LayoutContent padding={0} isScrollable={false}>
+            <VStack gap={0} style={{ position: "relative", height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
               <VisuallyHidden><Heading level={1}>{kind}</Heading></VisuallyHidden>
               <TableToolbar label="Catalog" count={snapshot ? `${filtered.length} items` : loading ? "Loading…" : "Unavailable"}>
                 <TextInput
@@ -221,6 +222,7 @@ export default function CatalogPage() {
                   width="min(17rem, 100%)"
                   placeholder="Filter catalog…"
                 />
+              <TableActionOverlay label="Catalog actions"><CatalogForms /></TableActionOverlay>
               </TableToolbar>
               {error && (
                 <Text role="alert">

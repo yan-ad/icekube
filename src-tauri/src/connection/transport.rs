@@ -11,6 +11,11 @@ use tokio_util::sync::CancellationToken;
 
 const BODY_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 100;
+const CRD_PAGE_LIMIT: usize = 10;
+// CRD schemas can exceed the ordinary inventory budget. Only a single-object
+// retry gets this allowance; schema content never enters the projected DTO.
+const CRD_SINGLE_BODY_LIMIT: usize = 16 * 1024 * 1024;
+const CRD_PROJECTION_LIMIT: usize = 64 * 1024;
 const SCAN_PAGE_LIMIT: usize = 10;
 const SCAN_ITEM_LIMIT: usize = 1_000;
 pub(super) mod nodes;
@@ -82,6 +87,8 @@ pub(super) async fn resources(
     let mut items = Vec::new();
     let mut scanned_pages = 0;
     let mut scanned_items = 0;
+    let mut adaptive_limit = page_limit(request.kind);
+    let mut projected_bytes = 0;
     let mut seen_tokens = HashSet::new();
     let mut seen_names = HashSet::new();
     if let Some(token) = &continuation {
@@ -94,22 +101,26 @@ pub(super) async fn resources(
         if cancel.is_cancelled() {
             return Err(ConnectionError::StaleSession);
         }
-        let limit = ITEM_LIMIT.saturating_sub(items.len());
-        let path = resource_page_path(request, continuation.as_deref(), limit.max(1));
-        let page = if filtered {
-            match tokio::time::timeout_at(
-                deadline,
-                fetch_page(client, request, &path, limit, cancel),
-            )
-            .await
-            {
+        let limit = ITEM_LIMIT.saturating_sub(items.len()).min(adaptive_limit);
+        let fetch = fetch_resource_page(client, request, continuation.as_deref(), limit, cancel);
+        let (page, fetched_limit) = if filtered {
+            match tokio::time::timeout_at(deadline, fetch).await {
                 Ok(result) => result?,
                 Err(_) if scanned_pages > 0 => break,
                 Err(_) => return Err(ConnectionError::Timeout),
             }
         } else {
-            fetch_page(client, request, &path, limit, cancel).await?
+            fetch.await?
         };
+        adaptive_limit = fetched_limit;
+        if request.kind == ResourceKind::CustomResourceDefinitions {
+            projected_bytes += serde_json::to_vec(&page.items)
+                .map_err(|_| ConnectionError::InvalidResponse)?
+                .len();
+            if projected_bytes > CRD_PROJECTION_LIMIT {
+                return Err(ConnectionError::LimitExceeded);
+            }
+        }
         scanned_pages += 1;
         scanned_items += page.items.len();
         items.extend(
@@ -155,11 +166,57 @@ pub(super) async fn resources(
     })
 }
 
+fn page_limit(kind: ResourceKind) -> usize {
+    if kind == ResourceKind::CustomResourceDefinitions {
+        CRD_PAGE_LIMIT
+    } else {
+        ITEM_LIMIT
+    }
+}
+
+async fn fetch_resource_page(
+    client: &Client,
+    request: &ResourceRequest,
+    continuation: Option<&str>,
+    limit: usize,
+    cancel: &CancellationToken,
+) -> Result<(ResourcePage, usize)> {
+    let fetch = async {
+        let path = resource_page_path(request, continuation, limit);
+        let body_limit = if request.kind == ResourceKind::CustomResourceDefinitions && limit == 1 {
+            CRD_SINGLE_BODY_LIMIT
+        } else {
+            BODY_LIMIT
+        };
+        match fetch_page(client, request, &path, limit, body_limit, cancel).await {
+            Err(ConnectionError::LimitExceeded)
+                if request.kind == ResourceKind::CustomResourceDefinitions && limit > 1 =>
+            {
+                if cancel.is_cancelled() {
+                    return Err(ConnectionError::StaleSession);
+                }
+                // Retry the same unconsumed token, not the next server page.
+                let path = resource_page_path(request, continuation, 1);
+                fetch_page(client, request, &path, 1, CRD_SINGLE_BODY_LIMIT, cancel)
+                    .await
+                    .map(|page| (page, 1))
+            }
+            result => result.map(|page| (page, limit)),
+        }
+    };
+    tokio::select! {
+        biased;
+        _ = cancel.cancelled() => Err(ConnectionError::StaleSession),
+        result = tokio::time::timeout(super::DEADLINE, fetch) => result.map_err(|_| ConnectionError::Timeout)?,
+    }
+}
+
 async fn fetch_page(
     client: &Client,
     request: &ResourceRequest,
     path: &str,
     limit: usize,
+    body_limit: usize,
     cancel: &CancellationToken,
 ) -> Result<ResourcePage> {
     let accept = if matches!(
@@ -170,7 +227,7 @@ async fn fetch_page(
     } else {
         "application/json"
     };
-    let list: List = get_with_accept(client, path, BODY_LIMIT, cancel, accept).await?;
+    let list: List = get_with_accept(client, path, body_limit, cancel, accept).await?;
     if matches!(
         request.kind,
         ResourceKind::Secrets | ResourceKind::ConfigMaps
@@ -187,6 +244,7 @@ async fn fetch_page(
     }
     let mut names = HashSet::new();
     let mut items = Vec::new();
+    let mut projected_bytes = 0;
     for raw in list.items {
         let item = super::resources::project(request.kind, raw)?;
         if !names.insert((item.namespace.clone(), item.name.clone()))
@@ -194,6 +252,14 @@ async fn fetch_page(
             || (!super::resources::namespaced(request.kind) && item.namespace.is_some())
         {
             return Err(ConnectionError::InvalidResponse);
+        }
+        if request.kind == ResourceKind::CustomResourceDefinitions {
+            projected_bytes += serde_json::to_vec(&item)
+                .map_err(|_| ConnectionError::InvalidResponse)?
+                .len();
+            if projected_bytes > CRD_PROJECTION_LIMIT {
+                return Err(ConnectionError::LimitExceeded);
+            }
         }
         items.push(item);
     }
@@ -278,7 +344,11 @@ pub(super) fn validate_resource_request(request: &ResourceRequest) -> Result<()>
     Ok(())
 }
 pub(super) fn resource_path(request: &ResourceRequest) -> String {
-    resource_page_path(request, request.continue_token.as_deref(), ITEM_LIMIT)
+    resource_page_path(
+        request,
+        request.continue_token.as_deref(),
+        page_limit(request.kind),
+    )
 }
 fn resource_page_path(
     request: &ResourceRequest,
