@@ -13,6 +13,8 @@ type Options = {
   refreshError?: string;
   connectError?: string;
   connectSnapshotError?: string;
+  reorderedOpens?: boolean;
+  staleConnectOnce?: boolean;
   truncated?: boolean;
   empty?: boolean;
   mismatch?: boolean;
@@ -21,12 +23,36 @@ type Options = {
   contextName?: string;
 };
 
+test("delayed disposed opens cannot invalidate the live StrictMode connection", async ({ page }) => {
+  await fixture(page, { reorderedOpens: true, openDelay: 100, connectDelay: 250 });
+  await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
+});
+
+for (const retry of ["refresh", "connect"] as const) {
+  test(`stale session ${retry} obtains a new lease before connecting`, async ({ page }) => {
+    await fixture(page, { staleConnectOnce: true });
+    await expect(page.getByRole("alert")).toContainText("Connection error [staleSession]");
+    const before = await callList(page);
+    if (retry === "refresh") await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
+    else await menuAction(page, "Connect to cluster");
+    await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
+    await expect(page.getByRole("alert")).toHaveCount(0);
+    const next = (await callList(page)).slice(before.length);
+    expect(next.map((call) => call.command)).toEqual(["cluster_disconnect", "cluster_session_open", "cluster_connect"]);
+    expect(next[2].request.sessionId).not.toBe(before.find((call) => call.command === "cluster_connect")!.request.sessionId);
+  });
+}
+
 async function fixture(page: Page, options: Options = {}) {
   await page.addInitScript((options) => {
     const calls: { command: string; request: Record<string, string | number> }[] = [];
     let sequence = 0;
     let resourceCalls = 0;
     let connectCalls = 0;
+    let openCalls = 0;
+    let activeLease: string | number | null = null;
     const clusters = ["one", "two"].map((id) => ({
       id,
       name: id === "one" ? (options.clusterName ?? "Development") : "Staging",
@@ -54,10 +80,15 @@ async function fixture(page: Page, options: Options = {}) {
           };
           if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters, webLinks: [] };
           if (command === "cluster_session_open") {
-            if (options.openDelay) await new Promise((resolve) => setTimeout(resolve, options.openDelay));
+            const openCall = ++openCalls;
+            if (options.openDelay && (!options.reorderedOpens || openCall === 1)) await new Promise((resolve) => setTimeout(resolve, options.openDelay));
+            activeLease = snapshot.sessionId;
             return snapshot;
           }
-          if (command === "cluster_disconnect") return;
+          if (command === "cluster_disconnect") {
+            if (activeLease === request.sessionId) activeLease = null;
+            return;
+          }
           if (command === "cluster_resources_cancel") {
             if (options.cancelError) throw options.cancelError;
             return;
@@ -65,6 +96,8 @@ async function fixture(page: Page, options: Options = {}) {
           if (command === "cluster_connect") {
             connectCalls++;
             if (options.connectDelay) await new Promise((resolve) => setTimeout(resolve, options.connectDelay));
+            if (options.staleConnectOnce && connectCalls === 1) activeLease = null;
+            if ((options.reorderedOpens || options.staleConnectOnce) && activeLease !== request.sessionId) throw "staleSession";
             if (options.connectError) throw options.connectError;
             if (options.connectSnapshotError && connectCalls === 1) return { ...snapshot, status: "error", error: options.connectSnapshotError };
             return { ...snapshot, status: "connected", apiVersion: "v1.34.1" };
@@ -92,9 +125,9 @@ async function fixture(page: Page, options: Options = {}) {
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto("/#/cluster/one");
   await expect(page.getByRole("heading", { level: 2, name: "Cluster", exact: true })).toBeVisible();
-  if (options.openDelay) await expect(page.getByRole("main")).toContainText("Opening…");
+  if (options.openDelay && !options.reorderedOpens) await expect(page.getByRole("main")).toContainText("Opening…");
   else if (options.connectDelay) await expect(page.getByRole("main")).toContainText("Connecting…");
-  else if (options.connectError || options.connectSnapshotError) await expect(page.getByRole("alert")).toBeVisible();
+  else if (options.connectError || options.connectSnapshotError || options.staleConnectOnce) await expect(page.getByRole("alert")).toBeVisible();
   else await expect(page.getByRole("main")).toContainText("API version: v1.34.1");
 }
 
@@ -157,7 +190,7 @@ test("section navigation does not reconnect and resource navigation cancels the 
   const next = (await callList(page)).slice(before.length);
   expect(next[0]).toEqual({ command: "cluster_resources_cancel", request: previous });
   expect(next[1].command).toBe("cluster_resources");
-  expect(next[1].request).toEqual({ ...previous, kind: "namespaces", readId: next[1].request.readId });
+  expect(next[1].request).toEqual({ ...previous, kind: "namespaces", namespace: null, continueToken: null, readId: next[1].request.readId });
   expect(next[1].request.readId).toBeGreaterThan(previous.readId as number);
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
   expect(initial.filter((call) => call.command === "cluster_connect")).toHaveLength(1);

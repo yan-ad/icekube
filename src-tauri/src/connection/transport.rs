@@ -11,6 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 const BODY_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 100;
+pub(super) mod nodes;
 
 #[derive(Clone)]
 pub(super) struct CancelService<S>(pub S);
@@ -178,15 +179,36 @@ pub(super) fn resource_path(request: &ResourceRequest) -> String {
         DaemonSets => ("/apis/apps/v1", "daemonsets"),
         StatefulSets => ("/apis/apps/v1", "statefulsets"),
         ReplicaSets => ("/apis/apps/v1", "replicasets"),
+        ReplicationControllers => ("/api/v1", "replicationcontrollers"),
         Jobs => ("/apis/batch/v1", "jobs"),
         CronJobs => ("/apis/batch/v1", "cronjobs"),
         HorizontalPodAutoscalers => ("/apis/autoscaling/v2", "horizontalpodautoscalers"),
+        VerticalPodAutoscalers => ("/apis/autoscaling.k8s.io/v1", "verticalpodautoscalers"),
         PodDisruptionBudgets => ("/apis/policy/v1", "poddisruptionbudgets"),
         PriorityClasses => ("/apis/scheduling.k8s.io/v1", "priorityclasses"),
         RuntimeClasses => ("/apis/node.k8s.io/v1", "runtimeclasses"),
+        Leases => ("/apis/coordination.k8s.io/v1", "leases"),
         Ingresses => ("/apis/networking.k8s.io/v1", "ingresses"),
         IngressClasses => ("/apis/networking.k8s.io/v1", "ingressclasses"),
         NetworkPolicies => ("/apis/networking.k8s.io/v1", "networkpolicies"),
+        EndpointSlices => ("/apis/discovery.k8s.io/v1", "endpointslices"),
+        MutatingWebhookConfigurations => (
+            "/apis/admissionregistration.k8s.io/v1",
+            "mutatingwebhookconfigurations",
+        ),
+        ValidatingWebhookConfigurations => (
+            "/apis/admissionregistration.k8s.io/v1",
+            "validatingwebhookconfigurations",
+        ),
+        ValidatingAdmissionPolicies => (
+            "/apis/admissionregistration.k8s.io/v1",
+            "validatingadmissionpolicies",
+        ),
+        ValidatingAdmissionPolicyBindings => (
+            "/apis/admissionregistration.k8s.io/v1",
+            "validatingadmissionpolicybindings",
+        ),
+        PodSecurityPolicies => ("/apis/policy/v1beta1", "podsecuritypolicies"),
         StorageClasses => ("/apis/storage.k8s.io/v1", "storageclasses"),
         Roles => ("/apis/rbac.authorization.k8s.io/v1", "roles"),
         RoleBindings => ("/apis/rbac.authorization.k8s.io/v1", "rolebindings"),

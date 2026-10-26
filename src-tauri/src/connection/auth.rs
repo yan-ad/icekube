@@ -488,13 +488,13 @@ fn parse_expiry(text: &str) -> Result<Timestamp> {
         }
     }
     let zone = &bytes[index..];
-    if !matches!(zone, [b'Z' | b'z'])
-        && !(zone.len() == 6
+    if !(matches!(zone, [b'Z' | b'z'])
+        || (zone.len() == 6
             && matches!(zone[0], b'+' | b'-')
             && zone[3] == b':'
             && [1, 2, 4, 5]
                 .iter()
-                .all(|index| zone[*index].is_ascii_digit()))
+                .all(|index| zone[*index].is_ascii_digit())))
     {
         return Err(ConnectionError::AuthHelperInvalidResponse);
     }

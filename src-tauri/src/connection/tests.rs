@@ -75,6 +75,8 @@ pub(super) fn normal(path: &str) -> (u16, Vec<u8>) {
             {"metadata":{"name":"node-b","annotations":{"SECRET":"PRIVATE"}},"status":{"conditions":[{"type":"Ready","status":"False"}]}},
             {"metadata":{"name":"node-a"},"status":{"conditions":[{"type":"Ready","status":"True"}]}}
         ]})
+    } else if path == "/apis/metrics.k8s.io/v1beta1/nodes?limit=100&timeoutSeconds=10" {
+        json!({"items":[]})
     } else {
         assert!(path.starts_with("/api/v1/namespaces?"));
         json!({"metadata":{},"items":[{"metadata":{"name":"default"},"status":{"phase":"Active"}}]})
