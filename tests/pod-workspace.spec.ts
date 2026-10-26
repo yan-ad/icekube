@@ -3,6 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 type Request = Record<string, string | number | boolean | null>;
 type Call = { command: string; request: Request };
 type Controls = {
+  podName?: string;
   holdStreams?: boolean;
   holdSync?: boolean;
   detailError?: string;
@@ -37,7 +38,8 @@ for (const status of ["exited", "error"] as const) test(`drains ${status} stream
   await page.waitForTimeout(600);
   expect(await calls(page, "cluster_pod_stream_read")).toHaveLength(4);
   const download = page.waitForEvent("download");
-  await dock(page).getByRole("button", { name: "Download buffered", exact: true }).click();
+  await dock(page).getByRole("button", { name: "Download output", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Download buffered", exact: true }).click();
   const file = await (await download).createReadStream(); const parts: Buffer[] = [];
   for await (const part of file!) parts.push(part);
   const value = Buffer.concat(parts).toString();
@@ -45,7 +47,8 @@ for (const status of ["exited", "error"] as const) test(`drains ${status} stream
   expect(value).toContain("a".repeat(65536));
   expect(value).toContain("b".repeat(65536));
   const visibleDownload = page.waitForEvent("download");
-  await dock(page).getByRole("button", { name: "Download visible snapshot", exact: true }).click();
+  await dock(page).getByRole("button", { name: "Download output", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Download visible snapshot", exact: true }).click();
   const visibleFile = await (await visibleDownload).createReadStream(); const visibleParts: Buffer[] = [];
   for await (const part of visibleFile!) visibleParts.push(part);
   expect(Buffer.concat(visibleParts).toString()).toBe(value);
@@ -80,7 +83,7 @@ test("bounds large terminal paste before chunking", async ({ page }) => {
   for (const write of writes) expect(new TextEncoder().encode(String(write.request.data)).length).toBeLessThanOrEqual(16384);
 });
 const grid = (page: Page, name = "Pods") => page.getByRole("table", { name, exact: true });
-const row = (page: Page) => grid(page).getByRole("row").filter({ has: page.getByRole("button", { name: "api-pod", exact: true }) });
+const row = (page: Page, name = "api-pod") => grid(page).getByRole("row").filter({ has: page.getByRole("button", { name, exact: true }) });
 const calls = (page: Page, command: string) => page.evaluate(command =>
   (window as MockWindow).__podCalls.filter(call => call.command === command), command);
 async function control(page: Page, value: Controls) {
@@ -89,8 +92,8 @@ async function control(page: Page, value: Controls) {
 async function navigate(page: Page, section: string) {
   await page.evaluate(hash => { location.hash = hash; }, route(section));
 }
-async function action(page: Page, label: string) {
-  await row(page).getByRole("button", { name: "Actions for api-pod", exact: true }).click();
+async function action(page: Page, label: string, name = "api-pod") {
+  await row(page, name).getByRole("button", { name: `Actions for ${name}`, exact: true }).click();
   await page.getByRole("menuitem", { name: label, exact: true }).click();
 }
 async function openLogs(page: Page) {
@@ -113,7 +116,7 @@ async function fixture(page: Page, options: Controls = {}) {
       truncated: false, fetchedAt: 1793000000000,
       items: r.kind === "namespaces" ? ["team-a", "team-b", "production", "default"].map(name => ({
         name, namespace: null, status: "Active", createdAt: null, node: null, columns: {},
-      })) : [{ name: r.kind === "pods" ? "api-pod" : "api-service", namespace: r.namespace ?? "team-a",
+      })) : [{ name: r.kind === "pods" ? control.podName ?? "api-pod" : "api-service", namespace: r.namespace ?? "team-a",
         status, createdAt: "2026-10-01T00:00:00Z", node: null,
         columns: { ready: "1/1", restarts: "2", node: "worker-a", qos: "Burstable" } }],
     });
@@ -201,7 +204,7 @@ async function fixture(page: Page, options: Controls = {}) {
   }, options);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/#${route("pods")}`);
-  await expect(row(page)).toBeVisible();
+  await expect(row(page, options.podName)).toBeVisible();
 }
 
 async function allStreamsClosed(page: Page) {
@@ -373,14 +376,16 @@ test("logs restart for init/regular container and previous/timestamps; search, p
   await expect.poll(() => page.evaluate(() => (window as MockWindow).__podControl.chunks?.length)).toBe(0);
   await expect(output).not.toContainText("arrived while paused");
   const bufferedDownload = page.waitForEvent("download");
-  await dock(page).getByRole("button", { name: "Download buffered", exact: true }).click();
+  await dock(page).getByRole("button", { name: "Download output", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Download buffered", exact: true }).click();
   const buffered = await bufferedDownload;
   expect(buffered.suggestedFilename()).toBe("pod-buffered.log");
   const stream = await buffered.createReadStream();
   const chunks: Buffer[] = []; for await (const chunk of stream!) chunks.push(chunk);
   expect(Buffer.concat(chunks).toString()).toContain("arrived while paused");
   const visibleDownload = page.waitForEvent("download");
-  await dock(page).getByRole("button", { name: "Download visible snapshot", exact: true }).click();
+  await dock(page).getByRole("button", { name: "Download output", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Download visible snapshot", exact: true }).click();
   const visible = await visibleDownload;
   const visibleStream = await visible.createReadStream();
   const visibleChunks: Buffer[] = []; for await (const chunk of visibleStream!) visibleChunks.push(chunk);
@@ -589,6 +594,25 @@ test("narrow dock keeps tab selection and show/close controls reachable without 
   }
   await dock(page).getByRole("tab", { name: "api-pod · logs", exact: true }).press("Control+w");
   await shell.focus(); await shell.press("Control+w"); await allStreamsClosed(page);
+});
+
+test("compact dock keeps long Pod names from consuming the stream viewport", async ({ page }) => {
+  const name = "alb-internal-ingress-nginx-controller-5f8f95959b-bvh69";
+  await fixture(page, { podName: name }); await action(page, "Logs", name);
+  const podDock = dock(page);
+  const output = podDock.getByLabel("Pod logs", { exact: true });
+  await expect(output).toContainText("boot ready");
+  await expect(podDock.getByRole("button", { name: "Tab actions", exact: true })).toBeVisible();
+  await expect(podDock.getByRole("button", { name: "Minimize dock", exact: true })).toBeVisible();
+  const metrics = await podDock.evaluate(element => {
+    const panel = element.querySelector<HTMLElement>('[role="tabpanel"]');
+    const log = element.querySelector<HTMLElement>('[aria-label="Pod logs"]');
+    const tabs = element.querySelector<HTMLElement>('[role="tablist"]');
+    return { panelHeight: panel?.getBoundingClientRect().height ?? 0, logHeight: log?.getBoundingClientRect().height ?? 0, tabsHeight: tabs?.getBoundingClientRect().height ?? 0 };
+  });
+  expect(metrics.logHeight).toBeGreaterThan(0);
+  expect(metrics.tabsHeight).toBeLessThan(80);
+  expect(metrics.logHeight / metrics.panelHeight).toBeGreaterThan(0.6);
 });
 
 
