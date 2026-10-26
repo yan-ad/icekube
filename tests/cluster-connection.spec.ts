@@ -190,7 +190,7 @@ test("section navigation does not reconnect and resource navigation cancels the 
   const next = (await callList(page)).slice(before.length);
   expect(next[0]).toEqual({ command: "cluster_resources_cancel", request: previous });
   expect(next[1].command).toBe("cluster_resources");
-  expect(next[1].request).toEqual({ ...previous, kind: "namespaces", readId: next[1].request.readId });
+  expect(next[1].request).toEqual({ ...previous, kind: "namespaces", namespace: null, continueToken: null, readId: next[1].request.readId });
   expect(next[1].request.readId).toBeGreaterThan(previous.readId as number);
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
   expect(initial.filter((call) => call.command === "cluster_connect")).toHaveLength(1);

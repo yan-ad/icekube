@@ -58,7 +58,8 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
     await inset.getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${section}$`));
     await expect(page.getByRole("heading", { level: 2, name, exact: true })).toBeVisible();
-    await expect(page.getByRole("main")).toContainText(section === "nodes" ? "No nodes were returned" : "not implemented yet");
+    if (section === "nodes") await expect(page.getByRole("main")).toContainText("No nodes were returned");
+    else await expect(page.getByRole("table", { name: `${name} destinations`, exact: true })).toBeVisible();
   }
   expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel"].includes(call.command))).toBe(true);
   await page.getByRole("link", { name: "Catalog", exact: true }).click();

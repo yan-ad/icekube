@@ -27,7 +27,7 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toHaveCount(0);
   await expect(grid(page, "Helm Releases")).toContainText("edge");
   expect((await page.evaluate(() => (window as MockWindow).__serviceCalls)).every(
-    (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_pod_detail", "cluster_pod_forward_start", "cluster_pod_forward_stop"].includes(call.command),
+    (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_pod_detail", "cluster_pod_forward_start", "cluster_pod_forward_stop"].includes(call.command),
   )).toBe(true);
 });
 
@@ -46,11 +46,17 @@ const calls = (page: Page, command: string) => page.evaluate((command) => (windo
 const navigate = (page: Page, section: string) => page.evaluate((section) => { location.hash = `/cluster/one?section=${section}`; }, section);
 const controls = (page: Page, value: Controls) => page.evaluate((value) => Object.assign((window as MockWindow).__serviceControls, value), value);
 const helmCancelScope = ({ clusterId, sessionId, view, readId }: Request) => ({ clusterId, sessionId, view, readId });
+async function selectNamespace(page: Page, namespace: string) {
+  const selector = page.getByRole("button", { name: /^(?:Pod namespace|Namespace)(?:\s|$)/ });
+  await expect(selector).toBeVisible();
+  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await selector.click();
+  await page.getByRole("option", { name: namespace, exact: true }).click();
+}
 
 async function fixture(page: Page, section = "helm-releases", options: Controls = {}) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript((options) => {
-    localStorage.setItem("icekube.resource-tables.v1", "true");
     const calls: Call[] = [];
     const control = { ...options };
     const pending: (() => void)[] = [];
@@ -74,6 +80,12 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
         };
         if (command === "cluster_disconnect") { forwards = []; return; }
         if (command === "cluster_resources_cancel") return;
+        if (command === "cluster_resources" && request.kind === "namespaces") return {
+          ...request, namespace: null, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null,
+          items: ["team-a", "team-b", "production", "default"].map((name) => ({
+            name, namespace: null, status: "Active", createdAt: null, columns: {}, node: null,
+          })),
+        };
         if (command === "helm_cancel") {
           if (control.holdCancel) await new Promise<void>((resolve) => pendingCancels.push(resolve));
           return;
@@ -128,11 +140,11 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
   }, options);
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(`/#/cluster/one?section=${section}`);
-  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toBeChecked();
+  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
 }
 
 async function startForward(page: Page) {
-  await page.getByRole("textbox", { name: "Namespace", exact: true }).fill("team-a");
+  await selectNamespace(page, "team-a");
   await page.getByRole("textbox", { name: "Pod", exact: true }).fill("api-pod");
   await page.getByRole("textbox", { name: "Port", exact: true }).fill("8080");
   await page.getByRole("button", { name: "Start forward", exact: true }).click();
@@ -143,7 +155,7 @@ test("Helm charts read cached inventory and search locally without enabling inst
   const table = grid(page, "Helm Charts");
   await expect(table).toContainText("Cached HTTP chart");
   await expect(table.getByRole("columnheader")).toHaveText(["Name", "Version", "App version", "Description"]);
-  await expect(page.getByRole("textbox", { name: "Namespace", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(0);
   await expect(page.getByRole("status").filter({ hasText: "local Helm repository cache" })).toBeVisible();
   const before = await calls(page, "helm_table");
   expect(before.at(-1)!.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "charts", namespace: null, readId: expect.any(Number) });
@@ -170,15 +182,11 @@ test("Helm releases combine local search and status with validated namespace rea
   await page.getByRole("textbox", { name: "Search Releases", exact: true }).fill("edge");
   await expect(table).toContainText("No releases match your filters.");
   expect(await calls(page, "helm_table")).toEqual(before);
-  const namespace = page.getByRole("textbox", { name: "Namespace", exact: true });
-  await namespace.fill("Bad_namespace"); await namespace.press("Enter");
-  await expect(page.getByRole("button", { name: "Apply namespace", exact: true })).toBeDisabled();
-  expect(await calls(page, "helm_table")).toEqual(before);
-  await namespace.fill("production"); await namespace.press("Enter");
+  await selectNamespace(page, "production");
   await expect(page.getByRole("status").filter({ hasText: /namespace production$/ })).toBeVisible();
   const productionRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(productionRead).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "releases", namespace: "production", readId: expect.any(Number) });
-  await page.getByRole("button", { name: "All namespaces", exact: true }).click();
+  await selectNamespace(page, "All namespaces");
   await expect(page.getByRole("status").filter({ hasText: /all namespaces$/ })).toBeVisible();
   const allNamespacesRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(allNamespacesRead).toEqual({ clusterId: "one", sessionId: productionRead.sessionId, view: "releases", namespace: null, readId: expect.any(Number) });
@@ -201,8 +209,7 @@ for (const malformed of ["session", "cluster", "view", "namespace", "readId", "i
     await fixture(page);
     await expect(grid(page, "Helm Releases")).toContainText("edge");
     await controls(page, { malformed });
-    const namespace = page.getByRole("textbox", { name: "Namespace", exact: true });
-    await namespace.fill("production"); await namespace.press("Enter");
+    await selectNamespace(page, "production");
     await expect(page.getByRole("alert")).toContainText("unsupported response");
     await expect(grid(page, "Helm Releases")).toHaveCount(0);
     await expect(page.getByText(/were returned/)).toHaveCount(0);
@@ -226,8 +233,7 @@ test("late Helm results cannot cross namespace scopes", async ({ page }) => {
   await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
   const canceled = (await calls(page, "helm_table")).at(-1)!.request;
   await controls(page, { hold: false });
-  await page.getByRole("textbox", { name: "Namespace", exact: true }).fill("production");
-  await page.getByRole("button", { name: "Apply namespace", exact: true }).click();
+  await selectNamespace(page, "production");
   await expect(grid(page, "Helm Releases")).toContainText("production");
   await expect.poll(async () => (await calls(page, "helm_cancel")).at(-1)?.request).toEqual(helmCancelScope(canceled));
   await page.evaluate(() => (window as MockWindow).__releaseServices());

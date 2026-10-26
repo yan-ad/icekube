@@ -100,7 +100,6 @@ async function openLogs(page: Page) {
 async function fixture(page: Page, options: Controls = {}) {
   page.on("pageerror", error => { throw error; });
   await page.addInitScript(options => {
-    localStorage.setItem("icekube.resource-tables.v1", "true");
     const calls: Call[] = [];
     const control: Controls = { chunks: [], ...options };
     let lease = 0, streamId = 0, syncId = 0, forwardId = 0;
@@ -112,7 +111,9 @@ async function fixture(page: Page, options: Controls = {}) {
     const resourcePage = (r: Request, status = "Running") => ({
       ...r, namespace: r.namespace ?? null, continueToken: null, metrics: null,
       truncated: false, fetchedAt: 1793000000000,
-      items: [{ name: r.kind === "pods" ? "api-pod" : "api-service", namespace: r.namespace ?? "team-a",
+      items: r.kind === "namespaces" ? ["team-a", "team-b", "production", "default"].map(name => ({
+        name, namespace: null, status: "Active", createdAt: null, node: null, columns: {},
+      })) : [{ name: r.kind === "pods" ? "api-pod" : "api-service", namespace: r.namespace ?? "team-a",
         status, createdAt: "2026-10-01T00:00:00Z", node: null,
         columns: { ready: "1/1", restarts: "2", node: "worker-a", qos: "Burstable" } }],
     });
@@ -201,7 +202,6 @@ async function fixture(page: Page, options: Controls = {}) {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`/#${route("pods")}`);
   await expect(row(page)).toBeVisible();
-  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toBeChecked();
 }
 
 async function allStreamsClosed(page: Page) {
@@ -485,7 +485,7 @@ test("port forwarding resolves UID, shows loopback engine state and stops on clo
   await expect.poll(async () => (await calls(page, "cluster_pod_forward_stop")).map(c => c.request.id)).toEqual(["forward-1", "forward-2"]);
 });
 
-test("live sync updates rows, pauses, retains failures, and closes on namespace change and opt-out without closing the dock", async ({ page }) => {
+test("live sync updates rows, pauses, retains failures, and closes on namespace change and section navigation without closing the dock", async ({ page }) => {
   await fixture(page); await openLogs(page);
   const live = page.getByRole("switch", { name: "Live sync", exact: true });
   await live.click();
@@ -503,26 +503,29 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
   await expect(grid(page)).toContainText("Succeeded");
   await expect(page.getByRole("status").filter({ hasText: "Previously fetched pods" })).toBeVisible();
   await control(page, { syncError: undefined });
-  const namespace = page.getByRole("textbox", { name: "Namespace", exact: true });
-  await namespace.fill("team-b"); await namespace.press("Enter");
+  const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  await namespace.click();
+  for (const name of ["team-a", "team-b", "production", "default"]) await expect(page.getByRole("option", { name, exact: true })).toBeVisible();
+  await page.getByRole("option", { name: "team-b", exact: true }).click();
   await expect(grid(page)).toContainText("team-b");
   await expect(live).not.toBeChecked();
   await live.click();
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).at(-1)!.request.namespace).toBe("team-b");
   await expect(grid(page)).toContainText("Succeeded");
   const teamBId = `sync-${(await calls(page, "cluster_pod_sync_open")).length}`;
-  await namespace.fill("team-c"); await namespace.press("Enter");
-  await expect(grid(page)).toContainText("team-c");
+  await namespace.click(); await page.getByRole("option", { name: "production", exact: true }).click();
+  await expect(grid(page)).toContainText("production");
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).some(c => c.request.syncId === teamBId)).toBe(true);
   await live.click();
-  await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).at(-1)!.request.namespace).toBe("team-c");
+  await expect.poll(async () => (await calls(page, "cluster_pod_sync_open")).at(-1)!.request.namespace).toBe("production");
   await expect(grid(page)).toContainText("Succeeded");
   const closedBefore = (await calls(page, "cluster_pod_sync_close")).length;
-  await page.getByRole("switch", { name: "Resource tables", exact: true }).click();
+  await navigate(page, "services");
   await expect(grid(page)).toHaveCount(0);
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).length).toBeGreaterThan(closedBefore);
   await expect(dock(page).getByLabel("Pod logs", { exact: true })).toContainText("boot ready");
-  await navigate(page, "services");
+  await expect(grid(page, "Services")).toBeVisible();
+  expect((await calls(page, "cluster_resources")).filter(call => call.request.kind === "namespaces")).toHaveLength(1);
   await expect(dock(page)).toBeVisible();
   await navigate(page, "overview");
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();

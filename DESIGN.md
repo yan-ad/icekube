@@ -30,10 +30,11 @@ HTTPS client setup, and read-only Nodes/Namespaces snapshots. Cluster rows open 
 workspace with inset navigation and a cluster-local breadcrumb/status/actions row;
 saved web links open
 in the default OS browser through a Rust-owned saved-ID command.
-The opt-in table workflows include bounded resource inventories, Pod LIST/WATCH sync,
+The workspace workflows include bounded resource inventories, Pod LIST/WATCH sync,
 protected Pod details/YAML and confirmed mutations, logs, exec/attach, loopback
-forwards, and read-only Helm chart/release inventory. Other resource creation and
-Helm installation remain disabled.
+forwards, and read-only Helm chart/release inventory. Resource tables are ordinary
+workspace navigation; there is no Resource tables toggle or preference. Other resource
+creation and Helm installation remain disabled.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
 ## Existing visual direction
@@ -116,8 +117,8 @@ name, context, and a brightened display glyph derived from persisted color. The 
 between Cluster, Nodes, Workloads, Config, Network, Storage, Namespaces, Events,
 Helm, Access Control, and Custom Resources. These are navigable workspace sections
 with explicit disconnected or unsupported states where applicable. Nodes and Namespaces
-show read-only resource tables after automatic connection. Opt-in resource tables,
-Pod sessions, Helm inventory, and loopback port-forward sessions are also Rust-owned
+show read-only resource tables after automatic connection. Resource tables, Pod
+sessions, Helm inventory, and loopback port-forward sessions are also Rust-owned
 workflows described below. The Cluster section shows saved context/source/labels
 and verified API version; the cluster-local row owns Refresh and overflow actions, while the
 global toolbar remains for shell navigation/search. ⌘R/Ctrl+R refreshes only the active cluster
@@ -320,26 +321,56 @@ RBAC, cancelled/superseded work, redaction, retry, keyboard use, and narrow layo
 Tests use synthetic kubeconfigs, an in-memory client service, and mocked IPC only;
 they do not prove real-cluster TLS/authentication or native OS integration.
 
-### Opt-in resource tables
+### Resource tables and namespace scope
 
-The workspace's **Resource tables** switch is off by default and stores only a
-non-sensitive UI preference (`icekube.resource-tables.v1`). Nodes retains its own
-view regardless of this switch. Opting out disposes and cancels replacement-view
-reads without reconnecting. Parent categories show destination rows, not invented
-aggregate counts or fan-out requests.
+Resource tables are normal workspace destinations and load when their section is
+entered. There is no Resource tables toggle or stored preference. Parent categories show destination rows,
+not invented aggregate counts or fan-out requests. Nodes retains its independent
+table behavior.
+
+`src/app/cluster/NamespaceScope.tsx` is the shared selector for every connected-lease
+page that needs namespace scope. It lazy-loads namespace names automatically when a
+namespaced page is entered, using the Rust `cluster_resources` path for the
+`namespaces` resource. Each Rust page contains at most 100 entries; the shared
+loader stops at 1,000 names or 10 pages. These are safety bounds, not a claim about
+the cluster's namespace total. The selector exposes the loaded names, reports
+partial results honestly when the bounded list is incomplete, and shows loading,
+empty, failed/retry, and no-search-match states. "All namespaces" remains available
+for inventory scope even when namespace discovery fails; the forward form requires
+a specific namespace. Search filters loaded selector options locally. There is no
+free-text namespace entry or Apply step: choosing a namespace takes effect immediately.
+
+Namespace selection immediately scopes the resource read in Rust, resets its
+continuation, and disposes the previous read. A changed namespace also disposes the
+old Pod LIST/WATCH sync before the replacement is started, so late results cannot
+cross scopes. The same selector and immediate-selection contract is used by the
+Helm releases page and the port-forward form. Search/Status filters still operate
+on the currently loaded resource page. The port-forward table's existing namespace
+filter still filters loaded local sessions; it does not change to a cluster-resource
+read or a namespace-discovery request.
+
+Behavior-only reference: local `/Volumes/Data/Kerjaa/freelens`, pinned commit
+`088d08513c8c149365dd802c588b9b0b90c6293e`, especially
+`packages/core/src/renderer/components/namespace-select-filter/`. No upstream code
+was copied. `connection.rs`, `connection/transport.rs`, and `connection/resources.rs`
+own the bounded namespace reads, continuation validation, and lease/read scope;
+`NamespaceScope.tsx` owns presentation and typed IPC adaptation. Acceptance covers
+automatic lazy loading, All/search/selection, partial and retry states, immediate
+scope changes, stale-result rejection, and reuse by Helm releases and the
+port-forward form in `tests/namespace-selector.spec.ts`.
 
 Behavior-only reference: local `/Volumes/Data/Kerjaa/freelens`, commit
 `088d08513c8c149365dd802c588b9b0b90c6293e`. No upstream code was copied.
 `connection.rs`, `connection/transport.rs`, and `connection/resources.rs` own
 allowlisted GETs, namespace/pagination validation, bounded safe projections, and
 session/read cancellation. The renderer only filters the current loaded page.
-Namespace Apply/Enter changes the Rust request scope and resets continuation.
+Namespace selection immediately changes the Rust request scope and resets continuation.
 Search and Status are local filters; CRD Definitions also has a Group filter.
 Continuation pages are bounded to 100 items and never presented as a total.
 
 | Source under `packages/core/src/renderer/components/` | Expected interaction / UI limits | Acceptance |
 | --- | --- | --- |
-| `nodes/` | Independent Nodes table and local search; safe node facts and optional metrics remain available regardless of the opt-in switch; `connection/transport/nodes.rs`, `connection/metrics.rs` | `src-tauri/src/connection/node_tests.rs`; `tests/nodes-table.spec.ts` |
+| `nodes/` | Independent Nodes table and local search; safe node facts and optional metrics remain available independently; `connection/transport/nodes.rs`, `connection/metrics.rs` | `src-tauri/src/connection/node_tests.rs`; `tests/nodes-table.spec.ts` |
 | `workloads-{pods,deployments,daemonsets,statefulsets,replicasets,replication-controllers,jobs,cronjobs}/` | Per-kind columns, namespace scope, local search/status; distinguish current/desired replicas and CronJob active references without exposing payloads | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
 | `config-{maps,secrets,resource-quotas,limit-ranges,horizontal-pod-autoscalers,vertical-pod-autoscalers,pod-disruption-budgets,priority-classes,runtime-classes,leases,mutating-webhook-configurations,validating-webhook-configurations,validating-admission-policies,validating-admission-policy-bindings}/` | Safe spec/count columns; Secrets/ConfigMaps remain metadata-only, with no data or key names; reference Secret/Quota creation buttons are disabled | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
 | `network-{services,endpoints,endpoint-slices,ingresses,ingress-classes,policies}/`, `storage-{volume-claims,volumes,classes}/` | Resource tables and filters; counts are labeled as counts rather than addresses; missing values remain N/A | `src-tauri/src/connection/resource_tests.rs`; `tests/resource-tables.spec.ts` |
@@ -377,22 +408,23 @@ an external browser or exposes a non-loopback listener.
 ### Pod tables, details, and sessions
 
 The Pod table is a bounded Rust projection of a Kubernetes `LIST`, with an optional
-Rust-owned `WATCH` sync on the first page. The engine validates the object kind,
+Rust-owned `WATCH` sync on the first page. Its **Live sync** switch remains opt-in;
+it controls Pod LIST/WATCH, not access to resource tables. The engine validates the object kind,
 namespace, identity, resource version, continuation, and typed watch event before
 projecting safe row fields. Typed snapshots carry a monotonic IPC sequence; raw
 watch objects never reach the renderer. It keeps a sorted inventory capped at 100
 items, relists
 on an expired or incomplete watch, and reports partial data rather than presenting a
-total. Namespace changes, continuation changes, refresh, opt-out, workspace changes,
-and disconnect cancel the exact owned read or sync. The renderer applies only local
+total. Namespace changes, continuation changes, refresh, disabling Live sync, workspace
+changes, and disconnect cancel the exact owned read or sync. The renderer applies only local
 search, status, and loaded-page filters.
 
 Selecting a Pod name or row action opens a cluster/session-scoped reusable bottom
 dock. Details fetches the Pod and its related events through Rust, and retains stale details when a
 reload fails. The dock reuses a details/edit tab for the same Pod identity, supports
 logs, shell, attach, and port-forward tabs, and provides keyboard tab selection,
-close, minimize, maximize, and resize. Section navigation, switching tabs, minimizing,
-and opting out of tables keep the dock and its sessions mounted; minimizing is not
+close, minimize, maximize, and resize. Section navigation, switching tabs, and minimizing
+keep the dock and its sessions mounted; minimizing is not
 disconnecting. Dock and tab disposal closes owned IPC handles; session replacement
 and disconnect cancel all child work. A closed or
 unmounted tab cannot accept a late stream or detail result.
@@ -443,7 +475,7 @@ workflow contract; they do not establish real-cluster or native OS behavior.
 | Source under `packages/core/src/renderer/components/` | Expected interaction / Rust owner | UI states / acceptance paths |
 | --- | --- | --- |
 | `workloads-pods/pods.tsx`, `workloads-pods/pod-details.tsx`, `dock/edit-resource/` | Pod activation, reduced details/events, protected YAML save and confirmed delete/force-delete/finalize; `connection/pods.rs` | Loading, stale retained details, missing/replaced UID, permission failure, conflict with edited YAML retained; `tests/pod-workspace.spec.ts`, `src-tauri/src/connection/pod_tests.rs` |
-| `workloads-pods/store.ts` | First-page opt-in LIST+WATCH with namespace scope, safe projection, relist and cleanup; `connection/pod_sync.rs` | Opening, syncing, retrying/stale, partial, denied/error, paused/stopped; `tests/pod-workspace.spec.ts`, `src-tauri/src/connection/pod_sync_tests.rs` |
+| `workloads-pods/store.ts` | Resource table loads normally; the separate **Live sync** control opt-in enables first-page LIST+WATCH with namespace scope, safe projection, relist and cleanup; `connection/pod_sync.rs` | Opening, syncing, retrying/stale, partial, denied/error, paused/stopped; `tests/pod-workspace.spec.ts`, `src-tauri/src/connection/pod_sync_tests.rs` |
 | `dock/logs/controls.tsx`, `dock/logs/list.tsx`, `dock/terminal/view.tsx` | Container selection, bounded logs/search/download and remote exec/attach input/resize; `connection/pod_runtime.rs` | Opening, live, exited, error, explicitly dropped output, late-open cleanup; `tests/pod-workspace.spec.ts`, `src-tauri/src/connection/pod_runtime_tests.rs` |
 | `dock/dock.tsx`, `dock/dock-tabs.tsx` | Reusable bottom dock, tab selection/close, minimize/maximize/resize; Rust session owns child runtime cleanup | Navigation/minimize preserves sessions, tab close disposes owners, disconnect/replacement tears down all; `tests/pod-workspace.spec.ts`, `src-tauri/src/connection/pod_runtime_tests.rs` |
 | `helm-charts/helm-charts.tsx`, `helm-releases/releases.tsx`, `network-port-forwards/port-forwards.tsx` | Cached chart and scoped release inventory; forward inventory/start/stop; `connection/helm.rs`, `connection/pod_runtime.rs` | Loading, empty, local filtered-empty, stale/error, bounded/partial, stopped forwards; `tests/service-tables.spec.ts`, `src-tauri/src/connection/helm_tests.rs`, `src-tauri/src/connection/pod_runtime_tests.rs` |

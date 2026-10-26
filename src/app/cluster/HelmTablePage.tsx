@@ -8,11 +8,11 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { nextReadId, type SessionRequest } from "./api";
 import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type HelmView } from "./helmApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { NamespaceSelector } from "./NamespaceScope";
 
 export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & { view: HelmView }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const [namespaceInput, setNamespaceInput] = useState("");
   const [namespace, setNamespace] = useState("");
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<HelmPage | null>(null);
@@ -22,7 +22,6 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
   const scope = JSON.stringify([clusterId, sessionId, view, selectedNamespace]);
   const scopedPage = page?.clusterId === clusterId && page.sessionId === sessionId && page.view === view && page.namespace === selectedNamespace ? page : null;
   const label = view === "charts" ? "Charts" : "Releases";
-  const validNamespace = !namespaceInput || namespaceInput.length <= 63 && /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/.test(namespaceInput);
   useRegisterWorkspaceRefresh({ clusterId, section: `helm-${view}`, enabled: true, refresh: () => setRevision((value) => value + 1) });
   useEffect(() => {
     let disposed = false;
@@ -59,13 +58,7 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       <Button label="Reload" size="sm" isDisabled={loading} onClick={() => setRevision((value) => value + 1)} />
       <Button label="Install" size="sm" isDisabled tooltip="Installation is not available. This view is read-only." />
     </HStack>
-    {view === "releases" && <HStack gap={2} wrap="wrap" vAlign="end">
-      <TextInput label="Namespace" value={namespaceInput} onChange={setNamespaceInput} placeholder="All namespaces" size="sm" width="min(18rem, 100%)"
-        onKeyDown={(event) => { if (event.key === "Enter" && validNamespace) setNamespace(namespaceInput); }}
-        status={!validNamespace ? { type: "error", message: "Enter a valid namespace name." } : undefined} />
-      <Button label="Apply namespace" size="sm" isDisabled={!validNamespace || namespaceInput === namespace} onClick={() => setNamespace(namespaceInput)} />
-      {namespace && <Button label="All namespaces" size="sm" variant="ghost" onClick={() => { setNamespaceInput(""); setNamespace(""); }} />}
-    </HStack>}
+    {view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}
     {loading && <Text role="status">Loading Helm {view}…</Text>}
     {error?.scope === scope && <Text role="alert">{error.message}</Text>}
     {scopedPage && (loading || error?.scope === scope) && <Text role="status">Showing the previous Helm inventory. It may be stale.</Text>}

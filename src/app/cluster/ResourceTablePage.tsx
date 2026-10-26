@@ -17,8 +17,8 @@ import type { PodMode } from "./podApi";
 import { openPodSync, readPodSync, closePodSync, type PodSyncStatus } from "./podSyncApi";
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
+import { NamespaceSelector } from "./NamespaceScope";
 
-const validNamespace = (value: string) => !value || value.length <= 63 && /^[a-z0-9](?:[-a-z0-9]*[a-z0-9])?$/.test(value);
 function age(timestamp: string | null, now: number) {
   if (!timestamp) return "N/A";
   const seconds = Math.floor((now - Date.parse(timestamp)) / 1000);
@@ -50,7 +50,6 @@ function columns(view: ResourceView, now: number, openPod?: (item: ResourceItem,
 }
 
 export function ResourceTablePage({ view, clusterId, sessionId }: SessionRequest & { view: ResourceView }) {
-  const [namespaceInput, setNamespaceInput] = useState("");
   const [namespace, setNamespace] = useState("");
   const [tokens, setTokens] = useState<(string | null)[]>([null]);
   const [index, setIndex] = useState(0);
@@ -60,15 +59,7 @@ export function ResourceTablePage({ view, clusterId, sessionId }: SessionRequest
       <Button label={view.createLabel} size="sm" isDisabled tooltip="Creation is not implemented. This view is read-only." />
       <Text type="supporting">Creation is not available yet.</Text>
     </HStack>}
-    {view.namespaced && view.kind && <HStack gap={2} wrap="wrap" vAlign="end">
-      <TextInput label="Namespace" value={namespaceInput} onChange={setNamespaceInput} placeholder="All namespaces"
-        size="sm" width="min(18rem, 100%)" onKeyDown={(event) => {
-          if (event.key === "Enter" && validNamespace(namespaceInput)) scope(namespaceInput);
-        }} status={!validNamespace(namespaceInput) ? { type: "error", message: "Enter a valid namespace name." } : undefined} />
-      <Button label="Apply namespace" size="sm" isDisabled={!validNamespace(namespaceInput) || namespaceInput === namespace}
-        onClick={() => scope(namespaceInput)} />
-      {namespace && <Button label="All namespaces" size="sm" variant="ghost" onClick={() => { setNamespaceInput(""); scope(""); }} />}
-    </HStack>}
+    {view.namespaced && view.kind && <NamespaceSelector value={namespace} onChange={scope} />}
     {!view.kind ? view.service === "port-forwarding" ? <PortForwardTablePage clusterId={clusterId} sessionId={sessionId} /> :
       <HelmTablePage clusterId={clusterId} sessionId={sessionId} view={view.service === "helm-charts" ? "charts" : "releases"} /> : <ResourceSnapshot key={`${view.section}:${namespace}`}
       clusterId={clusterId} sessionId={sessionId} view={view} namespace={namespace} token={tokens[index]} index={index}

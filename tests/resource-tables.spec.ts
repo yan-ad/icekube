@@ -21,9 +21,17 @@ test("failed continuation keeps the last page and allows returning to it", async
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(table(page)).toContainText("shared-name");
 });
-const calls = (page: Page, command = "cluster_resources") => page.evaluate(
-  (command) => (window as MockWindow).__resourceCalls.filter((call) => call.command === command), command,
+const calls = (page: Page, command = "cluster_resources", kind?: string) => page.evaluate(
+  ({ command, kind }) => (window as MockWindow).__resourceCalls.filter((call) => call.command === command &&
+    (command !== "cluster_resources" || (kind ? call.request.kind === kind : call.request.kind !== "namespaces"))), { command, kind },
 );
+async function selectNamespace(page: Page, namespace: string) {
+  const selector = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  await expect(selector).toBeVisible();
+  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await selector.click();
+  await page.getByRole("option", { name: namespace, exact: true }).click();
+}
 async function controls(page: Page, value: Controls) {
   await page.evaluate((value) => Object.assign((window as MockWindow).__resourceControls, value), value);
 }
@@ -44,26 +52,23 @@ test("parent menus expose destination tables without resource fan-out", async ({
   expect(await calls(page, "cluster_connect")).toEqual(connects);
 });
 
-test("Nodes retains its own table and lease when the opt-in changes", async ({ page }) => {
+test("Nodes retains its own table and lease across resource navigation", async ({ page }) => {
   await fixture(page, { section: "nodes" });
   await expect(table(page, "Nodes")).toContainText("node-a");
   await expect(table(page, "Nodes").getByRole("columnheader", { name: "CPU", exact: true })).toBeVisible();
-  const before = await calls(page);
   const connects = await calls(page, "cluster_connect");
-  await page.getByRole("switch", { name: "Resource tables", exact: true }).click();
+  await navigate(page, "pods"); await ready(page);
+  await navigate(page, "nodes");
   await expect(table(page, "Nodes")).toContainText("node-a");
-  expect(await calls(page)).toEqual(before);
   expect(await calls(page, "cluster_connect")).toEqual(connects);
 });
 async function navigate(page: Page, section: string) {
   await page.evaluate((section) => { location.hash = `/cluster/one?section=${section}`; }, section);
 }
-async function fixture(page: Page, options: Controls & { optedIn?: boolean; section?: string } = {}) {
+async function fixture(page: Page, options: Controls & { legacyPreference?: boolean; section?: string } = {}) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript(({ options, views }) => {
-    if (options.optedIn !== false && localStorage.getItem("icekube.resource-tables.v1") === null) {
-      localStorage.setItem("icekube.resource-tables.v1", "true");
-    }
+    if (options.legacyPreference !== undefined) localStorage.setItem("icekube.resource-tables.v1", String(options.legacyPreference));
     let session = 0;
     const calls: Call[] = [];
     const control = { ...options };
@@ -91,6 +96,12 @@ async function fixture(page: Page, options: Controls & { optedIn?: boolean; sect
           if (command === "cluster_pod_forward_list") return [{ ...request, id: "forward-one", namespace: "team-a", name: "sample-pod",
             remotePort: 8080, localPort: 49152, status: "running", error: null }];
           if (command !== "cluster_resources") throw `Unexpected mock command: ${command}`;
+          if (request.kind === "namespaces" && !location.hash.includes("section=namespaces")) return {
+            ...request, namespace: null, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null,
+            items: ["team-a", "team-b", "production", "default"].map((name) => ({
+              name, namespace: null, status: "Active", createdAt: null, columns: {}, node: null,
+            })),
+          };
           if (request.kind === "nodes") return { ...request, namespace: null, continueToken: null, truncated: false,
             fetchedAt: Date.now(), metrics: null, items: [{ name: "node-a", status: "Ready", namespace: null, createdAt: null, columns: {}, node: null }] };
           const view = views.find((view) => view.kind === request.kind);
@@ -129,11 +140,12 @@ async function fixture(page: Page, options: Controls & { optedIn?: boolean; sect
   }, { options, views: resourceViews });
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto(route(options.section ?? "pods"));
-  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toBeVisible();
+  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
 }
 async function ready(page: Page, name = "Pods") {
   await expect(table(page, name)).toBeVisible();
   await expect(table(page, name).getByRole("row")).toHaveCount(3);
+  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
 }
 
 test("all 43 registry views expose their direct route, columns and read-only contract", async ({ page }) => {
@@ -155,14 +167,14 @@ test("all 43 registry views expose their direct route, columns and read-only con
       await expect(page.getByText(/service is not implemented|unavailable because|Live .* data is not implemented yet/)).toHaveCount(0);
       if (view.kind) {
         await expect(grid.getByRole("row")).toHaveCount(3);
-        const read = (await calls(page)).at(-1)!.request;
+        const read = (await calls(page, "cluster_resources", view.kind)).at(-1)!.request;
         expect(read).toMatchObject({ clusterId: "one", kind: view.kind, namespace: null, continueToken: null });
         expect(read.sessionId).toMatch(/^lease-/);
         expect(read.readId).toEqual(expect.any(Number));
         for (const column of view.columns) await expect(grid).toContainText(
           view.kind === "customResourceDefinitions" && column.key === "group" ? "apps.example.test" : `fact-${column.key}`,
         );
-        await expect(page.getByRole("textbox", { name: "Namespace", exact: true })).toHaveCount(view.namespaced ? 1 : 0);
+        await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(view.namespaced ? 1 : 0);
       } else {
         expect(helm || forward).toBe(true);
         await expect(grid.getByRole("row")).toHaveCount(2);
@@ -187,28 +199,20 @@ test("all 43 registry views expose their direct route, columns and read-only con
   }
 });
 
-test("namespace accepts Enter and Apply, rejects invalid names, and empty means all namespaces", async ({ page }) => {
+test("namespace selector loads known namespaces and applies immediately", async ({ page }) => {
   await fixture(page); await ready(page);
-  const input = page.getByRole("textbox", { name: "Namespace", exact: true });
   await expect(table(page).getByRole("cell", { name: "shared-name", exact: true })).toHaveCount(2);
   await expect(table(page)).toContainText("team-a"); await expect(table(page)).toContainText("team-b");
   const before = (await calls(page)).length;
-  await input.fill("Bad_namespace"); await input.press("Enter");
-  await expect(page.getByRole("button", { name: "Apply namespace", exact: true })).toBeDisabled();
-  await expect(page.getByRole("alert")).toContainText("Enter a valid namespace name.");
-  expect((await calls(page)).length).toBe(before);
-  await input.fill("production"); await input.press("Enter");
+  await selectNamespace(page, "production");
   await expect(page.getByRole("status").filter({ hasText: /namespace production$/ })).toBeVisible();
   expect((await calls(page)).at(-1)!.request).toMatchObject({ namespace: "production", continueToken: null });
-  await input.fill("staging"); await page.getByRole("button", { name: "Apply namespace", exact: true }).click();
-  await expect(page.getByRole("status").filter({ hasText: /namespace staging$/ })).toBeVisible();
-  await input.fill(""); await page.getByRole("button", { name: "Apply namespace", exact: true }).click();
+  await selectNamespace(page, "team-a");
+  await expect(page.getByRole("status").filter({ hasText: /namespace team-a$/ })).toBeVisible();
+  await selectNamespace(page, "All namespaces");
   await expect(page.getByRole("status").filter({ hasText: /all namespaces$/ })).toBeVisible();
   expect((await calls(page)).at(-1)!.request.namespace).toBeNull();
-  await input.fill("production"); await input.press("Enter");
-  await expect(page.getByRole("button", { name: "All namespaces", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "All namespaces", exact: true }).click();
-  await expect(input).toHaveValue(""); await ready(page);
+  expect((await calls(page)).length).toBeGreaterThan(before);
 });
 
 test("search and Status filter loaded rows locally and distinguish filtered empty", async ({ page }) => {
@@ -261,8 +265,7 @@ test("pagination and namespace changes cancel scoped reads and reset continuatio
   await page.getByRole("button", { name: "Next page", exact: true }).click();
   await expect(table(page)).toContainText("second-page");
   const previous = (await calls(page)).at(-1)!.request;
-  await page.getByRole("textbox", { name: "Namespace", exact: true }).fill("production");
-  await page.getByRole("button", { name: "Apply namespace", exact: true }).click(); await ready(page);
+  await selectNamespace(page, "production"); await ready(page);
   expect((await calls(page)).at(-1)!.request).toMatchObject({ namespace: "production", continueToken: null });
   await expect(page.getByRole("status").filter({ hasText: /page 1.*namespace production/ })).toBeVisible();
   expect((await calls(page, "cluster_resources_cancel")).some((call) => call.request.readId === previous.readId)).toBe(true);
@@ -279,8 +282,7 @@ test("late results from a cancelled namespace read cannot replace the current sc
   await expect(page.getByRole("status").filter({ hasText: "Loading pods…" })).toBeVisible();
   const pending = (await calls(page)).at(-1)!.request;
   await controls(page, { hold: false });
-  await page.getByRole("textbox", { name: "Namespace", exact: true }).fill("production");
-  await page.getByRole("button", { name: "Apply namespace", exact: true }).click();
+  await selectNamespace(page, "production");
   await ready(page);
   await expect.poll(async () => (await calls(page, "cluster_resources_cancel")).some(
     (call) => JSON.stringify(call.request) === JSON.stringify(pending),
@@ -292,30 +294,24 @@ test("late results from a cancelled namespace read cannot replace the current sc
   await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
 });
 
-test("opt-in defaults off, persists through route and reload, and opt-out does not reconnect", async ({ page }) => {
-  await fixture(page, { optedIn: false });
-  const toggle = page.getByRole("switch", { name: "Resource tables", exact: true });
-  await expect(toggle).not.toBeChecked();
-  await expect(page.getByText("Live pods data is not implemented yet.", { exact: true })).toBeVisible();
-  expect(await calls(page)).toHaveLength(0);
-  await toggle.click(); await ready(page);
-  await navigate(page, "services"); await ready(page, "Services"); await expect(toggle).toBeChecked();
-  await page.reload(); await ready(page, "Services"); await expect(toggle).toBeChecked();
+test("resource tables default on and navigation preserves the lease", async ({ page }) => {
+  await fixture(page); await ready(page);
   const connections = await calls(page, "cluster_connect");
-  await controls(page, { hold: true });
-  await page.getByRole("button", { name: "Refresh services", exact: true }).click();
-  await expect(table(page, "Services")).toHaveAttribute("aria-busy", "true");
-  const pending = (await calls(page)).at(-1)!.request;
-  await toggle.click();
-  await expect(page.getByText("Live services data is not implemented yet.", { exact: true })).toBeVisible();
-  await expect.poll(async () => (await calls(page, "cluster_resources_cancel")).some((call) => call.request.readId === pending.readId)).toBe(true);
-  await page.evaluate(() => (window as MockWindow).__releaseResources());
-  await expect(table(page, "Services")).toHaveCount(0);
+  await navigate(page, "services"); await ready(page, "Services");
+  await navigate(page, "pods"); await ready(page);
   expect(await calls(page, "cluster_connect")).toEqual(connections);
+  expect(await page.evaluate(() => localStorage.getItem("icekube.resource-tables.v1"))).toBeNull();
+});
+
+test("resource tables ignore a false legacy preference through navigation and reload", async ({ page }) => {
+  await fixture(page, { legacyPreference: false });
+  await ready(page);
+  const connections = await calls(page, "cluster_connect");
+  await navigate(page, "services"); await ready(page, "Services");
+  expect(await calls(page, "cluster_connect")).toEqual(connections);
+  await page.reload(); await ready(page, "Services");
+  await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
   expect(await page.evaluate(() => localStorage.getItem("icekube.resource-tables.v1"))).toBe("false");
-  await page.reload(); await expect(toggle).not.toBeChecked();
-  await expect(page.getByText("Live services data is not implemented yet.", { exact: true })).toBeVisible();
-  expect(await calls(page)).toHaveLength(0);
 });
 
 for (const [failure, message, section] of [
@@ -374,7 +370,7 @@ for (const section of ["secrets", "config-maps"]) {
     const parsed = await page.evaluate(async () => {
       const modulePath = "/src/app/cluster/api.ts";
       const api = await import(/* @vite-ignore */ modulePath);
-      const request = (window as MockWindow).__resourceCalls.filter((call) => call.command === "cluster_resources").at(-1)!.request;
+      const request = (window as MockWindow).__resourceCalls.filter((call) => call.command === "cluster_resources" && call.request.kind !== "namespaces").at(-1)!.request;
       return (await api.loadResources({ ...request, readId: api.nextReadId() })).items;
     });
     expect(parsed).toHaveLength(2);

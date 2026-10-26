@@ -8,10 +8,10 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import type { SessionRequest } from "./api";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { NamespaceSelector } from "./NamespaceScope";
 
 type PortForwardTablePageProps = SessionRequest;
 
-const namespacePattern = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 const podPattern = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
 function portValue(value: string, allowAuto: boolean) {
@@ -83,11 +83,10 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     });
   }, [forwards, namespaceFilter, query, status]);
 
-  const namespaceValid = namespace.length > 0 && namespace.length <= 63 && namespacePattern.test(namespace);
   const podValid = pod.length > 0 && pod.length <= 253 && podPattern.test(pod);
   const remote = portValue(remotePort, false);
   const local = portValue(localPort, true);
-  const formValid = namespaceValid && podValid && remote !== null && local !== null;
+  const formValid = namespace.length > 0 && podValid && remote !== null && local !== null;
 
   async function start() {
     if (!formValid || remote === null || local === null || acting.current) return;
@@ -149,7 +148,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
         <Button label="Refresh" size="sm" isDisabled={busy} onClick={() => void load()} />
       </HStack>
       <HStack gap={2} wrap="wrap" vAlign="end">
-        <TextInput label="Namespace" value={namespace} onChange={setNamespace} placeholder="Pod namespace" size="sm" status={namespace && !namespaceValid ? { type: "error", message: "Enter a valid namespace name." } : undefined} />
+        <NamespaceSelector value={namespace} onChange={setNamespace} label="Pod namespace" allowAll={false} />
         <TextInput label="Pod" value={pod} onChange={setPod} placeholder="Pod name" size="sm" status={pod && !podValid ? { type: "error", message: "Enter a valid Pod name." } : undefined} />
         <TextInput label="Port" value={remotePort} onChange={setRemotePort} placeholder="Remote port" size="sm" status={remotePort && remote === null ? { type: "error", message: "Use a port from 1 to 65535." } : undefined} />
         <TextInput label="Local port" value={localPort} onChange={setLocalPort} placeholder="0 for auto" size="sm" status={localPort && local === null ? { type: "error", message: "Use 0 or a port from 1 to 65535." } : undefined} />
