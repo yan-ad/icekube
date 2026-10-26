@@ -1,20 +1,15 @@
 import { useState } from "react";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
-import { BreadcrumbItem, Breadcrumbs } from "@astryxdesign/core/Breadcrumbs";
 import { Button } from "@astryxdesign/core/Button";
-import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Heading } from "@astryxdesign/core/Heading";
-import { Icon } from "@astryxdesign/core/Icon";
-import { IconButton } from "@astryxdesign/core/IconButton";
+import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Table } from "@astryxdesign/core/Table";
 import { Link } from "@astryxdesign/core/Link";
-import { IconDots, IconPlugConnected, IconPlugConnectedX, IconRefresh, IconInfoCircle, IconX } from "@tabler/icons-react";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { catalogError, type ClusterSummary } from "../catalog/api";
-import { RecordIcon } from "../catalog/RecordIcon";
 import { connectionMessage } from "./api";
 import { ClusterResources } from "./ClusterResources";
 import { clusterDestinations, clusterSections } from "./navigation";
@@ -25,7 +20,7 @@ import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
 import { NamespaceScopeProvider } from "./NamespaceScope";
 import { useClusterSession } from "./useClusterSession";
-import { useRegisterWorkspaceRefresh, useWorkspaceRefresh } from "./WorkspaceRefresh";
+import { useRegisterClusterActions, useRegisterWorkspaceRefresh, useWorkspaceRefresh } from "./WorkspaceRefresh";
 
 function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: ClusterSummary; section: string; onReopen: () => void; dockOutlet: HTMLElement | null }) {
   const session = useClusterSession(cluster.id);
@@ -42,8 +37,6 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
   const category = clusterSections.find((item) => item.id === (section === "workloads-overview" ? "workloads" : section));
   const destinations = category && "children" in category ? category.children.filter((item) => item.id !== "workloads-overview")
     : section === "overview" ? clusterSections.filter((item) => item.id !== "overview") : [];
-  const rowRefresh = workspaceRefresh.action?.clusterId === cluster.id && workspaceRefresh.action.section === refreshSection
-    ? workspaceRefresh.action : null;
   const busy = ["opening", "connecting", "releasing"].includes(session.phase);
   const status = session.phase === "opening" ? "Opening…" : session.phase === "releasing" ? "Disconnecting…"
     : session.phase === "connecting" ? "Connecting…" : connected ? "Connected" : failure ? "Connection error" : "Disconnected";
@@ -52,36 +45,15 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     else if (connected) void session.reconnect();
     else void session.connect();
   } }, !connected || (!resourceKind && !serviceView));
+  useRegisterClusterActions({ clusterId: cluster.id, section: refreshSection, items: [
+    ...(session.phase === "failed" ? [{ label: "Reopen workspace", run: onReopen }] : []),
+    ...(!connected && !busy ? [{ label: "Connect to cluster", run: () => void session.connect() }] : []),
+    ...(session.canRelease ? [{ label: session.phase === "connecting" ? "Cancel connection" : "Disconnect", enabled: session.phase !== "releasing", run: () => void session.disconnect() }] : []),
+    { label: showMetadata ? "Hide saved metadata" : "Show saved metadata", run: () => setShowMetadata(value => !value) },
+  ] });
   return <>
-    <HStack gap={2} vAlign="center" style={{ minWidth: 0, borderBottom: "1px solid var(--color-border-subtle)", paddingBlock: "var(--spacing-2)" }}>
-      <Breadcrumbs label="Cluster breadcrumb" variant="supporting" style={{ flex: 1, minWidth: 0 }}>
-        <BreadcrumbItem href="#/catalog">Catalog</BreadcrumbItem>
-        <BreadcrumbItem href={section === "overview" ? undefined : `#/cluster/${encodeURIComponent(cluster.id)}`} isCurrent={section === "overview"}
-          startIcon={<RecordIcon kind="Clusters" color={cluster.color} />} style={{ minWidth: 0, maxWidth: "min(45vw, 28rem)" }}>
-          <Text maxLines={1}>{cluster.name}</Text>
-        </BreadcrumbItem>
-        {section !== "overview" && <BreadcrumbItem isCurrent>{selected?.label ?? "Unavailable"}</BreadcrumbItem>}
-      </Breadcrumbs>
-      <IconButton label={`Refresh ${serviceView ? section : resourceKind ?? "cluster"}`} tooltip={`Refresh ${serviceView ? section : resourceKind ?? "cluster"} (⌘R / Ctrl+R)`}
-        variant="ghost" icon={<Icon icon={IconRefresh} />} isDisabled={busy || !rowRefresh?.enabled}
-        onClick={() => rowRefresh?.refresh()}
-        aria-keyshortcuts="Control+r Meta+r" />
-      <DropdownMenu presentation="popover" alignment="end"
-        renderTrigger={(props) => <IconButton {...props} label="Cluster actions" tooltip="Cluster actions" variant="ghost" icon={<Icon icon={IconDots} />} />}
-        items={[
-          ...(session.phase === "failed" ? [{ label: "Reopen workspace", icon: IconRefresh, onClick: onReopen }] : []),
-          ...(!connected && !busy ? [{ label: "Connect to cluster", icon: IconPlugConnected, onClick: () => void session.connect() }] : []),
-          ...(session.canRelease ? [{ label: session.phase === "connecting" ? "Cancel connection" : "Disconnect", icon: session.phase === "connecting" ? IconX : IconPlugConnectedX, isDisabled: session.phase === "releasing", onClick: () => void session.disconnect() }] : []),
-          { type: "divider" },
-          { label: showMetadata ? "Hide saved metadata" : "Show saved metadata", icon: IconInfoCircle, onClick: () => setShowMetadata((value) => !value) },
-        ]} />
-    </HStack>
-    <Heading level={1} className="visually-hidden">{cluster.name}</Heading>
-    <HStack gap={3} vAlign="center" wrap="wrap">
-      <Heading level={2}>{selected?.label ?? "Section unavailable"}</Heading>
-      <Text type="supporting" role="status">{status}</Text>
-      {connected && connection.apiVersion && <Text type="supporting">API version: {connection.apiVersion}</Text>}
-    </HStack>
+    <VisuallyHidden><Heading level={1}>{cluster.name} · {selected?.label ?? "Cluster"}</Heading></VisuallyHidden>
+    {!connected && <Text role="status">{status}</Text>}
     {failure && <Text as="p" role="alert">Connection error [{failure}]: {connectionMessage(failure)}</Text>}
     {showMetadata && <VStack gap={2}>
       <Text weight="semibold">Saved metadata</Text>
@@ -119,8 +91,8 @@ export function ClusterWorkspacePage() {
   const cluster = snapshot?.clusters.find((item) => item.id === clusterId);
   const missingTitle = !available ? "Desktop engine required" : loading ? "Loading cluster…"
     : !snapshot ? "Cluster metadata unavailable" : "Cluster not found";
-  return <Layout height="fill" footer={<VStack ref={setDockOutlet} gap={0} style={{ minWidth: 0 }} />} content={<LayoutContent padding={4}>
-    <VStack gap={3} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+  return <Layout height="fill" footer={<VStack ref={setDockOutlet} gap={0} style={{ minWidth: 0 }} />} content={<LayoutContent padding={0} isScrollable={false}>
+    <VStack gap={0} height="100%" style={{ minWidth: 0, minHeight: 0, overflow: "hidden", overflowWrap: "anywhere" }}>
       {error && available && <Text role="alert">{error}{snapshot ? " Previously loaded metadata is still shown." : ""}</Text>}
       {snapshot?.discoveryError && <Text role="alert">Could not refresh file=~/.kube/config. {catalogError(snapshot.discoveryError)} Previously saved metadata is kept.</Text>}
       {cluster && available ? <ClusterSession key={`${cluster.id}:${attempt}`} cluster={cluster} section={section} dockOutlet={dockOutlet} onReopen={() => setAttempt((value) => value + 1)} />

@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { resourceViews } from "../src/app/cluster/resourceViews";
 
 type Call = { command: string; request: Record<string, string | number | null> };
-type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; failContinuation?: boolean };
+type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; failContinuation?: boolean; manyRows?: boolean };
 type MockWindow = Window & {
   __resourceCalls: Call[];
   __resourceControls: Controls;
@@ -11,13 +11,61 @@ type MockWindow = Window & {
 const route = (section: string) => `/#/cluster/one?section=${section}`;
 const table = (page: Page, name = "Pods") => page.getByRole("table", { name, exact: true });
 
+test("table headers stay below the fixed filter toolbar while rows scroll", async ({ page }) => {
+  await fixture(page, { section: "resource-quotas", manyRows: true });
+  const grid = table(page, "Resource Quotas");
+  await expect(grid.getByRole("row")).toHaveCount(81);
+  const filters = page.getByRole("region", { name: "Resource Quotas filters", exact: true });
+  const header = grid.getByRole("columnheader").first();
+  const scroll = page.getByRole("group", { name: "Table", exact: true });
+  const toolbarBefore = (await filters.boundingBox())!;
+  const headerBefore = (await header.boundingBox())!;
+  expect(await scroll.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  await scroll.evaluate(element => { element.scrollTop = 400; });
+  await expect.poll(() => scroll.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
+  const toolbarAfter = (await filters.boundingBox())!;
+  const headerAfter = (await header.boundingBox())!;
+  expect(Math.abs(toolbarAfter.y - toolbarBefore.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(headerAfter.y - headerBefore.y)).toBeLessThanOrEqual(1);
+  expect(headerAfter.y).toBeGreaterThanOrEqual(toolbarAfter.y + toolbarAfter.height - 1);
+  await expect(page.getByRole("textbox", { name: "Search Resource Quotas", exact: true })).toBeVisible();
+});
+
+test("changing filters on a continuation page resets pagination and cancels the exact read", async ({ page }) => {
+  await fixture(page); await ready(page);
+  await clusterAction(page, "Next page");
+  await expect(table(page)).toContainText("second-page-hit");
+  const continued = (await calls(page)).at(-1)!.request;
+  await page.getByRole("textbox", { name: "Search Pods", exact: true }).fill("shared-name");
+  await expect(table(page).getByRole("row")).toHaveCount(3);
+  await expect(table(page)).not.toContainText("second-page-hit");
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ query: "shared-name", continueToken: null });
+  expect((await calls(page, "cluster_resources_cancel"))).toContainEqual({ command: "cluster_resources_cancel", request: continued });
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Clear filters", exact: true }).click();
+  await ready(page);
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeEnabled();
+  await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeEnabled();
+});
+async function clusterAction(page: Page, name: string) {
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}
+
 test("failed continuation keeps the last page and allows returning to it", async ({ page }) => {
   await fixture(page, { failContinuation: true }); await ready(page);
-  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await clusterAction(page, "Next page");
   await expect(page.getByRole("alert")).toContainText("resource is unavailable");
   await expect(table(page)).toContainText("shared-name");
-  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Previous page", exact: true }).click();
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeEnabled();
+  await page.getByRole("menuitem", { name: "Previous page", exact: true }).click();
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(table(page)).toContainText("shared-name");
 });
@@ -44,8 +92,7 @@ test("parent menus expose destination tables without resource fan-out", async ({
   await ready(page);
   const connects = await calls(page, "cluster_connect");
   for (const [section, label] of [["config", "Config"], ["network", "Network"], ["storage", "Storage"], ["helm", "Helm"], ["access-control", "Access Control"], ["custom-resources", "Custom Resources"], ["workloads-overview", "Overview"], ["overview", "Cluster"]]) {
-    const before = await calls(page);
-    await navigate(page, section);
+      await navigate(page, section);
     await expect(table(page, `${label} destinations`)).toBeVisible();
     expect(await calls(page)).toEqual(before);
   }
@@ -117,13 +164,30 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
             stringData: { "another-private-key": "ANOTHER_PRIVATE_VALUE" },
           });
           const ns = view.namespaced ? String(request.namespace ?? "team-a") : null;
-          const items = request.continueToken
-            ? [item("second-page", ns, "Active", "apps.example.test")]
-            : [item("shared-name", ns, "Active", "apps.example.test"),
-              item(view.namespaced && request.namespace == null ? "shared-name" : "other-name",
-                view.namespaced && request.namespace == null ? "team-b" : ns, "Pending", "ops.example.test")];
+          const firstPage = [item("shared-name", ns, "Active", "apps.example.test"),
+            item(view.namespaced && request.namespace == null ? "shared-name" : "other-name",
+              view.namespaced && request.namespace == null ? "team-b" : ns, "Pending", "ops.example.test")];
+          if (control.manyRows) firstPage.push(...Array.from({ length: 78 }, (_, index) =>
+            item(`resource-${index}`, ns, "Active", "apps.example.test")));
+          const secondPage = [item("second-page-hit", ns, "Active", "apps.example.test")];
+          const filterQuery = typeof request.query === "string" ? request.query.trim().toLocaleLowerCase() : "";
+          const filterStatus = typeof request.status === "string" ? request.status : "";
+          const filterGroup = typeof request.group === "string" ? request.group : "";
+          const filteredRequest = !!(filterQuery || filterStatus || filterGroup);
+          const matches = (candidate: ReturnType<typeof item>) => {
+            const searchable = [candidate.name, candidate.namespace, candidate.status, ...Object.values(candidate.columns)]
+              .filter(Boolean).join(" ").toLocaleLowerCase();
+            return (!filterQuery || searchable.includes(filterQuery)) &&
+              (!filterStatus || candidate.status === filterStatus) &&
+              (!filterGroup || candidate.columns.group === filterGroup);
+          };
+          // Filtered reads model Rust scanning continuation pages: the hit may originate on
+          // page two, but the renderer receives one complete filtered response.
+          const items = filteredRequest ? [...firstPage, ...secondPage].filter(matches)
+            : request.continueToken ? secondPage : firstPage;
           const response = { ...request, namespace: request.namespace ?? null, items: control.empty ? [] : items,
-            fetchedAt: Date.now(), truncated: !request.continueToken, continueToken: request.continueToken ? null : "next-page-token", metrics: null };
+            fetchedAt: Date.now(), truncated: filteredRequest ? false : !request.continueToken,
+            continueToken: filteredRequest ? null : request.continueToken ? null : "next-page-token", metrics: null };
           switch (control.malformed) {
             case "namespace": response.namespace = "wrong-namespace"; break;
             case "session": response.sessionId = "wrong-session"; break;
@@ -205,69 +269,83 @@ test("namespace selector loads known namespaces and applies immediately", async 
   await expect(table(page)).toContainText("team-a"); await expect(table(page)).toContainText("team-b");
   const before = (await calls(page)).length;
   await selectNamespace(page, "production");
-  await expect(page.getByRole("status").filter({ hasText: /namespace production$/ })).toBeVisible();
+  await expect(table(page)).toContainText("production");
   expect((await calls(page)).at(-1)!.request).toMatchObject({ namespace: "production", continueToken: null });
   await selectNamespace(page, "team-a");
-  await expect(page.getByRole("status").filter({ hasText: /namespace team-a$/ })).toBeVisible();
+  await expect(table(page)).toContainText("team-a");
   await selectNamespace(page, "All namespaces");
-  await expect(page.getByRole("status").filter({ hasText: /all namespaces$/ })).toBeVisible();
+  await expect(table(page)).toContainText("team-b");
   expect((await calls(page)).at(-1)!.request.namespace).toBeNull();
   expect((await calls(page)).length).toBeGreaterThan(before);
 });
 
-test("search and Status filter loaded rows locally and distinguish filtered empty", async ({ page }) => {
+test("search and Status filter are sent to Rust and can find continuation-page rows", async ({ page }) => {
   await fixture(page); await ready(page);
-  const before = await calls(page);
   const search = page.getByRole("textbox", { name: "Search Pods", exact: true });
+  await search.fill("second-page-hit");
+  await expect(table(page).getByRole("row")).toHaveCount(2);
+  await expect(table(page)).toContainText("second-page-hit");
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ query: "second-page-hit", continueToken: null });
   await search.fill(" TEAM-B ");
   await expect(table(page).getByRole("row")).toHaveCount(2);
   await expect(table(page)).toContainText("team-b");
-  await search.fill("FACT-QOS"); await expect(table(page).getByRole("row")).toHaveCount(3);
+  expect((await calls(page)).at(-1)!.request.query).toBe("TEAM-B");
+  await search.fill("FACT-QOS");
+  await expect(table(page).getByRole("row")).toHaveCount(4);
   await search.fill("");
+  await ready(page);
   await page.getByRole("combobox", { name: "Status", exact: true }).click();
   await page.getByRole("option", { name: "Pending", exact: true }).click();
   await expect(table(page).getByRole("row")).toHaveCount(2);
   await expect(table(page)).toContainText("team-b");
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ status: "Pending", continueToken: null });
   await search.fill("absent");
   await expect(table(page)).toContainText("No pods match your filters.");
   await expect(table(page)).not.toContainText("No pods were returned.");
   await page.getByRole("button", { name: "Clear filters", exact: true }).click();
   await ready(page); await expect(search).toHaveValue("");
-  expect(await calls(page)).toEqual(before);
+  expect((await calls(page)).at(-1)!.request).not.toHaveProperty("query");
 });
 
-test("CRD Group filter combines with Status and clears without another read", async ({ page }) => {
+test("CRD Group filter combines with Status and clears with a fresh unfiltered read", async ({ page }) => {
   await fixture(page, { section: "custom-resource-definitions" }); await ready(page, "Definitions");
-  const before = await calls(page);
   await page.getByRole("button", { name: "Group", exact: true }).click();
   await page.getByRole("option", { name: "apps.example.test", exact: true }).click();
-  await expect(table(page, "Definitions").getByRole("row")).toHaveCount(2);
+  await expect(table(page, "Definitions").getByRole("row")).toHaveCount(3);
   await expect(table(page, "Definitions")).not.toContainText("other-name");
   await page.getByRole("combobox", { name: "Status", exact: true }).click();
-  await page.getByRole("option", { name: "Pending", exact: true }).click();
+  await page.getByRole("option", { name: "Active", exact: true }).click();
+  await expect(table(page, "Definitions").getByRole("row")).toHaveCount(3);
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ status: "Active", group: "apps.example.test", continueToken: null });
+  await page.getByRole("textbox", { name: "Search Definitions", exact: true }).fill("absent");
   await expect(table(page, "Definitions")).toContainText("No definitions match your filters.");
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ query: "absent", status: "Active", group: "apps.example.test", continueToken: null });
   await page.getByRole("button", { name: "Clear filters", exact: true }).click();
-  await ready(page, "Definitions"); expect(await calls(page)).toEqual(before);
+  await ready(page, "Definitions"); expect((await calls(page)).at(-1)!.request).not.toHaveProperty("group");
 });
 
 test("pagination and namespace changes cancel scoped reads and reset continuation", async ({ page }) => {
   await fixture(page); await ready(page);
   const first = (await calls(page)).at(-1)!.request;
-  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
-  await expect(page.getByRole("status").filter({ hasText: /partial page of at most 100/ })).toBeVisible();
-  await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await expect(table(page)).toContainText("second-page");
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("status").filter({ hasText: /^2\+ items$/ })).toBeVisible();
+  await clusterAction(page, "Next page");
+  await expect(table(page)).toContainText("second-page-hit");
   expect((await calls(page)).at(-1)!.request).toMatchObject({ namespace: null, continueToken: "next-page-token" });
   expect((await calls(page, "cluster_resources_cancel")).some((call) => JSON.stringify(call.request) === JSON.stringify(first))).toBe(true);
-  await expect(page.getByRole("button", { name: "Next page", exact: true })).toBeDisabled();
-  await page.getByRole("button", { name: "Previous page", exact: true }).click(); await ready(page);
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
+  await clusterAction(page, "Previous page"); await ready(page);
   expect((await calls(page)).at(-1)!.request.continueToken).toBeNull();
-  await page.getByRole("button", { name: "Next page", exact: true }).click();
-  await expect(table(page)).toContainText("second-page");
+  await clusterAction(page, "Next page");
+  await expect(table(page)).toContainText("second-page-hit");
   const previous = (await calls(page)).at(-1)!.request;
   await selectNamespace(page, "production"); await ready(page);
   expect((await calls(page)).at(-1)!.request).toMatchObject({ namespace: "production", continueToken: null });
-  await expect(page.getByRole("status").filter({ hasText: /page 1.*namespace production/ })).toBeVisible();
+  await expect(table(page)).toContainText("production");
   expect((await calls(page, "cluster_resources_cancel")).some((call) => call.request.readId === previous.readId)).toBe(true);
   const scoped = (await calls(page)).at(-1)!.request;
   await navigate(page, "services"); await ready(page, "Services");
@@ -278,7 +356,7 @@ test("pagination and namespace changes cancel scoped reads and reset continuatio
 test("late results from a cancelled namespace read cannot replace the current scope", async ({ page }) => {
   await fixture(page); await ready(page);
   await controls(page, { hold: true });
-  await page.getByRole("button", { name: "Next page", exact: true }).click();
+  await clusterAction(page, "Next page");
   await expect(page.getByRole("status").filter({ hasText: "Loading pods…" })).toBeVisible();
   const pending = (await calls(page)).at(-1)!.request;
   await controls(page, { hold: false });
@@ -288,10 +366,12 @@ test("late results from a cancelled namespace read cannot replace the current sc
     (call) => JSON.stringify(call.request) === JSON.stringify(pending),
   )).toBe(true);
   await page.evaluate(() => (window as MockWindow).__releaseResources());
-  await expect(table(page)).not.toContainText("second-page");
+  await expect(table(page)).not.toContainText("second-page-hit");
   await expect(table(page)).toContainText("production");
-  await expect(page.getByRole("status").filter({ hasText: /page 1.*namespace production/ })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Previous page", exact: true })).toBeDisabled();
+  await expect(table(page)).toContainText("production");
+  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Previous page", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape");
 });
 
 test("resource tables default on and navigation preserves the lease", async ({ page }) => {
@@ -339,13 +419,13 @@ test("failed refresh preserves rows and reports stale data without reconnecting"
   await fixture(page); await ready(page);
   const connections = await calls(page, "cluster_connect");
   await controls(page, { failure: "network" });
-  await page.getByRole("button", { name: "Refresh pods", exact: true }).click();
+  await clusterAction(page, "Refresh pods");
   await expect(page.getByRole("alert")).toContainText("could not be reached");
   await ready(page);
   await expect(page.getByRole("status").filter({ hasText: /Previously fetched pods.*stale/ })).toBeVisible();
   expect(await calls(page, "cluster_connect")).toEqual(connections);
   await controls(page, { failure: "" });
-  await page.getByRole("button", { name: "Refresh pods", exact: true }).click();
+  await clusterAction(page, "Refresh pods");
   await expect(page.getByRole("alert")).toHaveCount(0);
   await expect(page.getByText(/Previously fetched pods/)).toHaveCount(0);
 });
@@ -395,6 +475,12 @@ test("narrow tables scroll internally and search remains labelled and keyboard a
     await expect(region).toHaveAttribute("tabindex", "0");
     await region.focus(); await expect(region).toBeFocused(); await page.keyboard.press("End");
     expect(await region.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
+    const header = table(page, "Resource Quotas").getByRole("columnheader").first();
+    await expect(header).toHaveCSS("position", "sticky");
+    expect(await header.evaluate((element) => {
+      const wrapper = element.closest('[role="group"]');
+      return wrapper ? getComputedStyle(wrapper).overflow : "visible";
+    })).toMatch(/auto|scroll/);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   }
 });

@@ -3,6 +3,7 @@ import { useParams, useRouterState } from "@tanstack/react-router";
 import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { DropdownMenu, type DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
 import {
   IconLayoutSidebarLeftCollapse,
@@ -10,6 +11,8 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconSearch,
+  IconDots,
+  IconRefresh,
 } from "@tabler/icons-react";
 import { useNavigationHistory } from "../layouts/use-navigation-history";
 import { WindowToolbar } from "../layouts/WindowFrame";
@@ -28,6 +31,17 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const workspaceRefresh = useWorkspaceRefresh();
   const { clusterId } = useParams({ strict: false });
   const refresh = workspaceRefresh.action?.clusterId === clusterId ? workspaceRefresh.action : null;
+  const clusterActions = workspaceRefresh.clusterActions?.clusterId === clusterId ? workspaceRefresh.clusterActions : null;
+  const pageActions = workspaceRefresh.pageActions && workspaceRefresh.pageActions.clusterId === clusterId && workspaceRefresh.pageActions.section === refresh?.section ? workspaceRefresh.pageActions : null;
+  const items: DropdownMenuOption[] = [
+    ...(refresh ? [{ label: `Refresh ${refresh.section}`, icon: IconRefresh, isDisabled: !refresh.enabled, onClick: refresh.refresh }] : []),
+    ...(pageActions ? [
+      { label: "Previous page", icon: IconArrowLeft, isDisabled: !pageActions.previous.enabled, onClick: pageActions.previous.run },
+      { label: "Next page", icon: IconArrowRight, isDisabled: !pageActions.next.enabled, onClick: pageActions.next.run },
+      ...(pageActions.live ? [{ label: pageActions.live.checked ? "Pause live sync" : "Enable live sync", isDisabled: !pageActions.live.enabled, onClick: pageActions.live.run }] : []),
+    ] : []),
+    ...(clusterActions ? [{ type: "divider" as const }, ...clusterActions.items.map(item => ({ label: item.label, isDisabled: item.enabled === false, onClick: item.run }))] : []),
+  ];
   useEffect(() => {
     function onRefresh(event: KeyboardEvent) {
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r" && !event.isComposing && refresh) {
@@ -88,6 +102,9 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         aria-keyshortcuts="Control+k Meta+k"
       />
       {isCatalog && <CatalogForms />}
+      {clusterId && items.length > 0 && <DropdownMenu presentation="popover" alignment="end" hasChevron={false}
+        renderTrigger={props => <IconButton {...props} label="Cluster actions" tooltip="Cluster actions" icon={<Icon icon={IconDots} />} variant="ghost" />}
+        items={items} />}
     </WindowToolbar>
   );
 }

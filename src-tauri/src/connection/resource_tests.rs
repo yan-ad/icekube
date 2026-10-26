@@ -311,6 +311,9 @@ fn request(kind: ResourceKind) -> ResourceRequest {
         read_id: 1,
         namespace: None,
         continue_token: None,
+        query: None,
+        status: None,
+        group: None,
     }
 }
 #[test]
@@ -837,4 +840,158 @@ async fn removed_pod_security_policy_api_is_unavailable_and_never_falls_back() {
         .await,
         Err(ConnectionError::ResourceUnavailable)
     );
+}
+
+#[tokio::test]
+async fn filtered_scan_finds_second_page_and_combines_status_group() {
+    let client = fake(|path| {
+        let second = path.contains("continue=next");
+        (200, serde_json::to_vec(&json!({"metadata":{"continue":if second { "" } else { "next" }},"items":[{
+            "metadata":{"name":if second { "widgets.example.io" } else { "other.example.io" }},
+            "spec":{"group":"example.io","scope":"Namespaced","versions":[{"name":"v1"}]},
+            "status":{"conditions":[{"type":"Established","status":"True"}]}
+        }]})).unwrap())
+    });
+    let mut r = request(ResourceKind::CustomResourceDefinitions);
+    r.query = Some("WIDGET".into());
+    r.group = Some("example.io".into());
+    let baseline = resources::project(ResourceKind::CustomResourceDefinitions, json!({"metadata":{"name":"x"},"spec":{"group":"example.io"},"status":{"conditions":[{"type":"Established","status":"True"}]}})).unwrap();
+    r.status = Some(baseline.status);
+    let page = transport::resources(&client, &r, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].name, "widgets.example.io");
+    assert!(!page.truncated);
+    r.group = Some("missing.io".into());
+    assert!(
+        transport::resources(&client, &r, &CancellationToken::new())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+    r.group = None;
+    r.status = Some("not-an-observed-status".into());
+    assert!(
+        transport::resources(&client, &r, &CancellationToken::new())
+            .await
+            .unwrap()
+            .items
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn filtered_scan_bounds_pages_and_can_resume_without_matches() {
+    let client = fake(|path| {
+        let index = path
+            .split("continue=")
+            .nth(1)
+            .unwrap_or("0")
+            .parse::<usize>()
+            .unwrap();
+        (200, serde_json::to_vec(&json!({"metadata":{"continue":(index + 1).to_string()},"items":[{"metadata":{"name":format!("ns-{index}")}}]})).unwrap())
+    });
+    let mut r = request(ResourceKind::Namespaces);
+    r.query = Some("ns-10".into());
+    let page = transport::resources(&client, &r, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(page.items.is_empty());
+    assert!(page.truncated);
+    assert_eq!(page.continue_token.as_deref(), Some("10"));
+    r.continue_token = page.continue_token;
+    let resumed = transport::resources(&client, &r, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(resumed.items[0].name, "ns-10");
+}
+
+#[tokio::test]
+async fn filtered_scan_reduces_page_size_instead_of_dropping_matches() {
+    let client = fake(|path| {
+        let second = path.contains("continue=next");
+        let count = if second {
+            assert!(path.contains("limit=1&"));
+            1
+        } else {
+            99
+        };
+        let items = (0..count)
+            .map(|i| json!({"metadata":{"name":format!("hit-{}-{i}", usize::from(second))}}))
+            .collect::<Vec<_>>();
+        (
+            200,
+            serde_json::to_vec(
+                &json!({"metadata":{"continue":if second {"last"} else {"next"}},"items":items}),
+            )
+            .unwrap(),
+        )
+    });
+    let mut r = request(ResourceKind::Namespaces);
+    r.query = Some("hit".into());
+    let page = transport::resources(&client, &r, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(page.items.len(), 100);
+    assert_eq!(page.continue_token.as_deref(), Some("last"));
+}
+
+#[tokio::test]
+async fn filtered_scan_cancellation_and_invalid_filters_fail_closed() {
+    let mut r = request(ResourceKind::Pods);
+    for value in ["".to_string(), "\n".to_string(), "x".repeat(257)] {
+        r.query = Some(value);
+        assert_eq!(
+            transport::validate_resource_request(&r),
+            Err(ConnectionError::InvalidInput)
+        );
+    }
+    r.query = None;
+    r.group = Some("example.io".into());
+    assert_eq!(
+        transport::validate_resource_request(&r),
+        Err(ConnectionError::InvalidInput)
+    );
+    r.group = None;
+    r.query = Some("hit".into());
+    let cancel = CancellationToken::new();
+    cancel.cancel();
+    assert_eq!(
+        transport::resources(
+            &fake(|_| panic!("cancelled scan must not fetch")),
+            &r,
+            &cancel
+        )
+        .await,
+        Err(ConnectionError::StaleSession)
+    );
+    assert!(serde_json::from_value::<ResourceRequest>(json!({"clusterId":"x","sessionId":"y","kind":"pods","readId":1,"filters":{"query":"hit"}})).is_err());
+}
+
+#[tokio::test]
+async fn filtered_scan_time_bound_retains_next_unscanned_page() {
+    let client = Client::new(
+        transport::CancelService(tower::service_fn(
+            |request: http::Request<kube::client::Body>| async move {
+                if request.uri().to_string().contains("continue=next") {
+                    tokio::time::sleep(std::time::Duration::from_secs(6)).await;
+                }
+                Ok::<_, std::io::Error>(http::Response::new(kube::client::Body::from(
+                    serde_json::to_vec(&json!({"metadata":{"continue":"next"},"items":[]}))
+                        .unwrap(),
+                )))
+            },
+        )),
+        "default",
+    );
+    let mut r = request(ResourceKind::Namespaces);
+    r.query = Some("hit".into());
+    let page = transport::resources(&client, &r, &CancellationToken::new())
+        .await
+        .unwrap();
+    assert!(page.items.is_empty());
+    assert!(page.truncated);
+    assert_eq!(page.continue_token.as_deref(), Some("next"));
 }

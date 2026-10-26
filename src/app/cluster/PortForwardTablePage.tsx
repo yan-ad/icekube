@@ -5,6 +5,8 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { IconPlayerStop, IconRefresh, IconSearch, IconTrash } from "@tabler/icons-react";
+import { TableToolbar, tableViewport } from "./TableToolbar";
 import type { SessionRequest } from "./api";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
@@ -136,31 +138,27 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     { key: "localPort", header: "Local Port", renderCell: (item) => <Text>{item.localPort}</Text> },
     { key: "address", header: "Address", renderCell: () => <Text>127.0.0.1</Text> },
     { key: "status", header: "Status", renderCell: (item) => <Text>{item.error ? `${item.status}: ${podMessage(item.error)}` : item.status}</Text> },
-    { key: "actions", header: "Actions", renderCell: (item) => <Button label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} forward`} aria-label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} ${item.namespace}/${item.name} on port ${item.localPort}`} size="sm" variant="ghost" isDisabled={busy} onClick={() => void stop(item.id)} /> },
+    { key: "actions", header: "Actions", renderCell: (item) => <Button label={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} ${item.namespace}/${item.name} on port ${item.localPort}`} icon={item.status === "stopped" || item.status === "error" ? <IconTrash /> : <IconPlayerStop />} isIconOnly tooltip={`${item.status === "stopped" || item.status === "error" ? "Remove" : "Stop"} forward`} size="sm" variant="ghost" isDisabled={busy} onClick={() => void stop(item.id)} /> },
   ];
 
-  return <VStack gap={3} style={{ minWidth: 0 }}>
-    <VStack gap={2}>
-      <HStack gap={2} wrap="wrap" vAlign="end">
-        <TextInput label="Search forwards" value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
-        <Selector label="Status" value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />
-        <Selector label="Namespace filter" value={namespaceFilter} onChange={setNamespaceFilter} size="sm" options={[{ value: "", label: "All namespaces" }, ...namespaces.map((value) => ({ value, label: value }))]} />
-        <Button label="Refresh" size="sm" isDisabled={busy} onClick={() => void load()} />
-      </HStack>
-      <HStack gap={2} wrap="wrap" vAlign="end">
-        <NamespaceSelector value={namespace} onChange={setNamespace} label="Pod namespace" allowAll={false} />
+  return <VStack gap={3} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+      <TableToolbar label="Port Forwarding" count={forwards ? `${items.length} / ${forwards.length}` : undefined}>
+        <TextInput label="Search forwards" isLabelHidden placeholder="Search forwards…" startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
+        <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />
+        <Selector label="Namespace filter" isLabelHidden value={namespaceFilter} onChange={setNamespaceFilter} size="sm" options={[{ value: "", label: "All namespaces" }, ...namespaces.map((value) => ({ value, label: value }))]} />
+        <Button label="Refresh" icon={<IconRefresh />} isIconOnly tooltip="Refresh" size="sm" isDisabled={busy} onClick={() => void load()} />
+      </TableToolbar>
+      <HStack gap={2} wrap="wrap" vAlign="end" style={{ flexShrink: 0 }}>
+        <NamespaceSelector value={namespace} onChange={setNamespace} label="Pod namespace" allowAll={false} isLabelHidden={false} />
         <TextInput label="Pod" value={pod} onChange={setPod} placeholder="Pod name" size="sm" status={pod && !podValid ? { type: "error", message: "Enter a valid Pod name." } : undefined} />
         <TextInput label="Port" value={remotePort} onChange={setRemotePort} placeholder="Remote port" size="sm" status={remotePort && remote === null ? { type: "error", message: "Use a port from 1 to 65535." } : undefined} />
         <TextInput label="Local port" value={localPort} onChange={setLocalPort} placeholder="0 for auto" size="sm" status={localPort && local === null ? { type: "error", message: "Use 0 or a port from 1 to 65535." } : undefined} />
         <Button label={busy ? "Working…" : "Start forward"} size="sm" isDisabled={!formValid || busy} onClick={() => void start()} />
       </HStack>
-      <Text type="supporting">Forwards bind to 127.0.0.1. Local port 0 asks the engine to choose an available port.</Text>
-      <Text type="supporting">Cluster: {clusterId}. Table-started forwards continue when navigating this workspace and stop when the session disconnects.</Text>
-    </VStack>
     {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
     {actionError && <Text role="alert">{actionError}</Text>}
     {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
-    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate"
+    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>() }}
       emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Enter a namespace, Pod, and ports above to start one.</Text></VStack>} />}
   </VStack>;
 }

@@ -11,6 +11,8 @@ use tokio_util::sync::CancellationToken;
 
 const BODY_LIMIT: usize = 2 * 1024 * 1024;
 const ITEM_LIMIT: usize = 100;
+const SCAN_PAGE_LIMIT: usize = 10;
+const SCAN_ITEM_LIMIT: usize = 1_000;
 pub(super) mod nodes;
 
 #[derive(Clone)]
@@ -76,7 +78,90 @@ pub(super) async fn resources(
     cancel: &CancellationToken,
 ) -> Result<ResourcePage> {
     validate_resource_request(request)?;
-    let path = resource_path(request);
+    let mut continuation = request.continue_token.clone();
+    let mut items = Vec::new();
+    let mut scanned_pages = 0;
+    let mut scanned_items = 0;
+    let mut seen_tokens = HashSet::new();
+    let mut seen_names = HashSet::new();
+    if let Some(token) = &continuation {
+        seen_tokens.insert(token.clone());
+    }
+    let mut metrics = None;
+    let filtered = request.query.is_some() || request.status.is_some() || request.group.is_some();
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        if cancel.is_cancelled() {
+            return Err(ConnectionError::StaleSession);
+        }
+        let limit = ITEM_LIMIT.saturating_sub(items.len());
+        let path = resource_page_path(request, continuation.as_deref(), limit.max(1));
+        let page = if filtered {
+            match tokio::time::timeout_at(
+                deadline,
+                fetch_page(client, request, &path, limit, cancel),
+            )
+            .await
+            {
+                Ok(result) => result?,
+                Err(_) if scanned_pages > 0 => break,
+                Err(_) => return Err(ConnectionError::Timeout),
+            }
+        } else {
+            fetch_page(client, request, &path, limit, cancel).await?
+        };
+        scanned_pages += 1;
+        scanned_items += page.items.len();
+        items.extend(
+            page.items
+                .into_iter()
+                .filter(|item| seen_names.insert((item.namespace.clone(), item.name.clone())))
+                .filter(|item| matches_filter(request, item)),
+        );
+        continuation = page.continue_token;
+        if let Some(token) = &continuation
+            && !seen_tokens.insert(token.clone())
+        {
+            return Err(ConnectionError::InvalidResponse);
+        }
+        if continuation.is_none()
+            || !filtered
+            || items.len() >= ITEM_LIMIT
+            || scanned_pages >= SCAN_PAGE_LIMIT
+            || scanned_items >= SCAN_ITEM_LIMIT
+        {
+            break;
+        }
+    }
+    if request.kind == ResourceKind::Nodes {
+        metrics = Some(super::metrics::enrich(client, &mut items, cancel).await?);
+    }
+    let truncated = continuation.is_some();
+    items.sort_by(|a, b| (&a.namespace, &a.name).cmp(&(&b.namespace, &b.name)));
+    Ok(ResourcePage {
+        cluster_id: request.cluster_id.clone(),
+        session_id: request.session_id.clone(),
+        kind: request.kind,
+        read_id: request.read_id,
+        namespace: request.namespace.clone(),
+        truncated,
+        continue_token: continuation,
+        items,
+        metrics,
+        fetched_at: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| ConnectionError::ConnectionFailed)?
+            .as_millis() as u64,
+    })
+}
+
+async fn fetch_page(
+    client: &Client,
+    request: &ResourceRequest,
+    path: &str,
+    limit: usize,
+    cancel: &CancellationToken,
+) -> Result<ResourcePage> {
     let accept = if matches!(
         request.kind,
         ResourceKind::Secrets | ResourceKind::ConfigMaps
@@ -85,7 +170,7 @@ pub(super) async fn resources(
     } else {
         "application/json"
     };
-    let list: List = get_with_accept(client, &path, BODY_LIMIT, cancel, accept).await?;
+    let list: List = get_with_accept(client, path, BODY_LIMIT, cancel, accept).await?;
     if matches!(
         request.kind,
         ResourceKind::Secrets | ResourceKind::ConfigMaps
@@ -93,7 +178,7 @@ pub(super) async fn resources(
     {
         return Err(ConnectionError::InvalidResponse);
     }
-    if list.items.len() > ITEM_LIMIT {
+    if list.items.len() > limit {
         return Err(ConnectionError::LimitExceeded);
     }
     let continue_token = list.metadata.continue_token.filter(|s| !s.is_empty());
@@ -113,11 +198,6 @@ pub(super) async fn resources(
         items.push(item);
     }
     items.sort_by(|a, b| (&a.namespace, &a.name).cmp(&(&b.namespace, &b.name)));
-    let metrics = if request.kind == ResourceKind::Nodes {
-        Some(super::metrics::enrich(client, &mut items, cancel).await?)
-    } else {
-        None
-    };
     Ok(ResourcePage {
         cluster_id: request.cluster_id.clone(),
         session_id: request.session_id.clone(),
@@ -127,11 +207,38 @@ pub(super) async fn resources(
         truncated: continue_token.is_some(),
         continue_token,
         items,
-        metrics,
+        metrics: None,
         fetched_at: SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .map_err(|_| ConnectionError::ConnectionFailed)?
             .as_millis() as u64,
+    })
+}
+fn matches_filter(request: &ResourceRequest, item: &super::ResourceItem) -> bool {
+    if request
+        .status
+        .as_deref()
+        .is_some_and(|status| status != item.status)
+    {
+        return false;
+    }
+    if request
+        .group
+        .as_deref()
+        .is_some_and(|group| item.columns.get("group").map(String::as_str) != Some(group))
+    {
+        return false;
+    }
+    request.query.as_deref().is_none_or(|query| {
+        let query = query.to_lowercase();
+        [
+            item.name.as_str(),
+            item.namespace.as_deref().unwrap_or(""),
+            item.status.as_str(),
+        ]
+        .into_iter()
+        .chain(item.columns.values().map(String::as_str))
+        .any(|value| value.to_lowercase().contains(&query))
     })
 }
 pub(super) fn valid_namespace(s: &str) -> bool {
@@ -157,9 +264,27 @@ pub(super) fn validate_resource_request(request: &ResourceRequest) -> Result<()>
     {
         return Err(ConnectionError::InvalidInput);
     }
+    for value in [&request.query, &request.status, &request.group]
+        .into_iter()
+        .filter_map(Option::as_deref)
+    {
+        if value.is_empty() || value.len() > 256 || value.chars().any(char::is_control) {
+            return Err(ConnectionError::InvalidInput);
+        }
+    }
+    if request.group.is_some() && request.kind != ResourceKind::CustomResourceDefinitions {
+        return Err(ConnectionError::InvalidInput);
+    }
     Ok(())
 }
 pub(super) fn resource_path(request: &ResourceRequest) -> String {
+    resource_page_path(request, request.continue_token.as_deref(), ITEM_LIMIT)
+}
+fn resource_page_path(
+    request: &ResourceRequest,
+    continuation: Option<&str>,
+    limit: usize,
+) -> String {
     use ResourceKind::*;
     let (group, plural) = match request.kind {
         Nodes => ("/api/v1", "nodes"),
@@ -221,8 +346,8 @@ pub(super) fn resource_path(request: &ResourceRequest) -> String {
         .as_ref()
         .map(|s| format!("/namespaces/{s}"))
         .unwrap_or_default();
-    let mut path = format!("{group}{scope}/{plural}?limit=100&timeoutSeconds=10");
-    if let Some(token) = &request.continue_token {
+    let mut path = format!("{group}{scope}/{plural}?limit={limit}&timeoutSeconds=10");
+    if let Some(token) = continuation {
         let query: String = url::form_urlencoded::Serializer::new(String::new())
             .append_pair("continue", token)
             .finish();

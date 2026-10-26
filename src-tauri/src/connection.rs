@@ -142,7 +142,7 @@ pub enum ResourceKind {
     CustomResourceDefinitions,
 }
 
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct ResourceRequest {
     pub cluster_id: String,
@@ -153,6 +153,12 @@ pub struct ResourceRequest {
     pub namespace: Option<String>,
     #[serde(default)]
     pub continue_token: Option<String>,
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub group: Option<String>,
 }
 impl ResourceRequest {
     fn session(&self) -> SessionRequest {
@@ -245,6 +251,7 @@ struct Session {
 struct ReadSlot {
     id: u64,
     cancel: Option<CancellationToken>,
+    request: ResourceRequest,
 }
 impl Drop for Session {
     fn drop(&mut self) {
@@ -470,12 +477,17 @@ impl ConnectionEngine {
             let slot = session.reads.entry(request.kind).or_insert(ReadSlot {
                 id: 0,
                 cancel: None,
+                request: request.clone(),
             });
+            if request.read_id == slot.id && request != slot.request {
+                return Err(ConnectionError::InvalidInput);
+            }
             if request.read_id >= slot.id {
                 if let Some(cancel) = slot.cancel.take() {
                     cancel.cancel();
                 }
                 slot.id = request.read_id;
+                slot.request = request;
             }
         }
         Ok(())
@@ -504,6 +516,7 @@ impl ConnectionEngine {
             let slot = session.reads.entry(request.kind).or_insert(ReadSlot {
                 id: 0,
                 cancel: None,
+                request: request.clone(),
             });
             if request.read_id <= slot.id {
                 return Err(ConnectionError::StaleSession);
@@ -512,6 +525,7 @@ impl ConnectionEngine {
                 old.cancel();
             }
             slot.id = request.read_id;
+            slot.request = request.clone();
             (client, cancel)
         };
         let result = bounded(&cancel, transport::resources(&client, &request, &cancel)).await;

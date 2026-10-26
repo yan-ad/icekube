@@ -23,6 +23,7 @@ export function WindowFrame({
       data-seamless={hasChrome || undefined}
       style={{
         boxSizing: "border-box",
+        overscrollBehavior: "none",
         paddingTop: "env(safe-area-inset-top, 0rem)",
         paddingRight: "env(safe-area-inset-right, 0rem)",
         paddingBottom: "env(safe-area-inset-bottom, 0rem)",

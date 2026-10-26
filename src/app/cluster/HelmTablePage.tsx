@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { IconPlus, IconRefresh, IconSearch } from "@tabler/icons-react";
+import { TableToolbar, tableViewport } from "./TableToolbar";
 import { nextReadId, type SessionRequest } from "./api";
 import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type HelmView } from "./helmApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
@@ -51,21 +53,20 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       { key: "updated", header: "Updated", renderCell: (item: HelmItem) => <Text maxLines={1}>{item.updated || "N/A"}</Text> },
     ]),
   ];
-  return <VStack gap={3} style={{ minWidth: 0 }}>
-    <HStack gap={3} wrap="wrap" vAlign="end">
-      <TextInput label={`Search ${label}`} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
-      {view === "releases" && <Selector label="Status" value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />}
-      <Button label="Reload" size="sm" isDisabled={loading} onClick={() => setRevision((value) => value + 1)} />
-      <Button label="Install" size="sm" isDisabled tooltip="Installation is not available. This view is read-only." />
-    </HStack>
-    {view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}
+  return <VStack gap={3} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
+    <TableToolbar label={label} count={scopedPage ? `${items.length} / ${rows.length}` : undefined}>
+      <TextInput label={`Search ${label}`} isLabelHidden placeholder={`Search ${label}…`} startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
+      {view === "releases" && <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />}
+      <Button label="Reload" icon={<IconRefresh />} isIconOnly tooltip="Reload" size="sm" isDisabled={loading} onClick={() => setRevision((value) => value + 1)} />
+      <Button label="Install" icon={<IconPlus />} isIconOnly size="sm" isDisabled tooltip="Installation is not available. This view is read-only." />
+      {view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}
+    </TableToolbar>
     {loading && <Text role="status">Loading Helm {view}…</Text>}
     {error?.scope === scope && <Text role="alert">{error.message}</Text>}
     {scopedPage && (loading || error?.scope === scope) && <Text role="status">Showing the previous Helm inventory. It may be stale.</Text>}
     {scopedPage && <>
-      <Text role="status" type="supporting">{items.length} of {rows.length} loaded {view}{namespace ? ` · namespace ${namespace}` : view === "releases" ? " · all namespaces" : " · local Helm repository cache"}</Text>
       {scopedPage.truncated && <Text role="status">This inventory may be partial. At most 500 rows are displayed; Helm may apply its own list limit. Filters apply only to loaded rows.</Text>}
-      <Table aria-label={`Helm ${label}`} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate"
+      <Table aria-label={`Helm ${label}`} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<HelmItem>() }}
         emptyState={<VStack gap={2} padding={6}><Text>{query || status ? `No ${view} match your filters.` : `No ${view} were returned.`}</Text>
           <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>} />
     </>}

@@ -9,6 +9,9 @@ fn request() -> ResourceRequest {
         read_id: 1,
         namespace: Some("default".into()),
         continue_token: None,
+        query: None,
+        status: None,
+        group: None,
     }
 }
 #[tokio::test]

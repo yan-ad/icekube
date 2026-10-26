@@ -44,6 +44,9 @@ pub(super) fn resource(snapshot: &ConnectionSnapshot, kind: ResourceKind) -> Res
         read_id: 1,
         namespace: None,
         continue_token: None,
+        query: None,
+        status: None,
+        group: None,
     }
 }
 pub(super) fn fake(response: impl Fn(&str) -> (u16, Vec<u8>) + Send + Sync + 'static) -> Client {

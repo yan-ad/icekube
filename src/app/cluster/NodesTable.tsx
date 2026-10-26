@@ -5,6 +5,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { Tooltip } from "@astryxdesign/core/Tooltip";
 import type { ResourceItem } from "./api";
 import type { Usage } from "./nodeContract";
+import { tableViewport } from "./TableToolbar";
 
 function cores(value: number): string {
   return value === 0 ? "0" : value < 0.01 ? "<0.01" : value.toFixed(value < 10 ? 2 : 1);
@@ -60,9 +61,9 @@ export function NodesTable({ items, loading, filtered, now }: { items: ResourceI
     } },
   ];
   return <Table data={items} columns={columns} idKey="name" density="compact" hasHover textOverflow="truncate"
-    aria-label="Nodes" aria-busy={loading}
+    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>() }}
     emptyState={<VStack padding={6} gap={2}>
-      <Text>{filtered ? "No nodes match your search." : "No nodes were returned."}</Text>
-      <Text color="secondary">{filtered ? "Clear or change the search to see loaded nodes." : "Refresh to check again."}</Text>
+      <Text>{filtered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
+      <Text color="secondary">{filtered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>
     </VStack>} />;
 }

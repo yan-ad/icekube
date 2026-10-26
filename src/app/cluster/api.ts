@@ -47,6 +47,9 @@ export type ResourceRequest = SessionRequest & {
   readId: number;
   namespace?: string | null;
   continueToken?: string | null;
+  query?: string | null;
+  status?: string | null;
+  group?: string | null;
 };
 export type ResourceItem = {
   name: string;
@@ -105,7 +108,10 @@ function validResourceRequest(request: ResourceRequest): boolean {
   return knownResourceKind(request.kind) && validReadId(request.readId)
     && (request.namespace == null || isNamespacedKind(request.kind))
     && (request.namespace === undefined || request.namespace === null || validNamespace(request.namespace))
-    && (request.continueToken === undefined || request.continueToken === null || validContinueToken(request.continueToken));
+    && (request.continueToken === undefined || request.continueToken === null || validContinueToken(request.continueToken))
+    && [request.query, request.status, request.group].every((value) => value === undefined || value === null
+      || typeof value === "string" && value.length > 0 && value.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/.test(value))
+    && (request.group == null || request.kind === "customResourceDefinitions");
 }
 function identity(value: Record<string, unknown>, request: { clusterId: string; sessionId?: string }) {
   return text(value.clusterId) && value.clusterId === request.clusterId && text(value.sessionId)

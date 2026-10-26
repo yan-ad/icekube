@@ -3,6 +3,7 @@ import { Button } from "@astryxdesign/core/Button";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
 import { VStack } from "@astryxdesign/core/Stack";
+import { IconRefresh } from "@tabler/icons-react";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceRequest, type SessionRequest } from "./api";
 
 type NamespaceScopeValue = {
@@ -72,8 +73,8 @@ export function NamespaceScopeProvider({ clusterId, sessionId, children }: Sessi
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 
-export function NamespaceSelector({ value, onChange, label = "Namespace", allowAll = true }: {
-  value: string; onChange: (value: string) => void; label?: string; allowAll?: boolean;
+export function NamespaceSelector({ value, onChange, label = "Namespace", allowAll = true, isLabelHidden = true }: {
+  value: string; onChange: (value: string) => void; label?: string; allowAll?: boolean; isLabelHidden?: boolean;
 }) {
   const scope = useContext(Context);
   if (!scope) throw new Error("NamespaceScopeProvider is required");
@@ -82,14 +83,14 @@ export function NamespaceSelector({ value, onChange, label = "Namespace", allowA
   const choices = namespaces.map((namespace) => ({ value: namespace, label: namespace }));
   if (value && !namespaces.includes(value)) choices.push({ value, label: `${value} (not in loaded list)` });
   return <VStack gap={1} style={{ minWidth: 0 }}>
-    <Selector label={label} value={value} onChange={onChange} size="sm" width="min(18rem, 100%)" hasSearch presentation="adaptive"
+    <Selector label={label} isLabelHidden={isLabelHidden} value={value} onChange={onChange} size="sm" width="min(18rem, 100%)" hasSearch presentation="adaptive"
       isLoading={loading} placeholder={allowAll ? "All namespaces" : "Choose namespace"}
       options={[...(allowAll ? [{ value: "", label: "All namespaces" }] : []), ...choices]}
       emptyText={loading ? "Loading namespaces…" : error ? "Namespace list unavailable" : "No namespaces returned"} />
     {loading && <Text type="supporting" role="status">Loading namespaces…</Text>}
     {error && <>
       <Text role="status" type="supporting">Could not load namespaces. {connectionMessage(error)}{allowAll ? " All namespaces remains available." : " Retry to choose a namespace."}</Text>
-      <Button label="Retry namespaces" variant="ghost" size="sm" onClick={retry} />
+      <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />
     </>}
     {partial && <Text role="status" type="supporting">The namespace list is partial; at most {NAMESPACE_LIMIT} names are loaded.{allowAll ? " All namespaces still covers the full request scope." : ""}</Text>}
     {!loading && !error && namespaces.length === 0 && <Text role="status" type="supporting">No namespaces were returned.</Text>}

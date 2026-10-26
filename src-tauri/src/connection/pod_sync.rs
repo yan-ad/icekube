@@ -202,7 +202,12 @@ impl ConnectionEngine {
 fn validate(request: &ResourceRequest) -> Result<()> {
     super::validate_read_id(request.read_id)?;
     super::transport::validate_resource_request(request)?;
-    if request.kind != ResourceKind::Pods || request.continue_token.is_some() {
+    if request.kind != ResourceKind::Pods
+        || request.continue_token.is_some()
+        || request.query.is_some()
+        || request.status.is_some()
+        || request.group.is_some()
+    {
         return Err(ConnectionError::InvalidInput);
     }
     Ok(())

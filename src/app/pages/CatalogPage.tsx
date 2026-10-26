@@ -4,7 +4,7 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Button } from "@astryxdesign/core/Button";
 import { Badge } from "@astryxdesign/core/Badge";
 import { Icon } from "@astryxdesign/core/Icon";
-import { IconPin, IconPinnedOff, IconTrash } from "@tabler/icons-react";
+import { IconPin, IconPinnedOff, IconSearch, IconTrash } from "@tabler/icons-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Heading } from "@astryxdesign/core/Heading";
 import {
@@ -25,6 +25,7 @@ import { useCatalog } from "../catalog/CatalogProvider";
 import { catalogError } from "../catalog/api";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { RecordIcon, kindIcons, type CatalogKind } from "../catalog/RecordIcon";
+import { TableToolbar, tableViewport } from "../cluster/TableToolbar";
 
 type CatalogRow = {
   id: string;
@@ -205,9 +206,22 @@ export default function CatalogPage() {
       <Layout
         height="fill"
         content={
-          <LayoutContent padding={6}>
-            <VStack gap={4}>
+          <LayoutContent padding={6} isScrollable={false}>
+            <VStack gap={0} style={{ height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
               <VisuallyHidden><Heading level={1}>{kind}</Heading></VisuallyHidden>
+              <TableToolbar label="Catalog" count={snapshot ? `${filtered.length} items` : loading ? "Loading…" : "Unavailable"}>
+                <TextInput
+                  label="Filter catalog"
+                  isLabelHidden
+                  value={query}
+                  onChange={setQuery}
+                  hasClear
+                  size="sm"
+                  startIcon={IconSearch}
+                  width="min(17rem, 100%)"
+                  placeholder="Filter catalog…"
+                />
+              </TableToolbar>
               {error && (
                 <Text role="alert">
                   {error}
@@ -218,13 +232,6 @@ export default function CatalogPage() {
               )}
               {loading && <Text role="status">Loading catalog…</Text>}
               {snapshot?.discoveryError && <Text role="alert">Could not refresh file=~/.kube/config. {catalogError(snapshot.discoveryError)} Previously saved records are kept. Use Refresh to retry.</Text>}
-              <TextInput
-                label="Filter catalog"
-                value={query}
-                onChange={setQuery}
-                hasClear
-                placeholder="Filter by name, kind, source, or label"
-              />
               {selectedItem && (
                 <HStack gap={2} vAlign="center" wrap="wrap">
                   <Text type="supporting">
@@ -243,7 +250,7 @@ export default function CatalogPage() {
                 idKey="id"
                 density="compact"
                 hasHover
-                plugins={{ activation }}
+                plugins={{ activation, viewport: tableViewport<CatalogRow>() }}
                 aria-label={kind === "Web Links" ? "Web links" : kind}
                 aria-busy={busy}
                 emptyState={
