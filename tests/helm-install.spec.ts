@@ -18,6 +18,8 @@ async function fixture(page: Page, view = "charts") {
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
         ] };
+        if (command === "update_state") return { phase: "idle", version: null, error: null };
+        if (command === "preferences_get") return null;
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? "lease-1", contextName: "dev",
           status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
         if (["cluster_disconnect", "cluster_resources_cancel", "helm_cancel", "helm_install_cancel"].includes(command)) return null;

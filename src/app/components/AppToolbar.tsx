@@ -13,12 +13,15 @@ import {
   IconSearch,
   IconDots,
   IconRefresh,
+  IconSettings,
 } from "@tabler/icons-react";
 import { useNavigationHistory } from "../layouts/use-navigation-history";
 import { WindowToolbar } from "../layouts/WindowFrame";
 import { getWindowLayout } from "../layouts/window-layout";
 import { CatalogForms } from "../catalog/CatalogForms";
 import { useWorkspaceRefresh } from "../cluster/WorkspaceRefresh";
+import { RestartUpdateButton } from "../updates/RestartUpdateButton";
+import { usePreferences } from "../preferences/PreferencesProvider";
 
 export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const history = useNavigationHistory();
@@ -29,6 +32,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const expanded = mobile.isMobile ? mobile.isMobileNavOpen : !isSidebarCollapsed;
   const toggleLabel = mobile.isMobile ? "Open sidebar" : isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
   const workspaceRefresh = useWorkspaceRefresh();
+  const { openPreferences } = usePreferences();
   const { clusterId } = useParams({ strict: false });
   const refresh = workspaceRefresh.action?.clusterId === clusterId ? workspaceRefresh.action : null;
   const clusterActions = workspaceRefresh.clusterActions?.clusterId === clusterId ? workspaceRefresh.clusterActions : null;
@@ -92,6 +96,14 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         aria-hidden="true"
         data-tauri-drag-region={draggable || undefined}
         style={{ alignSelf: "stretch", minWidth: "var(--spacing-4)" }}
+      />
+      <RestartUpdateButton />
+      <IconButton
+        label="Preferences"
+        tooltip="Preferences (Cmd+,)"
+        variant="ghost"
+        icon={<Icon icon={IconSettings} />}
+        onClick={openPreferences}
       />
       <IconButton
         label="Search"

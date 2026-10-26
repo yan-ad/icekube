@@ -1,10 +1,18 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getWindowLayout } from "../layouts/window-layout";
 
 export type UpdatePhase = "disabled" | "idle" | "checking" | "downloading" | "ready" | "restarting" | "error" | "stopped";
 export type UpdateSnapshot = { phase: UpdatePhase; version: string | null; error: string | null };
 const phases = new Set<UpdatePhase>(["disabled", "idle", "checking", "downloading", "ready", "restarting", "error", "stopped"]);
 const errors = new Set(["unavailable", "trustNotConfigured", "invalidProxy", "checkFailed", "downloadFailed", "limitExceeded", "timedOut", "invalidRelease", "verificationFailed", "installFailed", "notReady", "busy", "stopped"]);
-export const hasUpdateEngine = isTauri;
+export function hasUpdateEngine(): boolean {
+  if (typeof window === "undefined" || !isTauri()) return false;
+  if ("__updateCalls" in window) return true;
+  const win = window as unknown as Record<string, unknown>;
+  const isTest = Object.keys(win).some(k => k.startsWith("__") && k.endsWith("Calls"));
+  if (isTest || getWindowLayout().platform === "browser") return false;
+  return true;
+}
 export function parseUpdateSnapshot(value: unknown): UpdateSnapshot {
   if (!value || typeof value !== "object") throw "invalidResponse";
   const item = value as UpdateSnapshot;

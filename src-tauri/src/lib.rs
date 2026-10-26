@@ -1,5 +1,7 @@
 mod catalog;
 mod connection;
+mod preferences;
+mod updates;
 mod window;
 
 use catalog::{
@@ -297,17 +299,55 @@ async fn catalog_remove(
     catalog_operation(engine.inner().clone(), move |engine| engine.remove(request)).await
 }
 
+#[tauri::command]
+async fn preferences_get(
+    engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>,
+) -> Result<preferences::PreferencesSnapshot, preferences::PreferencesError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.snapshot())
+        .await
+        .map_err(|_| preferences::PreferencesError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn preferences_save(
+    engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>,
+    request: preferences::SavePreferencesRequest,
+) -> Result<preferences::PreferencesSnapshot, preferences::PreferencesError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.save(request))
+        .await
+        .map_err(|_| preferences::PreferencesError::StoreUnavailable)?
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
+            let app_data = app.path().app_data_dir()?;
             let catalog = Arc::new(CatalogEngine::new_with_home(
-                app.path().app_data_dir()?,
+                app_data.clone(),
                 app.path().home_dir().ok(),
             ));
             app.manage(catalog.clone());
             app.manage(Arc::new(connection::ConnectionEngine::new(catalog)));
+
+            let prefs = preferences::PreferencesEngine::new(app_data)
+                .map_err(|e| format!("preferences init failed: {e:?}"))?;
+            app.manage(prefs.clone());
+
+            let proxy = prefs.snapshot().ok().and_then(|s| {
+                if s.preferences.proxy.https_proxy.is_empty() {
+                    None
+                } else {
+                    Some(s.preferences.proxy.https_proxy)
+                }
+            });
+            let updater = updates::UpdateEngine::start_with_proxy(app.handle().clone(), proxy.as_deref());
+            app.manage(updater);
+
             window::create_main_window(app)?;
             Ok(())
         })
@@ -345,7 +385,12 @@ pub fn run() {
             helm_install,
             helm_install_cancel,
             helm_table,
-            helm_cancel
+            helm_cancel,
+
+            preferences_get,
+            preferences_save,
+            updates::update_state,
+            updates::update_restart
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -356,6 +401,9 @@ pub fn run() {
                 let engine = app.state::<Arc<connection::ConnectionEngine>>();
                 engine.shutdown();
                 tauri::async_runtime::block_on(engine.drain());
+                let updater = app.state::<Arc<updates::UpdateEngine>>();
+                updater.shutdown();
+                tauri::async_runtime::block_on(updater.drain());
             }
         });
 }
