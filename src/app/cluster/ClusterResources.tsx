@@ -18,6 +18,8 @@ import { resourceRowKey } from "./deleteApi";
 import { useResourceRowMenu } from "./RowContextMenu";
 import { NodesTable } from "./NodesTable";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { ContentLoading } from "../components/ContentLoading";
+import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 
 const metricMessages = {
   unavailable: "Usage metrics unavailable; inventory is shown.",
@@ -48,7 +50,9 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const { committed, pending } = useDebouncedSearch(query);
   const needle = committed.trim();
   const token = tokens[index];
-  useRegisterWorkspaceRefresh({ clusterId, section: kind, enabled: true, refresh: () => {
+  const auto = useAutoRefresh({ scope: JSON.stringify([clusterId, sessionId, kind, needle, token]), interval: 10_000,
+    busy: loading, paused: pending || index > 0, refresh: () => setRevision(value => value + 1) });
+  useRegisterWorkspaceRefresh({ clusterId, section: kind, enabled: !loading && !pending, refresh: () => {
     setTokens([null]); setIndex(0); setLoading(true); setRevision((value) => value + 1);
   } });
   useEffect(() => {
@@ -62,12 +66,17 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     let started = false;
     const request = { clusterId, sessionId, kind, readId: nextReadId(), continueToken: token,
       ...(kind === "nodes" ? { query: needle || null } : {}) };
-    setLoading(true); setError(null);
+    setLoading(true);
+    if (!auto.background.current) setError(null);
     const timer = window.setTimeout(() => {
       started = true;
       void loadResources(request).then((next) => {
-        if (!disposed) { setPage(next); setNow(Date.now()); }
-      }).catch((reason) => { if (!disposed) setError(errorCode(reason)); })
+        if (!disposed) auto.deliver(() => {
+          if (disposed) return;
+          setError(null); setPage(current => sameInventory(current, next) ? current : next); setNow(Date.now());
+          auto.complete();
+        });
+      }).catch((reason) => { if (!disposed) auto.deliver(() => { if (!disposed) { setError(errorCode(reason)); auto.complete(reason); } }); })
         .finally(() => { if (!disposed) setLoading(false); });
     }, 0);
     return () => {
@@ -78,12 +87,14 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   }, [clusterId, sessionId, kind, revision, needle, token, index, pending]);
   const items = useMemo(() => page?.items ?? [], [page]);
   const metricState = kind === "nodes" ? page?.metrics : null;
-  const selectionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
-  const unavailable = pending || loading || !!error;
+  const actionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
+  const selectionScope = JSON.stringify([actionScope, items]);
+  const visibleLoading = loading && !auto.background.current;
+  const unavailable = pending || visibleLoading || !!error;
   const selection = useResourceSelection(items, selectionScope, !unavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: selectionScope, kind, unavailable, openResource });
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-    {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
+    {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? undefined : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
         setQuery(value); setTokens([null]); setIndex(0); setLoading(true);
       }} placeholder="Search Nodes…"
@@ -96,17 +107,17 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
           setLoading(true); setTokens((previous) => [...previous.slice(0, index + 1), page.continueToken]); setIndex((value) => value + 1);
         }} />
     </TableToolbar>}
-    {loading && <Text role="status">Loading {kind}…</Text>}
+    <ContentLoading label={`Loading ${kind}…`} refreshing active={visibleLoading && !!page} />
+    {loading && !page && <ContentLoading label={`Loading ${kind}…`} />}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && (pending || loading || error) && <Text role="status">Previously fetched {kind} are shown and may be stale.</Text>}
+    {page && error && <Text role="status">Updates unavailable. Showing the last successful snapshot, which may be stale.</Text>}
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
-      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={visibleLoading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
+      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={visibleLoading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
-    {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
-    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={unavailable} onAccepted={selection.remove} onRefresh={() => {
+    <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={unavailable} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
   </VStack>;

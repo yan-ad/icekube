@@ -1,0 +1,133 @@
+import { expect, test, type Page } from "@playwright/test";
+
+type Request = Record<string, any>;
+type Call = { command: string; request: Request };
+type SearchWindow = Window & { __searchCalls: Call[]; __releaseSearch: () => void };
+
+async function fixture(page: Page, section: string) {
+  page.on("pageerror", error => { throw error; });
+  await page.addInitScript(() => {
+    const calls: Call[] = [];
+    const held: (() => void)[] = [];
+    let lease = 0;
+    const catalog = Array.from({ length: 500 }, (_, index) => ({ id: index ? `cluster-${index}` : "one", name: `cluster-${index}`, contextName: "fixture",
+      source: "kubeconfig", labels: ["file=/fixtures/search.yaml"], color: "#476BA1", pinned: false, status: "disconnected" }));
+    Object.assign(window, { isTauri: true, __searchCalls: calls, __releaseSearch: () => held.splice(0).forEach(resolve => resolve()),
+      __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
+        const request = args?.request ?? {};
+        calls.push({ command, request });
+        if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: catalog, webLinks: [] };
+        if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId,
+          sessionId: request.sessionId ?? `lease-${++lease}`, contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };
+        if (command === "cluster_resources") {
+          if (request.query === "held") await new Promise<void>(resolve => held.push(resolve));
+          const usage = { used: null, allocatable: null, capacity: null };
+          return { ...request, namespace: request.namespace ?? null, continueToken: request.query || request.kind === "namespaces" ? null : "next-page", truncated: false,
+            metrics: null, fetchedAt: Date.now(), items: request.kind === "namespaces" ? ["team-a", "team-b"].map(name => ({ name, uid: name, namespace: null, resourceVersion: "1", createdAt: null, columns: {}, status: "Active", node: null })) :
+              Array.from({ length: request.query ? 1 : 100 }, (_, index) => ({ name: request.query || `resource-${index}`, uid: `uid-${index}`,
+                namespace: request.kind === "nodes" ? null : request.namespace || "team-a", resourceVersion: "1", createdAt: null, columns: {}, status: "Running",
+                node: request.kind === "nodes" ? { roles: [], taints: 0, version: null, internalIps: [], schedulable: true, diskAllocatable: null,
+                  metricsTimestamp: null, cpu: usage, memory: usage, conditions: [] } : null })) };
+        }
+        if (command === "helm_table") return { ...request, truncated: false, items: Array.from({ length: 500 }, (_, index) => ({
+          id: `chart-${index}`, name: `repo/chart-${index}`, namespace: null, version: "1.0.0", appVersion: "1", description: "Cached chart", status: null, revision: null, updated: null })) };
+        if (command === "cluster_pod_forward_list") return Array.from({ length: 8 }, (_, index) => ({ clusterId: request.clusterId, sessionId: request.sessionId, id: `forward-${index}`, namespace: "team-a", name: `pod-${index}`,
+          uid: `uid-${index}`, remotePort: 8080, localPort: 20000 + index, status: "running", error: null }));
+        if (["cluster_disconnect", "cluster_resources_cancel", "helm_cancel"].includes(command)) return null;
+        throw `Unexpected fixture command: ${command}`;
+      } },
+    });
+  });
+  await page.setViewportSize({ width: 1500, height: 900 });
+  await page.goto(section === "catalog" ? "/#/catalog/all" : `/#/cluster/one?section=${section}`);
+}
+const calls = (page: Page, command: string, kind?: string) => page.evaluate(({ command, kind }) =>
+  (window as SearchWindow).__searchCalls.filter(call => call.command === command && (!kind || call.request.kind === kind)), { command, kind });
+
+for (const [section, label, inputLabel, command, needle, count] of [
+  ["catalog", "All Categories", "Filter catalog", "catalog_list", "cluster-499", 500],
+  ["helm-charts", "Helm Charts", "Search Charts", "helm_table", "chart-499", 500],
+  ["port-forwarding", "Port forwards", "Search forwards", "cluster_pod_forward_list", "forward-7", 8],
+] as const) test(`${label}: keyboard search preserves text and filters ${count} loaded rows locally`, async ({ page }) => {
+  await fixture(page, section);
+  const grid = page.getByRole("table", { name: label, exact: true });
+  await expect(grid.getByRole("row")).toHaveCount(count + 1);
+  const before = (await calls(page, command)).length;
+  const input = page.getByRole("textbox", { name: inputLabel, exact: true });
+  await input.pressSequentially(needle);
+  await expect(input).toHaveValue(needle);
+  await expect(grid.getByRole("row")).toHaveCount(2);
+  await expect(grid).toContainText(needle);
+  if (section !== "port-forwarding") expect((await calls(page, command)).length).toBe(before);
+  await input.press("ControlOrMeta+A");
+  await input.press("Backspace");
+  await expect(input).toHaveValue("");
+  await expect(grid.getByRole("row")).toHaveCount(count + 1);
+  if (section !== "port-forwarding") expect((await calls(page, command)).length).toBe(before);
+});
+
+for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes", "Nodes"]]) {
+  test(`${label}: 100 retained rows coalesce keyboard input and reject late results`, async ({ page }) => {
+    await fixture(page, section);
+    const grid = page.getByRole("table", { name: label, exact: true });
+    await expect(grid.getByRole("row")).toHaveCount(101);
+    const before = (await calls(page, "cluster_resources", kind)).length;
+    const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
+    await grid.getByRole("checkbox").nth(1).click();
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    await input.pressSequentially("abcdefghijklmnopqrst");
+    await expect(input).toHaveValue("abcdefghijklmnopqrst");
+    expect((await calls(page, "cluster_resources", kind)).length).toBe(before);
+    await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toHaveCount(0);
+    if (kind === "nodes") await expect(page.getByRole("button", { name: "Next nodes page", exact: true })).toBeDisabled();
+    else {
+      await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+      await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeDisabled();
+      await page.keyboard.press("Escape");
+    }
+    await page.clock.runFor(159);
+    expect((await calls(page, "cluster_resources", kind)).length).toBe(before);
+    await page.clock.runFor(1);
+    await page.clock.resume();
+    await expect(grid).toContainText("abcdefghijklmnopqrst");
+    const searches = (await calls(page, "cluster_resources", kind)).slice(before);
+    expect(searches.map(call => call.request.query)).toEqual(["abcdefghijklmnopqrst"]);
+    expect(searches[0].request.continueToken).toBeNull();
+    await input.fill("held");
+    await expect.poll(async () => (await calls(page, "cluster_resources", kind)).at(-1)?.request.query).toBe("held");
+    const held = (await calls(page, "cluster_resources", kind)).at(-1)!.request;
+    await input.fill("final");
+    await expect.poll(async () => (await calls(page, "cluster_resources_cancel")).some(call => call.request.readId === held.readId && call.request.sessionId === held.sessionId && call.request.clusterId === held.clusterId)).toBe(true);
+    await expect(grid).toContainText("final");
+    const final = (await calls(page, "cluster_resources", kind)).at(-1)!.request;
+    expect(final).toMatchObject({ clusterId: held.clusterId, sessionId: held.sessionId, kind, query: "final", continueToken: null });
+    expect(final.readId).not.toBe(held.readId);
+    await page.evaluate(() => (window as SearchWindow).__releaseSearch());
+    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+    await expect(grid).toContainText("final");
+    await expect(grid).not.toContainText("held");
+    await expect(input).toHaveValue("final");
+  });
+}
+
+test("namespace changes during the debounce cannot restore the old request scope", async ({ page }) => {
+  await fixture(page, "pods");
+  const grid = page.getByRole("table", { name: "Pods", exact: true });
+  await expect(grid.getByRole("row")).toHaveCount(101);
+  const input = page.getByRole("textbox", { name: "Search Pods", exact: true });
+  const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await input.pressSequentially("scoped");
+  await namespace.click();
+  await page.getByRole("option", { name: "team-b", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "cluster_resources", "pods")).at(-1)?.request.namespace).toBe("team-b");
+  await page.clock.runFor(180);
+  await page.clock.resume();
+  await expect(input).toHaveValue("scoped");
+  await expect(grid).toContainText("scoped");
+  const searches = (await calls(page, "cluster_resources", "pods")).filter(call => call.request.query === "scoped");
+  expect(searches.length).toBeGreaterThan(0);
+  for (const search of searches) expect(search.request).toMatchObject({ clusterId: "one", query: "scoped", namespace: "team-b", continueToken: null });
+});

@@ -90,7 +90,16 @@ async fn detail_api_errors_are_typed_without_exposing_response_bodies() {
 fn export_frontend_detail_contract() {
     let mut cases = Vec::new();
     for &kind in EVENT_TARGETS {
-        let r = request(kind);
+        let mut r = request(kind);
+        if matches!(
+            kind,
+            ResourceKind::Roles
+                | ResourceKind::RoleBindings
+                | ResourceKind::ClusterRoles
+                | ResourceKind::ClusterRoleBindings
+        ) {
+            r.reference.name = "system:Controller_reader".into();
+        }
         let mut v = object(&r);
         v["metadata"]["creationTimestamp"] = json!("2026-01-01T00:00:00Z");
         v["metadata"]["annotations"] = json!({"credential":"PRIVATE"});
@@ -136,7 +145,7 @@ fn export_frontend_detail_contract() {
 }
 fn object(r: &DetailRequest) -> Value {
     let (api, kind) = object_type(r.reference.kind);
-    let mut value = json!({"apiVersion":api,"kind":kind,"metadata":{"name":"sample","uid":"uid-1","resourceVersion":"7"}});
+    let mut value = json!({"apiVersion":api,"kind":kind,"metadata":{"name":r.reference.name,"uid":"uid-1","resourceVersion":"7"}});
     if let Some(ns) = &r.reference.namespace {
         value["metadata"]["namespace"] = json!(ns);
     }

@@ -144,7 +144,7 @@ test("invalid imports stay in dialog with safe errors and preserve records", asy
 test("loading and corrupt storage are distinct from an empty catalog", async ({ page }) => {
   await engineFixture(page, { failList: true, slow: true });
   await page.goto("/#/catalog");
-  await expect(page.getByRole("status").filter({ hasText: "Loading catalog…" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Loading catalog…", exact: true })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("has not been overwritten");
   await expect(page.getByRole("heading", { name: "Catalog unavailable", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add config", exact: true })).toBeDisabled();
@@ -180,7 +180,11 @@ test("populated catalog stays inside narrow and enlarged-text viewports", async 
   for (const width of [360, 800]) {
     await page.setViewportSize({ width, height: 700 });
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
-    await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();
+    if (width < 640) {
+      await page.getByRole("button", { name: "Toolbar actions", exact: true }).click();
+      await expect(page.getByRole("menuitem", { name: "Search", exact: true })).toBeVisible();
+      await page.keyboard.press("Escape");
+    } else await expect(page.getByRole("button", { name: "Search", exact: true })).toBeVisible();
     await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   }
@@ -254,24 +258,24 @@ test("record icons retain colors across reloads and pins; labels are searchable"
   await expect(page.getByRole("cell").filter({ hasText: "Documentation" })).toHaveCount(0);
   await page.getByRole("link", { name: "Development", exact: true }).click();
   const sidebar = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
-  const sidebarIcon = sidebar.locator("[data-record-color]");
-  await expect(sidebarIcon).toHaveAttribute("data-record-color", "#476BA1");
-  await expect(sidebarIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
-  await expect(sidebarIcon).toHaveCSS("flex-shrink", "0");
-  await expect(sidebarIcon.locator("svg")).toHaveCSS("color", displayColor);
-  await expect(sidebarIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
-  await expect(sidebarIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
+  const selectorIcon = page.getByRole("button", { name: "Switch cluster", exact: true }).locator("[data-record-color]");
+  await expect(selectorIcon).toHaveAttribute("data-record-color", "#476BA1");
+  await expect(selectorIcon).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  await expect(selectorIcon).toHaveCSS("flex-shrink", "0");
+  await expect(selectorIcon.locator("svg")).toHaveCSS("color", displayColor);
+  await expect(selectorIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
+  await expect(selectorIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
   await expect(sidebar.getByText("Saved context", { exact: true })).toHaveCount(0);
   await expect(sidebar.getByText("Context:", { exact: false })).toHaveCount(0);
   await page.setViewportSize({ width: 360, height: 700 });
   await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
-  const drawerIcon = page.getByRole("dialog").getByRole("navigation", { name: "Cluster navigation", exact: true }).locator("[data-record-color]");
+  const drawerIcon = page.getByRole("dialog").getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Development", exact: true }).locator("[data-record-color]");
   await expect(drawerIcon.locator("svg")).toHaveCSS("width", `${dimensions.width}px`);
   await expect(drawerIcon.locator("svg")).toHaveCSS("height", `${dimensions.height}px`);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
-test("cluster sidebar truncates long names and keeps the full name available", async ({ page }) => {
+test("toolbar cluster selector truncates long names and keeps the full name available", async ({ page }) => {
   await engineFixture(page);
   await page.goto("/");
   await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
@@ -283,27 +287,28 @@ test("cluster sidebar truncates long names and keeps the full name available", a
   }, name);
   await page.goto("/#/cluster/cluster-fixture");
   await page.reload();
-  const sidebar = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
-  const label = sidebar.getByText(name, { exact: true }).and(sidebar.locator('[data-type="body"]'));
+  const selector = page.getByRole("button", { name: "Switch cluster", exact: true });
+  const label = selector.getByText(name, { exact: true });
   await expect(label).toBeVisible();
   expect(await label.evaluate((element) => element.scrollWidth > element.clientWidth)).toBe(true);
-  await label.hover();
-  await expect(label).toHaveAttribute("aria-describedby", /.+/);
-  await expect(label).toHaveAccessibleDescription(name);
+  await selector.hover();
+  await expect(page.getByRole("tooltip", { name: `Switch cluster · ${name}`, exact: true })).toBeVisible();
   await page.setViewportSize({ width: 360, height: 700 });
-  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
-  const drawerSidebar = page.getByRole("dialog").getByRole("navigation", { name: "Cluster navigation", exact: true });
-  await expect(drawerSidebar.getByText(name, { exact: true }).and(drawerSidebar.locator('[data-type="body"]'))).toBeVisible();
+  await expect(selector).toBeVisible();
+  await selector.hover();
+  await expect(page.getByRole("tooltip", { name: `Switch cluster · ${name}`, exact: true })).toBeVisible();
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
-test("bottom catalog actions support keyboard dialogs while Refresh stays beside Search", async ({ page }) => {
+test("bottom catalog actions support keyboard dialogs while Refresh stays after forward", async ({ page }) => {
   await engineFixture(page);
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/");
   const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
   await expect(toolbar.getByRole("button", { name: "Catalog actions", exact: true })).toHaveCount(0);
-  await expect(toolbar.getByRole("button", { name: "Search", exact: true })).toBeVisible();
+  await toolbar.getByRole("button", { name: "Toolbar actions", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "Search", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   for (const [action, title] of [["Add config", "Import kubeconfig"], ["Add web link", "Add web link"]]) {
     const trigger = page.getByRole("main").getByRole("button", { name: action, exact: true });
     await expect(toolbar.getByRole("button", { name: action, exact: true })).toHaveCount(0);

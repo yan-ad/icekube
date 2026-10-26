@@ -22,7 +22,7 @@ export function useResourceSelection(items: ResourceItem[], scope: string, enabl
     getIsItemEnabled: item => enabled && hasDeleteIdentity(item),
   });
   const selectionPlugin = useTableSelection({ ...selectionConfig, getRowLabel: item => item.namespace ? `${item.namespace}/${item.name}` : item.name });
-  const selected = items.filter(item => selectedKeys.has(resourceRowKey(item)) && hasDeleteIdentity(item));
+  const selected = useMemo(() => selectedKeys.size === 0 ? [] : items.filter(item => selectedKeys.has(resourceRowKey(item)) && hasDeleteIdentity(item)), [items, selectedKeys]);
   const plugin: TablePlugin<ResourceItem> = {
     ...selectionPlugin,
     transformHeaderCell: (props, column, index, columns) => {

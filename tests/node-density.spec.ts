@@ -95,7 +95,7 @@ test("additional conditions button opens the exact node inspector without select
   await more.scrollIntoViewIfNeeded();
   await more.click();
   const inspector = page.getByRole("region", { name: "Resource details", exact: true });
-  await expect(inspector).toContainText("Node: worker-density-a-long-node-name");
+  await expect(inspector.getByRole("heading", { name: "worker-density-a-long-node-name", exact: true })).toBeVisible();
   await expect(inspector).toContainText("CustomCondition29: True");
   await expect(inspector).toContainText("MemoryPressure: False");
   await expect(inspector.locator(".astryx-badge").filter({ hasText: /^(Ready|MemoryPressure|DiskPressure|PIDPressure|NetworkUnavailable|CustomCondition)/ })).toHaveCount(36);
@@ -115,7 +115,7 @@ test("node name is keyboard activatable independently of selection", async ({ pa
   await fixture(page);
   await row(page, 2).getByRole("button", { name: "worker-density-unknown", exact: true }).focus();
   await page.keyboard.press("Space");
-  await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("Node: worker-density-unknown");
+  await expect(page.getByRole("region", { name: "Resource details", exact: true }).getByRole("heading", { name: "worker-density-unknown", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("CustomHealthy: True");
   await expect(row(page, 2).getByRole("checkbox")).not.toBeChecked();
 });
@@ -133,7 +133,7 @@ for (const width of [360, 640]) test(`narrow ${width} table scrolls internally a
   const more = conditions(page, 1).getByRole("button", { name: "+30 conditions", exact: true });
   await more.focus();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("Node: worker-density-b");
+  await expect(page.getByRole("region", { name: "Resource details", exact: true }).getByRole("heading", { name: "worker-density-b", exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("NetworkUnavailable: True");
   expect((await row(page, 1).boundingBox())!.height).toBeLessThanOrEqual(80);
 });

@@ -16,6 +16,13 @@ import { ClusterSidebar } from "../cluster/ClusterSidebar";
 export default function MainLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const { clusterId } = useParams({ strict: false });
+  const [lastClusterId, setLastClusterId] = useState(clusterId);
+  const sidebarClusterId = clusterId ?? lastClusterId;
+  useEffect(() => {
+    if (clusterId) { setLastClusterId(clusterId); return; }
+    const timeout = window.setTimeout(() => setLastClusterId(undefined), 200);
+    return () => window.clearTimeout(timeout);
+  }, [clusterId]);
   const [isSearchOpen, setSearchOpen] = useState(false);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => {
@@ -60,11 +67,14 @@ export default function MainLayout() {
           {clusterId && <ClusterSidebar clusterId={clusterId} id="cluster-sidebar-drawer" onNavigate={closeNavigation} />}
         </MobileNav> }}
         topNav={<AppToolbar onSearch={() => setSearchOpen(true)} isSidebarCollapsed={collapsed} onToggleSidebar={toggleSidebar} />}
-        sideNav={clusterId ? <HStack gap={0} height="100%">
+        sideNav={<HStack gap={0} height="100%" style={{ minHeight: 0 }}>
           <CatalogSidebar onNavigate={closeNavigation} isCollapsed={collapsed} />
-          <Divider orientation="vertical" />
-          <ClusterSidebar clusterId={clusterId} onNavigate={closeNavigation} />
-        </HStack> : <CatalogSidebar onNavigate={closeNavigation} isCollapsed={collapsed} />}
+          {sidebarClusterId && <HStack gap={0} height="100%" className="cluster-sidebar-motion"
+            data-open={!!clusterId} inert={!clusterId} aria-hidden={!clusterId}>
+            <Divider orientation="vertical" />
+            <ClusterSidebar clusterId={sidebarClusterId} isExiting={!clusterId} onNavigate={closeNavigation} />
+          </HStack>}
+        </HStack>}
       >
         <Outlet />
       </AppShell>

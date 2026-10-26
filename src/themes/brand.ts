@@ -1,9 +1,18 @@
 import { defineTheme } from '@astryxdesign/core/theme';
 import { neutralTheme } from '@astryxdesign/theme-neutral';
+import { palette, white } from './azure/azure.palette';
 
 export const brandTheme = defineTheme({
   name: 'brand',
   extends: neutralTheme,
+
+  tokens: {
+    '--color-accent': [palette.azure.light[40], palette.azure.dark[70]],
+    '--color-on-accent': [white, palette.azure.dark[5]],
+    '--color-accent-muted': [palette.azure.light[95], palette.azure.dark[15]],
+    '--color-text-accent': [palette.azure.light[35], palette.azure.dark[75]],
+    '--color-icon-accent': [palette.azure.light[35], palette.azure.dark[75]],
+  },
 
   localTokens: {
     '--color-log-background': '#000000',

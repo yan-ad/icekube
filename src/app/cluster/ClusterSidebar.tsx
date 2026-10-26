@@ -8,10 +8,11 @@ import { NavLink } from "../components/NavLink";
 import { clusterSections } from "./navigation";
 import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 
-export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }: {
+export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", isExiting = false }: {
   clusterId: string;
   onNavigate: () => void;
   id?: string;
+  isExiting?: boolean;
 }) {
   const { section = "overview" } = useSearch({ strict: false }) as { section?: string };
   const { snapshot, loading, available, error } = useCatalog();
@@ -25,7 +26,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
   }, [clusterId, section, selectedParent]);
 
   return (
-    <SideNav aria-label="Cluster navigation" id={id} style={{ width: isMobile ? "100%" : "clamp(11rem, 18vw, 16rem)", minWidth: 0 }}>
+    <SideNav aria-label="Cluster navigation" id={id} className="cluster-sidebar" style={{ width: isMobile ? "100%" : "clamp(11rem, 18vw, 16rem)", minWidth: 0, minHeight: 0, flexShrink: 0 }}>
       {!cluster && <VStack padding={4} gap={2} style={{ minWidth: 0 }}>
         <Text role="status">{!available ? "Desktop engine required" : loading ? "Loading cluster…" : error ? "Cluster metadata unavailable" : "Cluster not found"}</Text>
       </VStack>}
@@ -34,19 +35,19 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar" }
           {clusterSections.map((item) => "children" in item ? (
             <NavLink key={item.id} to="/cluster/$clusterId" params={{ clusterId }}
               search={{ section: item.id }} label={item.label} icon={item.icon}
-              isSelected={section === item.id} onClick={onNavigate}
+              isSelected={!isExiting && section === item.id} onClick={onNavigate}
               collapsible={{
                 isCollapsed: collapsed[item.id] ?? selectedParent !== item.id,
                 onCollapsedChange: (isCollapsed) => setCollapsed((previous) => ({ ...previous, [item.id]: isCollapsed })),
               }}>
               {item.children.map((child) => <NavLink key={child.id} to="/cluster/$clusterId" params={{ clusterId }}
-                search={{ section: child.id }} label={child.label} isSelected={section === child.id}
+                search={{ section: child.id }} label={child.label} isSelected={!isExiting && section === child.id}
                 onClick={onNavigate} />)}
             </NavLink>
           ) : (
             <NavLink key={item.id} to="/cluster/$clusterId" params={{ clusterId }}
               search={{ section: item.id }} label={item.label} icon={item.icon}
-              isSelected={section === item.id} onClick={onNavigate} />
+              isSelected={!isExiting && section === item.id} onClick={onNavigate} />
           ))}
         </SideNavSection>
       </>}

@@ -143,9 +143,10 @@ async function fixture(page: Page, controls: Controls = {}, cluster = "one", sec
 
 async function connected(page: Page) {
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toBeVisible();
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
 }
 async function choose(page: Page, name: string) {
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await expect(selector(page)).toBeVisible();
   await selector(page).click();
   await page.getByRole("option", { name, exact: true }).click();
@@ -207,7 +208,7 @@ test("does not let a late namespace response from an old cluster populate the ne
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toBeVisible();
   await expect.poll(async () => (await calls(page, "namespaces")).some((call) => call.request.clusterId === "two")).toBe(true);
   await page.evaluate(() => (window as MockWindow).__releaseNamespaces());
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await selector(page).click();
   await expect(page.getByRole("option", { name: "staging-only", exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: "production", exact: true })).toHaveCount(0);
@@ -273,7 +274,7 @@ test("caps namespace pagination at ten pages and 1000 names with an honest parti
 
 test("namespace navigation does not cancel the current view's async resource read incorrectly", async ({ page }) => {
   await fixture(page, { holdPods: true }); await expect(selector(page)).toBeVisible();
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await choose(page, "team-a");
   const podRequest = (await calls(page, "pods")).at(-1)!.request;
   await choose(page, "team-b");
@@ -296,6 +297,10 @@ for (const malformed of ["namespaceDuplicate", "namespaceInvalid", "namespaceRep
 }
 
 async function clusterAction(page: Page, name: string) {
+  if (name.startsWith("Refresh ")) {
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }

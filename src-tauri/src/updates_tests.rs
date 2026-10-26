@@ -98,14 +98,14 @@ fn byte_limits_proxy_and_asset_scope() {
     }
     assert!(asset_allowed(
         &Url::parse(
-            "https://github.com/yan-ad/taulens/releases/download/v1.2.3/icekube.app.tar.gz"
+            "https://github.com/yan-ad/icekube/releases/download/v1.2.3/icekube.app.tar.gz"
         )
         .unwrap()
     ));
     for asset in [
-        "http://github.com/yan-ad/taulens/releases/download/v1/x.app.tar.gz",
+        "http://github.com/yan-ad/icekube/releases/download/v1/x.app.tar.gz",
         "https://github.com/evil/taulens/releases/download/v1/x.app.tar.gz",
-        "https://github.com/yan-ad/taulens/releases/latest/download/x.app.tar.gz",
+        "https://github.com/yan-ad/icekube/releases/latest/download/x.app.tar.gz",
     ] {
         assert!(!asset_allowed(&Url::parse(asset).unwrap()));
     }

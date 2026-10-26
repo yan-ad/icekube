@@ -7,6 +7,7 @@ import { IconX, IconArrowsMaximize, IconArrowsMinimize, IconRefresh, IconList, I
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { ContentLoading } from "../components/ContentLoading";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest, type ResourceKind } from "./api";
 import { cancelResourceDetail, loadResourceDetail, type ResourceDetail, type ResourceReference } from "./detailApi";
 import { resourceViews } from "./resourceViews";
@@ -204,7 +205,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
   const view = resourceViews.find(view => view.kind === selection.reference.kind);
   const labels = new Map(view?.columns.map(column => [column.key, column.label]) ?? []);
   return <VStack padding={4} gap={4} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-    {loading && <Text role="status">Loading resource details…</Text>}
+    {loading && <ContentLoading label="Loading resource details…" refreshing={!!detail} />}
     {error && <Text role="alert">{detail ? "Retained details may be stale. " : ""}{error}</Text>}
     {detail && <>
       <StatusBadge status={detail.item.status} />

@@ -12,6 +12,33 @@ Say goodbye to clunky kube managed experience and don't loose all of your RAM us
 - 👌 *Redefined Looks*. This app is designed for better user experience like modern app did
 - 🧱 *Purely Free*. I will never collect money from you to use this app, except you want to buy me a coffee.
 
+## Install the prerelease (Apple Silicon Macs only)
+
+Version **`0.0.1-pre.1`** uses macOS ad-hoc signing, not Developer ID signing
+or Apple notarization. See [release and installation instructions](docs/releases.md)
+for the exact download, checksum verification and publication checks. This workflow
+does not publish Intel, Universal, Linux or Windows installers.
+
+After verifying the checksum and dragging the trusted `IceKube.app` to
+`/Applications`, **always run this app-specific command before opening it**:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/IceKube.app
+```
+
+Do this only if you trust the repository and downloaded release. Never disable
+Gatekeeper globally or remove quarantine from an untrusted download. Checksums
+detect corruption; they do not authenticate the publisher. Automatic application
+updates are disabled in this prerelease: no updater manifest, archive or signature
+is published, and its updater public key and endpoints are empty.
+
+CI checks Rust on macOS and Linux, plus frontend browser fixtures on Linux,
+including a Rust detail-contract fixture prebuild for cold runners. The unsigned
+prerelease workflow runs CI and exact tag/version checks before building, verifies
+the ad-hoc app and DMG, uploads a draft and checks its downloaded checksums before
+publishing a prerelease (not latest). This describes the workflow, not a claim that
+a release or native install smoke test has completed.
+
 ## Recommended IDE Setup
 
 - [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
@@ -43,19 +70,51 @@ real-cluster success or native window behavior.
 
 Create opens YAML creation on Kubernetes tables, Install opens chart installation
 on both Helm pages, and Create port forward opens the namespace/Pod/ports form.
-These actions sit at the bottom right; Refresh and Live sync remain in Cluster
-actions. Resource creation and Helm installation require server dry-run followed
+These actions sit at the bottom right; Refresh is immediately after Go forward
+in the top toolbar, and Live sync remains in Cluster actions. Resource creation and Helm installation require server dry-run followed
 by confirmation. Opening a dialog alone does not submit a mutation.
 
 ## Workspace UI reference
 
+- Resource tables, including Nodes/Namespaces, automatically repeat bounded Rust
+  LIST reads on the first page, 10 seconds after completion. Helm inventories and
+  Workloads overview use 30 seconds. Reads require a visible, focused, online view;
+  editing, dialogs, menus and listboxes pause scheduling. Focus/visibility/online
+  return can catch up without overlapping reads or bypassing backoff. Transient
+  failures back off to at most 60 seconds; terminal errors stop automatic retries.
+  Continuation pages stay manual snapshots, with no automatic page jump. Refresh
+  remains available; failed updates retain rows with a stale warning. Fetch-time
+  timestamps are no longer rendered. Optional Pod Live sync remains an opt-in
+  Rust LIST/WATCH path, not full Freelens watch parity. These inventory updates
+  are distinct from application updates, which are disabled in the prerelease.
 - Catalog Add config and Add web link are bottom-right icon actions. Refresh
-  remains beside Search in the top toolbar.
+  follows Go forward in the top toolbar; cluster routes place Switch cluster next.
+  Preferences and Search are named icons that move into overflow on narrow windows.
+  The sidebar no longer repeats the cluster name.
+- Search drafts stay controlled while server search waits for 160 ms of quiet
+  input. Obsolete reads cancel, retained rows are marked stale and affected actions
+  disable. Cached local filtering uses deferred/memoized work, not a request per key.
+  This is not an FPS or latency benchmark.
+- Initial content loading uses a centered, named Astryx spinner. Retained content
+  uses a nonblocking bar below filters, with reduced-motion support; refresh errors
+  remain visible. Light, Dark and System apply from saved Preferences, not live
+  drafts. Asynchronous initial preferences loading has no no-flash guarantee.
 - Known positive statuses use Astryx success colors; warning/error states retain
-  their meanings. Unknown states and generic booleans stay neutral.
+  their meanings. Unknown states and generic booleans stay neutral. The Azure
+  accent is generated through Astryx CLI from `#0074e2` and mapped to theme roles;
+  neutral surfaces, green success statuses and black log surfaces are preserved.
+- Sidebar transitions preserve navigation context; exiting cluster navigation is
+  inert and hidden from accessibility, and reduced motion removes transitions.
+  Show saved metadata opens a named modal from Cluster actions, not an inline panel.
+- The GitHub icon immediately before More calls Rust `project_open_repository`
+  without a URL argument and opens only `https://github.com/yan-ad/icekube`.
+  Browser preview disables it; opener failures remain actionable and sanitized.
 - Resource details use a bordered, resizable right sidebar that reflows the
   workspace, not an overlay. Named Refresh, Expand/Restore and Close icons,
-  keyboard resizing and reduced-motion transitions are supported. Closing
+  keyboard resizing and reduced-motion transitions are supported. The compact
+  header shows the plain name, Pod Logs/Shell/Attach/Port forward icons where
+  applicable, and one Refresh. The body scrolls independently and retains stale
+  details after failed refresh. Closing
   unmounts content and cancels its reads while an inert empty shell collapses.
 - CodeJar 4.3.0 with highlight.js YAML runs as browser code in Pod YAML,
   resource creation and Helm values. Read-only and busy states prevent edits;
@@ -70,12 +129,23 @@ by confirmation. Opening a dialog alone does not submit a mutation.
   the same token. Only CRD single-object reads get a 16 MiB body allowance;
   projected CRD items remain bounded to 64 KiB. Ordinary response caps are unchanged.
   Dynamic custom-resource instance/schema browsing is not implemented.
+- Generic detail and cancel commands now extract the registered shared
+  `Arc<ConnectionEngine>` Tauri state. RBAC names such as `system:Reader` use
+  kind-aware shared validation/projection and percent-encoded path segments.
+  The command-state regression inspects source; it is not a native IPC invocation.
+- Configured exec/token-file credentials support bounded request-time renewal.
+  See [credential renewal](docs/credential-renewal.md) for the 30-second margin,
+  one-read retry, cancellation and exclusions. Static/cached legacy credentials,
+  Helm authentication and restarting established streams are not covered.
 
 See [workspace UI reference](docs/workspace-ui-reference.md) and
 [resource inspector reference](docs/resource-inspector-reference.md) for source,
 ownership and exact acceptance-test mappings. These are behavior references, not
-full Freelens parity. Final validation of this change set is pending; browser
-fixtures are not native-window or real-cluster smoke tests.
+full Freelens parity. Local validation passed 663 browser tests, 233 backend Rust
+tests and 9 release-tool tests, plus build, formatting, strict Clippy and workflow
+lint. The ARM64 ad-hoc app bundle also built and passed static signature/version
+checks without launching. Browser fixtures and bundle inspection are not
+native-window, Gatekeeper-installation or real-cluster smoke tests.
 
 ## Standalone React DevTools (development only)
 

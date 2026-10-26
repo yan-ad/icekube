@@ -43,7 +43,7 @@ for (const platform of ["macos", "windows", "linux"]) {
       expect(chrome!.height).toBeGreaterThanOrEqual(44);
       expect(chrome!.y).toBe(0);
       expect(chrome!.height).toBeLessThanOrEqual(48);
-      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Preferences", "Search", "Refresh catalog"]) {
+      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Refresh catalog", ...(width < 768 ? ["Toolbar actions"] : ["Preferences", "Search"])]) {
         const action = page.getByRole("button", { name, exact: true });
         await expect(action).toBeVisible();
         const bounds = await action.boundingBox();
@@ -52,13 +52,21 @@ for (const platform of ["macos", "windows", "linux"]) {
         expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width);
         expect(await action.evaluate((element) => element.closest("[data-tauri-drag-region]") === null)).toBe(true);
       }
+      if (width < 768) {
+        await toolbar.getByRole("button", { name: "Toolbar actions", exact: true }).click();
+        for (const name of ["Preferences", "Search"]) await expect(page.getByRole("menuitem", { name, exact: true })).toBeVisible();
+        await page.keyboard.press("Escape");
+      }
+      const forward = (await toolbar.getByRole("button", { name: "Go forward", exact: true }).boundingBox())!;
+      const refresh = (await toolbar.getByRole("button", { name: "Refresh catalog", exact: true }).boundingBox())!;
+      expect(refresh.x).toBeGreaterThanOrEqual(forward.x + forward.width);
       const home = await page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true }).boundingBox();
       if (platform === "macos") {
         expect(home!.x).toBeGreaterThanOrEqual(80);
-        const refresh = (await toolbar.getByRole("button", { name: "Refresh catalog", exact: true }).boundingBox())!;
+        const lastAction = (await toolbar.getByRole("button", { name: width < 768 ? "Toolbar actions" : "Open Icekube on GitHub", exact: true }).boundingBox())!;
         const clearance = await toolbar.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
         expect(clearance).toBeGreaterThan(0);
-        expect(chrome!.x + chrome!.width - refresh.x - refresh.width).toBeCloseTo(clearance, 1);
+        expect(chrome!.x + chrome!.width - lastAction.x - lastAction.width).toBeCloseTo(clearance, 1);
       }
       expect(main!.y).toBeGreaterThanOrEqual(chrome!.y + chrome!.height);
       expect(main!.y).toBeLessThanOrEqual(chrome!.y + chrome!.height + 1);

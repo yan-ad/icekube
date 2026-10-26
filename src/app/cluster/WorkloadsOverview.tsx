@@ -11,6 +11,7 @@ import { useResourceInspector } from "./ResourceInspector";
 import { useRowContextMenu } from "./RowContextMenu";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceRequest, type SessionRequest } from "./api";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
+import { useAutoRefresh } from "./useAutoRefresh";
 
 const MAX_PAGES = 5;
 const MAX_RESOURCES = 500;
@@ -102,7 +103,7 @@ function StatusDonut({ kind, label, items }: { kind: WorkloadKind; label: string
 
 function InventoryState({ label, inventory }: { label: string; inventory: Inventory }) {
   return <>
-    {inventory.loading && <Text role="status" type="supporting">Loading {label}…{inventory.items !== null ? " Retained counts are stale." : ""}</Text>}
+    {inventory.loading && inventory.items === null && <Text role="status" type="supporting">Loading {label}…</Text>}
     {inventory.error && <Text role="alert" type="supporting">{inventory.items !== null ? "Retained data is stale. " : "Could not load this inventory. "}{connectionMessage(inventory.error)}</Text>}
     {inventory.partial && <Text type="supporting">Partial loaded counts; the bounded inventory is incomplete.</Text>}
     {inventory.items?.length === 0 && <Text type="supporting">No {label.toLowerCase()} returned{inventory.partial ? " in loaded pages" : ""}.</Text>}
@@ -117,6 +118,7 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
   const { openRelated, openResource } = useResourceInspector();
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const loading = Object.values(state).some(inventory => inventory.loading);
+  const auto = useAutoRefresh({ scope: JSON.stringify([clusterId, sessionId, namespace]), interval: 30_000, busy: loading, refresh });
   useRegisterWorkspaceRefresh({ clusterId, section: "workloads-overview", enabled: !loading, refresh });
   useEffect(() => {
     let disposed = false;
@@ -125,6 +127,7 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
     const sameScope = previousScope.current === scope; previousScope.current = scope;
     setState(current => sameScope ? Object.fromEntries(Object.entries(current).map(([kind, inventory]) => [kind, { ...inventory, loading: true, error: null, stale: inventory.items !== null }])) as Inventories : initialState());
     const read = async () => {
+      let failure: ConnectionErrorCode | undefined;
       // LIST reads share engine capacity. Only one overview page is in flight at a time.
       for (const kind of [...categories.map(category => category.kind), "events"] as const) {
         const items: ResourceItem[] = [], identities = new Set<string>(), tokens = new Set<string>();
@@ -147,10 +150,15 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
             if (tokens.has(token)) throw "invalidResponse";
             tokens.add(token);
           }
-          if (!disposed) setState(current => ({ ...current, [kind]: { items, partial, loading: false, error: null, stale: false } }));
+          if (!disposed) setState(current => ({ ...current, [kind]: {
+            items: JSON.stringify(current[kind].items) === JSON.stringify(items) ? current[kind].items : items,
+            partial, loading: false, error: null, stale: false,
+          } }));
         } catch (reason) {
           activeRequest = null;
           if (disposed) return;
+          const code = errorCode(reason);
+          if (!failure || ["timeout", "network", "busy", "connectionFailed"].includes(failure)) failure = code;
           setState(current => ({ ...current, [kind]: {
             ...current[kind], items: current[kind].items ?? (items.length ? items : null),
             partial: current[kind].items !== null ? current[kind].partial : items.length > 0,
@@ -158,6 +166,7 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
           } }));
         }
       }
+      if (!disposed) auto.complete(failure);
     };
     void read();
     return () => { disposed = true; if (activeRequest) void cancelResources(activeRequest).catch(() => {}); };
@@ -166,14 +175,14 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
   const eventRows = useMemo(() => (events.items ?? []).slice().sort((a, b) => eventTime(b) - eventTime(a))
     .slice(0, MAX_EVENTS).map(item => ({ ...item, id: JSON.stringify([item.namespace, item.name]) })), [events.items]);
   const eventMenu = useRowContextMenu({ clusterId, sessionId, rows: eventRows,
-    scope: JSON.stringify([namespace, events.loading, events.stale]), rowKey: item => item.id, rowLabel: item => item.name,
+    scope: JSON.stringify([namespace, events.error]), rowKey: item => item.id, rowLabel: item => item.name,
     target: item => ({ type: "resource", reference: { kind: "events", namespace: item.namespace, name: item.name, uid: item.uid } }),
     actions: () => [{ action: "details" }],
     onAction: (item, action) => { if (action === "details") openResource({ kind: "events", namespace: item.namespace, name: item.name, uid: item.uid }); },
   });
   return <VStack gap={5} padding={4} style={{ flex: "1 1 0", minWidth: 0, minHeight: 0, overflow: "auto", overflowWrap: "anywhere" }}>
     <HStack gap={3} hAlign="between" vAlign="center" wrap="wrap"><Heading level={2}>Workloads overview</Heading><NamespaceSelector value={namespace} onChange={setNamespace} /></HStack>
-    <Text type="supporting">Loaded resource counts, not live totals. Each kind is limited to {MAX_PAGES} pages ({MAX_RESOURCES} resources). Refresh to update.</Text>
+    <Text type="supporting">Loaded resource counts, not live totals. Each kind is limited to {MAX_PAGES} pages ({MAX_RESOURCES} resources). Updates automatically while this view is active.</Text>
     <Grid columns={{ minWidth: 180, max: 7 }} gap={4}>{categories.map(category => <VStack key={category.kind} as="section" aria-label={`${category.label} inventory`} gap={2} padding={3} style={{ minWidth: 0, borderBlockEnd: "var(--border-width) solid var(--color-border)" }}>
       <Link isStandalone href={`#/cluster/${encodeURIComponent(clusterId)}?section=${category.section}`}>{category.label}</Link>
       {state[category.kind].items !== null && <StatusDonut kind={category.kind} label={category.label} items={state[category.kind].items!} />}

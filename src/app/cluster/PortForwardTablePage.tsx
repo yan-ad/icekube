@@ -1,4 +1,4 @@
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -7,18 +7,21 @@ import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { ContentLoading } from "../components/ContentLoading";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlus, IconSearch } from "@tabler/icons-react";
 import { TableActionOverlay, TableToolbar, tableViewport } from "./TableToolbar";
 import type { SessionRequest } from "./api";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, type PodForward } from "./podApi";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
-import { useRowContextMenu } from "./RowContextMenu";
+import { useRowContextMenu, type RowMenuAction } from "./RowContextMenu";
 import { NamespaceSelector } from "./NamespaceScope";
 import { StatusBadge } from "./StatusBadge";
 import { useResourceInspector } from "./ResourceInspector";
 
 type PortForwardTablePageProps = SessionRequest;
+
+const ForwardTable = memo(Table) as typeof Table;
 
 const podPattern = /^[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
@@ -52,13 +55,17 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
   const [busy, setBusy] = useState(false);
   const alive = useRef(true);
   const loading = useRef(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const acting = useRef(false);
   const generation = useRef(0);
   const request = useMemo(() => ({ clusterId, sessionId }), [clusterId, sessionId]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (manual = false) => {
     if (loading.current) return;
     loading.current = true;
+    setIsLoading(true);
+    if (manual) setRefreshing(true);
     const owner = generation.current;
     try {
       const next = await podForwardList(request);
@@ -70,10 +77,14 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
       if (alive.current && owner === generation.current) setError(podMessage(reason));
     } finally {
       loading.current = false;
+      if (alive.current && owner === generation.current) {
+        setIsLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [request]);
 
-  useRegisterWorkspaceRefresh({ clusterId, section: "port-forwarding", enabled: true, refresh: () => void load() });
+  useRegisterWorkspaceRefresh({ clusterId, section: "port-forwarding", enabled: !isLoading && !pending, refresh: () => void load(true) });
 
   useEffect(() => {
     alive.current = true;
@@ -88,13 +99,13 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
 
   const namespaces = useMemo(() => [...new Set((forwards ?? []).map((item) => item.namespace))].sort(), [forwards]);
   const statuses = useMemo(() => [...new Set((forwards ?? []).map((item) => item.status))].sort(), [forwards]);
+  const searchable = useMemo(() => (forwards ?? []).map(item => ({ item, text:
+    [item.id, item.namespace, item.name, item.remotePort, item.localPort, item.status].join(" ").toLocaleLowerCase(),
+  })), [forwards]);
   const items = useMemo(() => {
     const needle = deferredQuery.trim().toLocaleLowerCase();
-    return (forwards ?? []).filter((item) => {
-      const searchable = [item.id, item.namespace, item.name, item.remotePort, item.localPort, item.status].join(" ").toLocaleLowerCase();
-      return (!needle || searchable.includes(needle)) && (!status || item.status === status) && (!namespaceFilter || item.namespace === namespaceFilter);
-    });
-  }, [forwards, namespaceFilter, deferredQuery, status]);
+    return searchable.filter(({ item, text }) => (!needle || text.includes(needle)) && (!status || item.status === status) && (!namespaceFilter || item.namespace === namespaceFilter)).map(({ item }) => item);
+  }, [searchable, namespaceFilter, deferredQuery, status]);
 
   const podValid = pod.length > 0 && pod.length <= 253 && podPattern.test(pod);
   const remote = portValue(remotePort, false);
@@ -142,7 +153,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     }
   }
 
-  function inspectForward(item: PodForward) {
+  const inspectForward = useCallback((item: PodForward) => {
     openSummary({ title: item.id, status: item.status, facts: [
       { label: "Kind", value: "Port forward" },
       { label: "Namespace", value: item.namespace || "Unknown" },
@@ -152,14 +163,15 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
       { label: "Address", value: "127.0.0.1" },
       ...(item.error ? [{ label: "Error", value: podMessage(item.error) }] : []),
     ] });
-  }
+  }, [openSummary]);
 
-  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope: JSON.stringify([query, status, namespaceFilter]),
+  const actions = useCallback((item: PodForward): RowMenuAction[] => [{ action: "details" }, { action: item.status === "stopped" || item.status === "error" ? "remove" : "stop", disabled: pending || busy || !!error }], [pending, busy, error]);
+  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope: JSON.stringify([deferredQuery, status, namespaceFilter]),
     rowKey: item => item.id, rowLabel: item => item.id, target: item => ({ type: "forward", id: item.id }),
-    actions: item => [{ action: "details" }, { action: item.status === "stopped" || item.status === "error" ? "remove" : "stop", disabled: pending || busy || !!error }],
+    actions,
     onAction: (item, action) => { if (action === "details") inspectForward(item); else void stop(item.id); },
   });
-  const columns: TableColumn<PodForward>[] = [
+  const columns = useMemo<TableColumn<PodForward>[]>(() => [
     { key: "id", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.id} variant="ghost" size="sm" onClick={() => inspectForward(item)} /> },
     { key: "namespace", header: "Namespace", renderCell: (item) => <Button label={item.namespace || "Unknown"} variant="ghost" size="sm" isDisabled={!item.namespace} onClick={() => openResource({ kind: "namespaces", namespace: null, name: item.namespace })} /> },
     { key: "pod", header: "Pod", width: proportional(2), renderCell: (item) => <Button label={item.name || "Unknown"} variant="ghost" size="sm" isDisabled={!item.namespace || !item.name} onClick={() => openResource({ kind: "pods", namespace: item.namespace, name: item.name })} /> },
@@ -168,7 +180,10 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
     { key: "address", header: "Address", renderCell: () => <Text>127.0.0.1</Text> },
     { key: "status", header: "Status", renderCell: (item) => <VStack gap={1}><StatusBadge status={item.status} variant={item.error ? "error" : undefined} />{item.error && <Text type="supporting">{podMessage(item.error)}</Text>}</VStack> },
 
-  ];
+  ], [inspectForward, openResource]);
+  const plugins = useMemo(() => ({ viewport: tableViewport<PodForward>(), rowContext: rowMenu }), [rowMenu]);
+  const hasFilters = !!(deferredQuery || status || namespaceFilter);
+  const emptyState = useMemo(() => <VStack gap={2} padding={6}><Text>{hasFilters ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Choose Create port forward to enter a namespace, Pod, and ports.</Text></VStack>, [hasFilters]);
 
   return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
       <TableToolbar label="Port Forwarding" count={forwards ? `${items.length} / ${forwards.length}` : undefined}>
@@ -176,12 +191,13 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
         <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />
         <Selector label="Namespace filter" isLabelHidden value={namespaceFilter} onChange={setNamespaceFilter} size="sm" options={[{ value: "", label: "All namespaces" }, ...namespaces.map((value) => ({ value, label: value }))]} />
       </TableToolbar>
+    <ContentLoading label="Loading port forwards…" refreshing active={refreshing && !!forwards} />
     {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
     {actionError && <Text role="alert">{actionError}</Text>}
     {pending && <Text role="status">Updating search results…</Text>}
-    {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
-    {forwards && <Table aria-label="Port forwards" aria-busy={pending} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>(), rowContext: rowMenu }}
-      emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Choose Create port forward to enter a namespace, Pod, and ports.</Text></VStack>} />}
+    {!forwards && !error && <ContentLoading label="Loading port forwards…" />}
+    {forwards && <ForwardTable aria-label="Port forwards" aria-busy={pending || refreshing} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={plugins}
+      emptyState={emptyState} />}
     <TableActionOverlay label="Port forward actions"><IconButton label="Create port forward" tooltip="Create port forward" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}
       isDisabled={busy} onClick={() => { setCreateError(null); setCreateOpen(true); }} /></TableActionOverlay>

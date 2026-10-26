@@ -37,7 +37,7 @@ async function expectInsetInspector(page: Page, closedWidth: number) {
 test("workspace disposal cancels an in-flight detail and late completion cannot reopen it", async ({ page }) => {
   await fixture(page, "deployments", { holdName: "sample-a" });
   await grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true }).click();
-  await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
+  await expect(inspector(page).getByRole("status", { name: "Loading resource details…", exact: true })).toBeVisible();
   const reads = await calls(page, "cluster_resource_detail");
   await page.evaluate(() => { location.hash = "/catalog/all"; });
   await expect(inspector(page)).toHaveCount(0);
@@ -179,6 +179,7 @@ for (const view of [...resourceViews.filter(view => view.kind && view.kind !== "
     expect(await inspector(page).evaluate(element => element.tagName)).toBe("ASIDE");
     await expect(inspector(page)).not.toHaveAttribute("aria-modal");
     await expect(inspector(page)).toContainText("detail-version-1");
+    await expect(inspector(page).getByRole("heading", { name, exact: true })).toBeVisible();
     await expect(inspector(page).getByRole("alert")).toHaveCount(0);
     await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toHaveCount(0);
     await expect(grid(page, view.label).getByRole("checkbox", { name: `Select ${view.namespaced ? "team-a/" : ""}${name}`, exact: true })).not.toBeChecked();
@@ -283,7 +284,7 @@ for (const malformed of ["readId", "session", "uid", "raw", "secret"]) {
 test("late old detail cannot overwrite the latest selection and each disposal cancels its own read", async ({ page }) => {
   await fixture(page, "deployments", { holdName: "sample-a", revision: "old-response" });
   await grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true }).click();
-  await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
+  await expect(inspector(page).getByRole("status", { name: "Loading resource details…", exact: true })).toBeVisible();
   await expect(inspector(page).getByRole("button", { name: "Refresh details", exact: true })).toBeDisabled();
   await control(page, { revision: "latest-response" });
   await grid(page, "Deployments").getByRole("button", { name: "sample-b", exact: true }).click();
@@ -300,7 +301,7 @@ test("late old detail cannot overwrite the latest selection and each disposal ca
 test("closing a loading relationship ignores late completion and never navigates or reads after disposal", async ({ page }) => {
   await fixture(page, "pods", { holdName: "sample-a" });
   await grid(page, "Pods").getByRole("button", { name: "related-owner", exact: true }).first().click();
-  await expect(inspector(page).getByText("Loading resource details…", { exact: true })).toBeVisible();
+  await expect(inspector(page).getByRole("status", { name: "Loading resource details…", exact: true })).toBeVisible();
   await inspector(page).getByRole("button", { name: /close/i }).click(); await release(page);
   await page.waitForTimeout(650);
   await expect(inspector(page)).toHaveCount(0); await expect(page).toHaveURL(/section=pods$/);

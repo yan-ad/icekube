@@ -12,13 +12,61 @@ Electron/Node runtime. No upstream implementation was copied in this documentati
 
 | Workflow / upstream source | Expected Icekube interaction and owner | UI states / acceptance mapping |
 | --- | --- | --- |
-| Catalog: `catalog/catalog-add-button.tsx` | Add config and Add web link are separate named icon buttons at bottom right in `CatalogPage.tsx`/`CatalogForms.tsx`, outside table scrolling. Refresh stays beside Search in `AppToolbar.tsx`. Rust `catalog.rs` owns import, persistence and saved links. | Unavailable/loading disables actions; forms retain safe validation errors; Escape returns focus. `tests/catalog.spec.ts`: `bottom catalog actions support keyboard dialogs while Refresh stays beside Search`; parameterized `${category}: bottom actions clear the table and viewport at desktop and narrow widths`. |
+| Catalog: `catalog/catalog-add-button.tsx` | Add config and Add web link are separate named icon buttons at bottom right in `CatalogPage.tsx`/`CatalogForms.tsx`, outside table scrolling. Refresh follows Go forward in `AppToolbar.tsx`. Rust `catalog.rs` owns import, persistence and saved links. | Unavailable/loading disables actions; forms retain safe validation errors; Escape returns focus. `tests/catalog.spec.ts` covers bottom actions and toolbar Refresh placement; parameterized `${category}: bottom actions clear the table and viewport at desktop and narrow widths`. |
 | Table selection: `item-object-list/header.tsx`, `item-object-list/list-layout.tsx` (table composition reference; exact heading substitution is Icekube-specific) | `ResourceSelection.tsx` puts selected count and Clear selection in the first data heading after the checkbox. Other heading labels are visually hidden with opacity, not removed; accessible labels and column widths remain. Focused heading controls become visible. Rust deletion services retain UID/version precondition ownership. | None/selected/mixed header, scope reset, disabled unsafe identities. `tests/table-composition.spec.ts`: `${view.label}: selection replaces only heading labels without moving columns`, `filter scope clears selection and restores header labels`. |
 | Semantic color: `workloads-overview/overview-workload-status.tsx` (status-chart reference; Astryx badge mapping is local) | `StatusBadge.tsx` maps recognized positive labels to success, failed labels to error, pending/degraded labels to warning. Unknown strings and generic booleans stay neutral. Node Ready=True is success, Ready=False error, positive pressure conditions warning. Rust supplies observed facts; renderer colors do not establish connection/health. | Explicit positive/negative/unknown values in both themes. `tests/semantic-status.spec.ts`: `semantic statuses use Astryx variants without interpreting generic booleans in ${colorScheme}`; `tests/table-composition.spec.ts`: `Pod health uses semantic success and warning colors`. |
 | YAML: `dock/edit-resource/view.tsx` (upstream EditorPanel, not CodeJar) | Icekube `YamlEditor.tsx` uses locked CodeJar 4.3.0 and highlight.js YAML browser modules. Actual callers: `PodDetailsView.tsx` (YAML), `ResourceCreate.tsx` (Resource YAML), `HelmInstall.tsx` (Values YAML). Rust `connection/pods.rs`, `connection/create.rs` and Helm services own data, validation and mutations. | Editable/read-only/busy, external value updates, caret/IME, escaped source, disposal. `tests/yaml-editor.spec.ts`: `real CodeJar highlights escaped source and exposes a named multiline editor`, `read-only YAML preserves serialization and rejects keyboard, paste, cut and undo`, `composition is not highlighted or published mid-IME, and commits once`, `unmount removes handlers and pending callbacks cannot publish`. |
 | Details sidebar: `kube-object-details/kube-object-details.tsx`, `drawer/drawer.tsx` | `ResourceInspector.tsx` owns a nonmodal, layout-flow sidebar with a separating border, named Refresh/Expand/Restore/Close icons, pointer capture and keyboard resize. Rust `connection/details.rs`/`pods.rs` own scoped reads and cancellation. | Loading, missing/replaced, permission/error, retained stale, open/closed/expanded/dragging; `tests/inspector-resize.spec.ts`: `opening, dragging and expanding reflow the workspace, restore retains the dragged width`, `separator keyboard bounds and reduced motion remain usable on narrow windows`, `close immediately disposes pending content while an empty inert shell collapses`, `pointer cancellation and route disposal end dragging without late detail revival`. |
 | Workloads overview: `workloads-overview/overview.tsx`, `overview-statuses.tsx`, `overview-workload-status.tsx` | `WorkloadsOverview.tsx` shows seven status donuts from Rust `connection/transport.rs` LISTs and `resources.rs` projection. Namespace and Refresh restart scoped reads. Category links open their resource tables; event links resolve identity through Rust detail relationships. | Loaded/zero/loading/partial/stale/permission/error remain separate. `tests/workloads-overview.spec.ts`: `uses real loaded counts and never turns unknown Running metadata green`, `bounds pagination and isolates per-kind permission errors`, `refresh retains stale inventory on failure and empty results remain explicit`, `cancels the exact pending read on namespace change and ignores late completion`. |
 | CRDs: `custom-resource-definitions/view.tsx`, `details.tsx`; `custom-resources/details.tsx` shows upstream instance behavior outside current scope | Icekube lists and inspects allowlisted CRD facts. Rust `connection/transport.rs` handles adaptive page fetches; `resources.rs` and `detail_facts.rs` project bounded facts. Custom instances and dynamic schema browsing are not implemented. | Permission/unavailable/error/cancel/partial continuation, no fabricated empty success. `src-tauri/src/connection/crd_fetch_tests.rs`: `crd_large_schema_retries_same_opaque_token_at_one_and_projects_only_facts`, `crd_filtered_scan_retries_without_skipping_and_resumes_at_unscanned_token`, `crd_single_object_cap_and_ordinary_inventory_budget_remain_enforced`, `crd_retry_failure_is_not_an_empty_or_partial_success`, `crd_cancel_during_retry_releases_engine_read_slot`, `crd_single_retry_rejects_ignored_limit_and_repeated_tokens`. |
+
+## Automatic foreground inventory reads
+
+Upstream behavior reference: the previously agent-verified local Freelens commit
+`cd07118f843c4a69f937a319a37a7c12ef2c92d8`,
+`packages/core/src/common/k8s-api/kube-object.store.ts`, specifically its
+`subscribe` workflow. This source is outside the renderer-components path prefix
+used in the table above. Subscription is a behavioral reference, not proof that
+Icekube polling equals upstream watches. No upstream implementation was copied.
+
+`src/app/cluster/useAutoRefresh.ts` schedules bounded typed IPC reads. Resource
+tables (`ResourceTablePage.tsx` and `ClusterResources.tsx`, including Nodes and
+Namespaces) refresh their first page 10 seconds after a completed read. Helm
+charts/releases and Workloads overview use 30 seconds. Overview retains its
+sequential five-page/500-resource-per-kind bounds, including Events; it is not a
+single-page total. Rust `connection.rs`, `connection/transport.rs`, `resources.rs`
+and Helm services still own reads, projection, validation, bounds and cancellation.
+
+- Only a visible, focused, online document can schedule automatic reads. Focused
+  inputs, selects, textareas and contenteditable fields, visible dialogs/alert
+  dialogs, menus/listboxes and expanded popups pause them. Pending resource filters,
+  active Pod Live sync and Helm installation add their own applicable pause guards.
+- Focus, visibility and online return attempt immediate catch-up without bypassing
+  busy/pause/backoff guards or overlapping a pending read. Intervals restart after
+  completion, not at a fixed request-start cadence. Scope changes reset retry state;
+  disposal removes timers/listeners and owning effects cancel their exact reads.
+- `timeout`, `network`, `busy` and `connectionFailed` failures back off
+  exponentially to at most 60 seconds. Other errors stop automatic retries until
+  scope changes or an explicit successful retry. Failed updates keep rows with
+  stale/error feedback rather than reconnecting or pretending the inventory is empty.
+- Continuation pages remain manual snapshots: there is no automatic page advance
+  or jump to page one. Toolbar Refresh stays available. Optional Pod Live sync is
+  still opt-in Rust LIST/WATCH, not all-kind watch support or full Freelens parity.
+- Resource/Helm automatic reads do not show routine loading chrome for retained
+  rows; delivery waits while editing/popups block it. Equivalent snapshots reuse
+  inventory when only read IDs/fetch times differ. Fetch timestamps are no longer
+  rendered; stale, partial, empty and actionable errors remain visible. This does
+  not remove actual resource timestamps such as Age, Last seen or Helm Updated.
+
+Acceptance mapping: `tests/auto-refresh.spec.ts` contains `waits after completion,
+never overlaps, and tears down timers`, `backs off transient failures, stops
+terminal failures, and resets for a new scope`, `pauses during editing and dialogs,
+resumes on focus without a storm`, and `pauses hidden/offline views and refreshes
+immediately on return`. `tests/resource-tables.spec.ts` contains `automatic Pod
+LIST updates are quiet, do not overlap, and leave continuation pages alone`,
+including deferred delivery during a dialog and absence of fetched-time text.
+These are source-inspected fixture obligations; their presence alone is not a
+passing-suite result or a real-cluster/native-webview check.
 
 ## Editor boundary
 
@@ -98,6 +146,60 @@ in [resource inspector reference](resource-inspector-reference.md) is separate.
 
 ## Verification status
 
+### Current search, theme and toolbar changes
+
+These are Icekube-specific refinements against the same recorded upstream commit,
+not copied upstream code or newly established parity:
+
+- `src/app/cluster/useDebouncedSearch.ts` commits controlled drafts after 160 ms.
+  Resource-table reads cancel obsolete requests before debounce completes; pending
+  drafts retain stale rows and disable pagination, selection/mutations and other
+  scope-dependent actions. Catalog, cached Helm and forwards use deferred local
+  filtering with memoized searchable fields/table rows. Namespace options search
+  the loaded cache locally. `RowContextMenu.tsx` memoizes row/action fingerprints;
+  it does not stringify the entire inventory for each typed character.
+- `ContentLoading.tsx` uses a named Astryx spinner centered in the first-load
+  content region. With retained rows, a nonblocking bar sits below filters without
+  moving them; errors and stale notices remain. Reduced motion stops animation.
+- `PreferencesProvider.tsx` controls the root Astryx Theme inside its context from
+  persisted Light/Dark/System. Save applies changes; draft edits, Cancel and failed
+  Save do not change the active mode. Initial loading is asynchronous, not a
+  no-flash guarantee.
+- `AppToolbar.tsx` puts Refresh immediately after Go forward, then Switch cluster
+  on cluster routes. Preferences/Search are named icons with narrow-window overflow
+  entries. The inset sidebar does not repeat the cluster name. The cluster selector
+  resolves saved IDs, preserves a validated section and reports missing metadata.
+- The Azure palette under `src/themes/azure/` was generated through Astryx CLI
+  from `#0074e2`; its config/receipt records the seed. `src/themes/brand.ts` maps
+  mode-specific accent, on-accent, muted, text and icon roles while extending
+  neutral. Neutral surfaces, green semantic success statuses and black log
+  surfaces remain intact, rather than recoloring all roles blue.
+- `MainLayout.tsx`, `CatalogSidebar.tsx`, `ClusterSidebar.tsx` and
+  `sidebar-motion.css` animate navigation width/opacity while retaining route
+  context. Exiting cluster navigation is inert and accessibility-hidden; reduced
+  motion disables transitions. `tests/sidebar-motion.spec.ts` maps these behaviors
+  to browser fixtures, not native animation proof.
+- Show saved metadata in `ClusterWorkspacePage.tsx` opens an Astryx Dialog with
+  labeled saved fields, Escape and focus return, not an inline metadata panel.
+  `tests/metadata-dialog.spec.ts` is the acceptance source; saved metadata is not
+  evidence of a connected cluster.
+- The GitHub icon immediately before More calls no-argument
+  `project_open_repository` through `src/app/project/api.ts`. Rust
+  `src-tauri/src/project.rs` fixes the target to `https://github.com/yan-ad/icekube`,
+  without renderer-provided URLs or arbitrary opener access. Browser preview
+  disables opening; native failures expose only a safe message. Acceptance:
+  `tests/project-repository.spec.ts` and `project.rs` unit tests.
+
+Acceptance sources: `tests/search-performance.spec.ts` (cached filtering, burst
+coalescing, selection reset and held-read cancellation),
+`tests/search-responsiveness.spec.ts` (keyboard text retention, late results and
+namespace changes during debounce), `tests/loading-feedback.spec.ts` (initial,
+retained, reduced-motion and failed refresh), `tests/theme-appearance.spec.ts`
+(saved modes, portals/reload, Save/Cancel/failure and live System changes), plus
+`tests/connected-toolbar.spec.ts` and `tests/window-layout.spec.ts` (toolbar bounds
+and overflow). Test names describe fixture obligations, not measured FPS or native
+OS verification.
+
 The connected toolbar reserves macOS right clearance without adding another row.
 At compact widths the text badge is replaced by semantic color on the existing
 Cluster actions icon; its tooltip, accessible description and disabled status
@@ -105,10 +207,40 @@ menu item retain the full connection label. At wider widths the badge cannot
 shrink into an unlabeled pill. `tests/connected-toolbar.spec.ts` checks the
 connected layout at 360–1440 CSS pixels and normal/enlarged root text sizes.
 
-Verification for this change set: `bun run build` passed (with Vite's large-chunk
+Historical verification before the current search/theme/auth fixes: `bun run build` passed (with Vite's large-chunk
 warning), the complete browser suite passed 619 tests, Rust passed 216 tests,
 and formatting plus strict all-target Clippy passed. Both staged and unstaged
 diff whitespace checks passed. Synthetic browser IPC and fake-service tests do
 not prove native window controls, OS/webview editing, production-cluster outcomes
 or full upstream behavior. No native smoke test was performed and no real
 kubeconfig or credentials were read.
+
+Historical verification (2026-10-26, before automatic refresh/navigation/prerelease changes): the complete browser suite passed
+650 tests, Rust passed 230 tests, and build, formatting, strict all-target Clippy,
+and staged/unstaged whitespace checks passed. Vite retains its large-chunk warning.
+The Rust-to-renderer contract covers all 41 resource detail projections, including
+RBAC path-segment names. The shared Tauri state-type regression is a source-level
+invariant, not native dispatch coverage. No real credentials, live cluster
+operations or native smoke tests were used. See [credential renewal](credential-renewal.md)
+for the separate Rust authentication contract and its fixture mapping.
+
+Current full-suite validation is pending. Do not carry the historical 650-browser/
+230-Rust totals forward or describe the planned 663-browser run as passed.
+This documentation pass checked source, not native windows or real clusters.
+
+## Prerelease and CI scope
+
+See [release and installation instructions](releases.md) for `0.0.1-pre.1`.
+The unsigned route builds only an Apple Silicon DMG, using ad-hoc signing rather
+than Developer ID or notarization. Updater public key/endpoints are empty; no
+updater manifest, archive or signature is published. Foreground inventory polling
+is independent of application updates, which remain disabled for this prerelease.
+
+CI configures Rust checks on macOS and Linux and frontend Chromium fixtures on
+Linux, prebuilding the Rust detail-contract fixture for a cold runner. The unsigned
+tag workflow waits for CI and exact tag/manifest checks, builds and verifies the
+app/DMG, creates a draft, verifies downloaded uploaded assets/checksums, then
+publishes a prerelease marked not latest. These are configured checks, not a claim
+that a release has run. Installation requires trusting the release, checking its
+checksum, copying to `/Applications` and following the README's app-scoped
+quarantine instruction; never disable Gatekeeper globally.

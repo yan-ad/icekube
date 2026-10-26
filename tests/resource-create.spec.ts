@@ -112,7 +112,7 @@ async function fixture(page: Page, section = "config-maps") {
         if (["cluster_disconnect", "cluster_resources_cancel", "cluster_resource_create_cancel", "cluster_pod_detail_cancel"].includes(command)) return null;
         if (command === "cluster_resources") return { ...r, namespace: r.namespace ?? null, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null,
           items: r.kind === "namespaces" ? ["team-a", "team-b", "default"].map(name => ({ name, namespace: null, status: "Active", createdAt: null, columns: {}, node: null })) :
-            r.kind === "pods" ? [{ name: "api-pod", namespace: r.namespace ?? "team-a", status: "Running", createdAt: null, columns: {}, node: null }] : [] };
+            r.kind === "pods" ? [{ name: "api-pod", uid: "fixture-pod", namespace: r.namespace ?? "team-a", status: "Running", createdAt: null, columns: {}, node: null }] : [] };
         if (command === "cluster_pod_detail") return { ...r, uid: "fixture-pod", resourceVersion: "1", phase: "Running", node: null, podIps: [], hostIps: [], serviceAccount: null,
           qos: null, createdAt: null, deletionTimestamp: null, containers: [], conditions: [], yaml: "", events: [] };
         if (command === "cluster_resource_create") {
@@ -152,7 +152,7 @@ async function validate(page: Page, yaml = manifest) {
   await dialog(page).getByRole("button", { name: "Validate YAML", exact: true }).click();
 }
 async function namespace(page: Page, name: string) {
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).click();
   await page.getByRole("option", { name, exact: true }).click();
 }

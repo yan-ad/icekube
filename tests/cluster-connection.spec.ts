@@ -127,8 +127,8 @@ async function fixture(page: Page, options: Options = {}) {
   await page.setViewportSize({ width: 1200, height: 800 });
   await page.goto("/#/cluster/one");
   await expect(page.getByRole("heading", { level: 1, name: / · Cluster$/ })).toBeAttached();
-  if (options.openDelay && !options.reorderedOpens) await expect(page.getByRole("main")).toContainText("Opening…");
-  else if (options.connectDelay) await expect(page.getByRole("main")).toContainText("Connecting…");
+  if (options.openDelay && !options.reorderedOpens) await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^Opening…$/ })).toBeVisible();
+  else if (options.connectDelay) await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^Connecting…$/ })).toBeVisible();
   else if (options.connectError || options.connectSnapshotError || options.staleConnectOnce) await expect(page.getByRole("alert")).toBeVisible();
   else {
     await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
@@ -183,12 +183,12 @@ test("section navigation does not reconnect and resource navigation cancels the 
   await fixture(page, { resourceDelay: 250 });
   const initial = await callList(page);
   await section(page, "Nodes");
-  await expect(page.getByRole("main")).toContainText("Loading nodes");
+  await expect(page.getByRole("main").getByRole("status", { name: "Loading nodes…", exact: true })).toBeVisible();
   await expect.poll(async () => (await callList(page)).filter(call => call.command === "cluster_resources" && call.request.kind === "nodes").length).toBe(1);
   const before = await callList(page);
   const previous = before.filter((call) => call.command === "cluster_resources").at(-1)!.request;
   await section(page, "Namespaces");
-  await expect(page.getByRole("main")).toContainText("Loading namespaces");
+  await expect(page.getByRole("main").getByRole("status", { name: "Loading namespaces…", exact: true })).toBeVisible();
   const next = (await callList(page)).slice(before.length);
   expect(next[0]).toEqual({ command: "cluster_resources_cancel", request: previous });
   expect(next[1].command).toBe("cluster_resources");
@@ -246,9 +246,7 @@ test("Meta+r and Control+r refresh the scoped workspace without document reload 
 
 test("refresh shortcut ignores repeat, modifiers, and composing, and is disabled while connecting", async ({ page }) => {
   await fixture(page, { connectDelay: 400 });
-  await actions(page).click();
-  await expect(page.getByRole("menuitem", { name: "Refresh cluster", exact: true })).toBeDisabled();
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Refresh cluster", exact: true })).toBeDisabled();
   await page.keyboard.press("Control+r");
   await page.keyboard.press("Meta+r");
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
@@ -291,12 +289,12 @@ test("cluster actions menu exposes connection and metadata actions, and Escape c
   await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
   await expect(page.getByRole("main").getByRole("status").filter({ hasText: /^Disconnected$/ })).toHaveText("Disconnected");
   await clusterAction(page, "Show saved metadata");
+  await expect(page.getByRole("dialog", { name: "Saved metadata", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await actions(page).click();
   await expect(page.getByRole("menuitem", { name: "Connect to cluster", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
-  await actions(page).click();
-  await expect(page.getByRole("menuitem", { name: "Refresh cluster", exact: true })).toBeEnabled();
-  await page.keyboard.press("Escape");
+  await expect(page.getByRole("button", { name: "Refresh cluster", exact: true })).toBeEnabled();
   expect((await callList(page)).filter((call) => call.command === "cluster_connect")).toHaveLength(1);
   await clusterAction(page, "Refresh cluster");
   await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toBeVisible();
@@ -305,6 +303,10 @@ test("cluster actions menu exposes connection and metadata actions, and Escape c
 
 test("metadata toggle and Catalog navigation are keyboard reachable and preserve focus", async ({ page }, testInfo) => {
   await fixture(page, { clusterName: "A very long Development cluster name that should remain compact", contextName: "A very long context identifier" });
+  const switcher = page.getByRole("button", { name: "Switch cluster", exact: true });
+  await expect(switcher).toContainText("A very long Development cluster name that should remain compact");
+  await switcher.hover();
+  await expect(page.getByRole("tooltip", { name: "Switch cluster · A very long Development cluster name that should remain compact", exact: true })).toBeVisible();
   const catalog = page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true });
   await catalog.focus();
   await expect(catalog).toBeFocused();
@@ -340,6 +342,10 @@ test("resource actions preserve empty and truncated states", async ({ page }) =>
 });
 
 async function clusterAction(page: Page, name: string) {
+  if (name.startsWith("Refresh ")) {
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }

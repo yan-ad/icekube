@@ -17,6 +17,7 @@ import {
   IconDots,
   IconRefresh,
   IconSettings,
+  IconBrandGithub,
 } from "@tabler/icons-react";
 import { useNavigationHistory } from "../layouts/use-navigation-history";
 import { WindowToolbar } from "../layouts/WindowFrame";
@@ -29,6 +30,7 @@ import { StatusBadge } from "../cluster/StatusBadge";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { RecordIcon } from "../catalog/RecordIcon";
 import { clusterDestinations } from "../cluster/navigation";
+import { hasProjectEngine, openProjectRepository, projectOpenError } from "../project/api";
 
 function ClusterSwitcher({ clusterId }: { clusterId: string }) {
   const { snapshot, loading, error } = useCatalog();
@@ -56,6 +58,17 @@ function ClusterSwitcher({ clusterId }: { clusterId: string }) {
 
 export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const history = useNavigationHistory();
+  const [repositoryBusy, setRepositoryBusy] = useState(false);
+  const [repositoryError, setRepositoryError] = useState<string | null>(null);
+  const projectAvailable = hasProjectEngine();
+  async function openRepository() {
+    if (repositoryBusy) return;
+    setRepositoryBusy(true);
+    setRepositoryError(null);
+    try { await openProjectRepository(); }
+    catch { setRepositoryError(projectOpenError); }
+    finally { setRepositoryBusy(false); }
+  }
   const layout = getWindowLayout();
   const draggable = layout.seamless && layout.platform !== "browser";
   const isCatalog = useRouterState({ select: (state) => state.location.pathname.startsWith("/catalog") });
@@ -95,6 +108,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   }, [refresh]);
 
   return (
+    <>
     <WindowToolbar {...layout}>
       <HStack
         gap={1}
@@ -159,6 +173,11 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         aria-keyshortcuts="Control+k Meta+k"
       />
       {status && <HStack className="cluster-connection-status"><StatusBadge status={status} variant={status === "Connection error" ? "error" : undefined} /></HStack>}
+      <IconButton label="Open Icekube on GitHub" className="toolbar-github-action"
+        tooltip={projectAvailable ? "Open Icekube on GitHub" : "GitHub repository opens in the desktop app only"}
+        aria-description={!projectAvailable ? "GitHub repository opens in the desktop app only" : undefined}
+        variant="ghost" icon={<Icon icon={IconBrandGithub} />}
+        isDisabled={!projectAvailable || repositoryBusy} onClick={() => void openRepository()} />
       {clusterId && <DropdownMenu presentation="popover" alignment="end" hasChevron={false}
         renderTrigger={props => <IconButton {...props} label="Cluster actions" tooltip={status ? `Cluster actions · ${status}` : "Cluster actions"} aria-description={status ? `Connection status: ${status}` : undefined} icon={<Icon icon={IconDots} color={statusColor} />} variant="ghost" />}
         items={[...items, { type: "section", id: "compact-tools", items: compactItems }]} />}
@@ -166,5 +185,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         renderTrigger={props => <IconButton {...props} label="Toolbar actions" tooltip="Toolbar actions" icon={<Icon icon={IconDots} />} variant="ghost" />}
         items={compactItems} /></HStack>}
     </WindowToolbar>
+    {repositoryError && <Text role="alert">{repositoryError}</Text>}
+    </>
   );
 }

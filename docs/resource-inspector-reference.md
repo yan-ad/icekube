@@ -13,7 +13,46 @@ The inventory below is verified against Icekube source, not against Freelens. Ic
 - `src-tauri/src/connection/transport.rs`: fixed allowlisted resource paths; an ordinary 2 MiB response-body bound; Secret/ConfigMap `PartialObjectMetadata` Accept negotiation without a full-object fallback. CRD inventory alone starts at limit 10 and retries `LimitExceeded` at limit 1 using the same unconsumed token. A CRD limit-1 body is capped at 16 MiB; projected items are capped at 64 KiB per page and accumulated scan. No global cap was raised and schemas are not forwarded.
 - `src-tauri/src/connection/resources.rs`: inventory columns/status included alongside facts; Nodes also carry their separate typed node contract.
 - `src/app/cluster/detailApi.ts`: closed IPC response shape, matching cluster/session/read/object identity, bounded facts and related references. `sections` remains optional for older fixtures.
+- `src-tauri/src/lib.rs`: both `cluster_resource_detail` and
+  `cluster_resource_detail_cancel` extract `tauri::State<'_, Arc<ConnectionEngine>>`,
+  matching the engine registered by setup. Their previous `State<ConnectionEngine>`
+  extraction mismatch caused a generic invocation failure across resource kinds,
+  before a detail read could run. This is distinct from Kubernetes RBAC rejection.
+- `details.rs` kind-aware name validation and path construction are shared with
+  `resources.rs` inventory projection. RBAC names such as `system:Reader` are
+  admitted without relaxing Pod/DNS name rules; names are percent-encoded as one
+  path segment (`system%3AReader`). Traversal, slash, pre-encoded separators,
+  query/fragment and control-character names remain invalid.
 - Pods opened by name currently use the separate Pod detail API, not the generic facts transport: see `tests/resource-inspector.spec.ts`, test `Pod detail uses the Pod API in the inspector, never the bottom dock or generic detail API`. The generic Pod facts below describe backend support, not proof of that UI route rendering these sections.
+
+### Inventory updates versus inspector reads
+
+The surrounding inventory is no longer manual-only. `useAutoRefresh.ts` schedules
+first-page bounded resource LIST reads 10 seconds after completion; Helm inventory
+and Workloads overview use 30 seconds, with overview retaining its multi-page
+budget. Rust services retain request/session ownership and cancellation. Reads
+require visible/focused/online state and pause for editing, dialogs, menus/listboxes
+and expanded popups; pending filters and active Pod Live sync pause ordinary
+resource polling. Focus/visibility/online return can catch up without overlap or
+bypassing backoff. Transient errors back off to at most 60 seconds, while terminal
+errors stop automatic retries. Continuation pages stay manual snapshots, with no
+automatic page jump. Resource/Helm background delivery waits during blocked
+interaction; retained rows remain stale on failed updates, not silently current.
+
+Inspector GET/YAML reads still use explicit Refresh and exact-object cancellation;
+inventory polling does not automatically reload an editor or resubmit a mutation.
+Fetched-time timestamps are no longer rendered, but resource Age/Last seen and
+other observed object timestamps remain meaningful. Optional Pod LIST/WATCH is
+still opt-in, not full Freelens parity. The previously agent-verified reference is
+local Freelens `cd07118f843c4a69f937a319a37a7c12ef2c92d8`,
+`packages/core/src/common/k8s-api/kube-object.store.ts` (`subscribe` workflow),
+not an upstream claim that polling and watches are equivalent.
+
+Acceptance sources are `tests/auto-refresh.spec.ts` and the quiet automatic Pod
+LIST/manual-continuation case in `tests/resource-tables.spec.ts`. See
+[workspace UI reference](workspace-ui-reference.md) for the scheduler's precise
+guards and source-to-test mapping. These are fixture obligations, not current
+passing results or native/real-cluster verification.
 
 ## Kind-specific facts actually projected
 
@@ -79,6 +118,8 @@ CodeJar, status, overview and CRD acceptance cases.
 
 | Acceptance obligation | Existing evidence | Remaining gap |
 | --- | --- | --- |
+| Detail and cancel use the registered shared state | `src-tauri/src/lib.rs`: `command_state_tests::generic_details_extract_the_registered_shared_engine_type` | Source-level signature/registration regression only, not a real native Tauri invocation. |
+| RBAC names survive validation, paths and inventory projection | `details/tests.rs`: `rbac_names_are_validated_per_kind_and_encoded_as_one_path_segment`, plus named-object fixture tests in that file | Synthetic names/fake services, not real-cluster authorization evidence. |
 | Every allowlisted kind has an explicit projection and no raw metadata fallback | `src-tauri/src/connection/detail_facts/tests.rs`: `every_kind_has_explicit_safe_facts_or_sensitive_empty`; `src-tauri/src/connection/details/tests.rs`: `every_allowlisted_kind_has_consistent_named_endpoint_and_safe_projection` | Minimal fixtures do not assert every mapped field's value or upstream equivalence. |
 | Representative resource-specific facts rather than repeated inventory columns | `detail_facts/tests.rs`: `kind_specific_values_are_not_generic_inventory_columns` (Node, DaemonSet, StatefulSet, Deployment, Service, Ingress, Role, CRD, PV) | Expand to remaining kinds and unsupported field states; verify actual renderer sections. |
 | Metadata-only Secret/ConfigMap reads and output | `details/tests.rs`: `secret_and_configmap_contents_never_cross_projection`, `real_transport_uses_named_get_and_metadata_accept_on_fake_service` | Explicit transport assertion currently covers Secret; test ConfigMap and malicious key names as well. |
@@ -102,8 +143,20 @@ Rust `connection/details.rs` retains ownership of scoped GET/cancellation;
 Pods retain their separate `pods.rs` contract. Loading, retained-stale,
 missing/replaced, permission/error and disconnected states must remain honest.
 
+The compact header shows the plain resource name rather than a second descriptive
+title. Pod details expose named Logs, Shell, Attach and Port forward icon actions
+where applicable, alongside a single Refresh, Expand/Restore and Close. Header
+controls stay outside the independently vertically scrolling body. Refresh keeps
+same-object data with a stale notice if it fails. `PodDock.tsx`'s compact details
+composition does not add a duplicate Refresh. Initial reads use `ContentLoading`'s
+centered named Astryx spinner; retained reads use its nonblocking progress bar and
+keep actionable errors. Browser acceptance remains in `tests/resource-inspector.spec.ts`,
+`tests/inspector-resize.spec.ts` and `tests/loading-feedback.spec.ts`.
+
 `resources.rs` inventory event text is capped at 256 UTF-8 bytes after control and
 bidi-character filtering. This does not detect credentials in messages or other
 selected text. CRD facts remain group/scope/versions, not schemas or dynamic
 custom-resource instance browsing. Native smoke tests and real-cluster validation
 have not been performed by this documentation pass. No real kubeconfig was read.
+Latest full-suite validation for automatic refresh, navigation and prerelease changes is pending; older
+counts in the workspace reference are historical, not current verification.

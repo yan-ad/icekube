@@ -17,7 +17,7 @@ const messages = {
   authHelperFailed: "The authentication helper failed. Complete its login using your trusted CLI, then reconnect. Helper output is not displayed because it may contain credentials.",
   authHelperInvalidResponse: "The authentication helper returned invalid credentials. Check that it supports the kubeconfig's ExecCredential API version, then reconnect.",
   authInteractiveRequired: "This authentication helper requires interactive input. Complete login in your trusted CLI and use a non-interactive credential helper before reconnecting.",
-  authExpired: "The authentication credentials have expired or are too close to expiry. Disconnect and reconnect to obtain fresh credentials; legacy providers may need login in your trusted CLI.",
+  authExpired: "Fresh authentication credentials could not be obtained. Configured exec helpers and rotating token files renew automatically; static or legacy credentials may require login using your trusted CLI, then reconnect.",
   insecureTransport: "This context uses an insecure transport configuration. Check its TLS settings.",
   authFailed: "Cluster authentication failed. Check the selected context's credentials.",
   tlsFailed: "The cluster TLS connection could not be verified. Check the cluster certificate settings.",

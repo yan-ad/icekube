@@ -50,6 +50,7 @@ for (const fontPercent of [100, 125]) {
       if (width >= 640) await expect(statusBadge).toBeVisible();
       else await expect(statusBadge).toHaveCount(0);
       const actions = toolbar.getByRole("button", { name: "Cluster actions", exact: true });
+      await expect(toolbar.getByRole("button", { name: "Open Icekube on GitHub", exact: true })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: "Refresh cluster", exact: true })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: "Switch cluster", exact: true })).toBeVisible();
       await expect(actions).toHaveAttribute("aria-description", "Connection status: Connected");
@@ -102,7 +103,7 @@ for (const fontPercent of [100, 125]) {
       await testInfo.attach("toolbar-geometry", { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
       console.log(JSON.stringify({ width, fontPercent, ...geometry }));
       expect.soft(geometry.controls.filter(control => control.label === "Connected")).toHaveLength(width >= 640 ? 1 : 0);
-      expect.soft(geometry.controls).toHaveLength(width >= 640 ? 9 : 6);
+      expect.soft(geometry.controls).toHaveLength(width >= 640 ? 10 : 7);
       if (width >= 640) expect.soft(geometry.statusText, "Connected label is measured").not.toBeNull();
       if (geometry.statusText) expect.soft(geometry.statusText.scrollWidth, "Connected label is not clipped").toBeLessThanOrEqual(geometry.statusText.clientWidth);
       for (const control of geometry.controls) {

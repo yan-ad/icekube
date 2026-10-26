@@ -10,7 +10,7 @@ use tauri_plugin_updater::UpdaterExt;
 use tokio_util::{sync::CancellationToken, task::TaskTracker};
 use url::Url;
 
-pub const ENDPOINT: &str = "https://github.com/yan-ad/taulens/releases/latest/download/latest.json";
+pub const ENDPOINT: &str = "https://github.com/yan-ad/icekube/releases/latest/download/latest.json";
 const INTERVAL: Duration = Duration::from_secs(300);
 const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
@@ -238,7 +238,7 @@ fn asset_allowed(url: &Url) -> bool {
         && {
             let parts: Vec<_> = url.path().split('/').collect();
             parts.len() == 7
-                && parts[1..5] == ["yan-ad", "taulens", "releases", "download"]
+                && parts[1..5] == ["yan-ad", "icekube", "releases", "download"]
                 && !parts[5].is_empty()
                 && parts[6].ends_with(".app.tar.gz")
                 && !url.path().contains('%')

@@ -13,7 +13,7 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   const previousCancels = await calls(page, "helm_cancel");
   await controls(page, { hold: true, holdCancel: true });
   await refreshHelm(page);
-  await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Loading Helm releases…", exact: true })).toBeVisible();
   const pending = (await calls(page, "helm_table")).at(-1)!.request;
   expect(pending).toEqual({ ...previous, readId: expect.any(Number) });
   expect(pending.readId).toBeGreaterThan(previous.readId as number);
@@ -22,9 +22,9 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   ]);
   await page.evaluate(() => (window as MockWindow).__releaseHelmCancels());
   expect((await calls(page, "helm_cancel")).some((call) => call.request.readId === pending.readId)).toBe(false);
-  await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Loading Helm releases…", exact: true })).toBeVisible();
   await page.evaluate(() => (window as MockWindow).__releaseServices());
-  await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toHaveCount(0);
+  await expect(page.getByRole("progressbar", { name: "Loading Helm releases…", exact: true })).toHaveCount(0);
   await expect(grid(page, "Helm Releases")).toContainText("edge");
   expect((await page.evaluate(() => (window as MockWindow).__serviceCalls)).every(
     (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_pod_detail", "cluster_pod_forward_start", "cluster_pod_forward_stop"].includes(call.command),
@@ -60,21 +60,19 @@ const navigate = (page: Page, section: string) => page.evaluate((section) => { l
 const controls = (page: Page, value: Controls) => page.evaluate((value) => Object.assign((window as MockWindow).__serviceControls, value), value);
 const helmCancelScope = ({ clusterId, sessionId, view, readId }: Request) => ({ clusterId, sessionId, view, readId });
 async function refreshHelm(page: Page) {
-  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Refresh helm-releases", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh helm-releases", exact: true }).click();
   await page.keyboard.press("Tab");
   await page.mouse.move(0, 0);
 }
 async function refreshForwards(page: Page) {
-  await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
-  await page.getByRole("menuitem", { name: "Refresh port-forwarding", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh port-forwarding", exact: true }).click();
   await page.keyboard.press("Tab");
   await page.mouse.move(0, 0);
 }
 async function selectNamespace(page: Page, namespace: string) {
   const selector = page.getByRole("button", { name: /^(?:Pod namespace|Namespace)(?:\s|$)/ });
   await expect(selector).toBeVisible();
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await selector.click();
   await page.getByRole("option", { name: namespace, exact: true }).click();
 }
@@ -260,7 +258,7 @@ for (const malformed of ["session", "cluster", "view", "namespace", "readId", "i
 
 test("Helm loading and legitimate empty inventory remain distinct", async ({ page }) => {
   await fixture(page, "helm-charts", { empty: true, hold: true });
-  await expect(page.getByRole("status").filter({ hasText: "Loading Helm charts" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Loading Helm charts…", exact: true })).toBeVisible();
   await expect(grid(page, "Helm Charts")).toHaveCount(0);
   await page.evaluate(() => (window as MockWindow).__releaseServices());
   await expect(grid(page, "Helm Charts")).toContainText("No charts were returned.");
@@ -272,7 +270,7 @@ test("late Helm results cannot cross namespace scopes", async ({ page }) => {
   await expect(grid(page, "Helm Releases")).toContainText("edge");
   await controls(page, { hold: true });
   await refreshHelm(page);
-  await expect(page.getByRole("status").filter({ hasText: "Loading Helm releases" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Loading Helm releases…", exact: true })).toBeVisible();
   const canceled = (await calls(page, "helm_table")).at(-1)!.request;
   await controls(page, { hold: false });
   await selectNamespace(page, "production");

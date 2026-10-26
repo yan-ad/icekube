@@ -7,8 +7,10 @@ import { categories } from "../navigation";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { RecordIcon } from "../catalog/RecordIcon";
 import { NavLink } from "./NavLink";
+import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 
 export function CatalogSidebar({ onNavigate, isCollapsed = false, id = "catalog-sidebar" }: { onNavigate: () => void; isCollapsed?: boolean; id?: string }) {
+  const { isMobile } = useAppShellMobile();
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
   });
@@ -23,8 +25,10 @@ export function CatalogSidebar({ onNavigate, isCollapsed = false, id = "catalog-
     <SideNav
       aria-label="Catalog navigation"
       id={id}
+      className="catalog-sidebar-motion"
+      data-collapsed={isCollapsed}
       collapsible={{ isCollapsed, hasButton: false }}
-      style={isCollapsed ? undefined : { width: "clamp(11rem, 18vw, 16rem)" }}
+      style={{ width: isMobile ? "100%" : isCollapsed ? "var(--spacing-12)" : "clamp(11rem, 18vw, 16rem)", minHeight: 0, flexShrink: 0 }}
     >
       <SideNavSection title="Categories">
         {categories.map((category) => (

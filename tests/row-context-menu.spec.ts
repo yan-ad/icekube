@@ -171,7 +171,12 @@ for (const change of ["replacement", "stale"] as const) test(`${change}: refresh
   await control(page, change === "replacement" ? { replacement: true } : { readFailure: true });
   await page.keyboard.press("ControlOrMeta+r");
   await expect(dialog(page)).toHaveCount(0);
-  await control(page, { readFailure: false }); await page.keyboard.press("ControlOrMeta+r");
+  if (change === "stale") {
+    await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
+    await expect(page.getByRole("status").filter({ hasText: "Updates unavailable" })).toContainText("stale");
+  }
+  await control(page, { readFailure: false });
+  await page.getByRole("button", { name: "Refresh config-maps", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "Select team-a/alpha", exact: true })).toBeEnabled();
   await expect(dialog(page)).toHaveCount(0);
   expect(await calls(page, "cluster_resource_delete")).toEqual([]);
@@ -282,7 +287,7 @@ for (const hold of ["holdListen", "holdShow"] as const) test(`${hold}: unmount d
 });
 
 test("30-second expiry releases listener and ignores a retained callback", async ({ page }) => {
-  await fixture(page, "config-maps"); await page.clock.install();
+  await fixture(page, "config-maps"); await page.clock.install(); await page.clock.pauseAt(new Date());
   const menu = await openMenu(page, "alpha");
   await page.clock.fastForward(29_999); await expect.poll(() => page.evaluate(() => (window as FixtureWindow).__rowListeners())).toBe(1);
   await page.clock.fastForward(1); await noListener(page);

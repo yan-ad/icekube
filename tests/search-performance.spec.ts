@@ -68,8 +68,15 @@ for (const count of [100]) for (const [section, kind, label] of [["pods", "pods"
     await expect(grid.getByRole("row")).toHaveCount(count + 1);
     const before = (await reads(page, kind)).length;
     const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
     await input.pressSequentially("abcdefghijklmnopqrst");
     await expect(input).toHaveValue("abcdefghijklmnopqrst");
+    expect((await reads(page, kind)).length).toBe(before);
+    await page.clock.runFor(159);
+    expect((await reads(page, kind)).length).toBe(before);
+    await page.clock.runFor(1);
+    await page.clock.resume();
     await expect.poll(async () => (await reads(page, kind)).length).toBe(before + 1);
     await expect(grid).toContainText("abcdefghijklmnopqrst");
     const after = await reads(page, kind);
@@ -91,10 +98,13 @@ for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes
     await expect.poll(async () => (await reads(page, kind)).some(call => call.request.query === "held")).toBe(true);
     const held = (await reads(page, kind)).at(-1)!.request;
     await input.fill("final");
-    await expect.poll(() => page.evaluate(held => (window as SearchWindow).__searchCalls.some(call => call.command === "cluster_resources_cancel" && call.request.readId === held.readId && call.request.sessionId === held.sessionId), held)).toBe(true);
+    await expect.poll(() => page.evaluate(held => (window as SearchWindow).__searchCalls.some(call => call.command === "cluster_resources_cancel" && call.request.readId === held.readId && call.request.sessionId === held.sessionId && call.request.clusterId === held.clusterId), held)).toBe(true);
     await page.evaluate(() => (window as SearchWindow).__releaseSearch());
     await expect(grid).not.toContainText("held");
     await expect(grid).toContainText("final");
+    const final = (await reads(page, kind)).at(-1)!.request;
+    expect(final).toMatchObject({ clusterId: held.clusterId, sessionId: held.sessionId, kind, query: "final", continueToken: null });
+    expect(final.readId).not.toBe(held.readId);
     await expect(grid.getByRole("checkbox").nth(1)).not.toBeChecked();
   });
 }

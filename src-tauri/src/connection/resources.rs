@@ -373,7 +373,7 @@ pub(super) fn project(kind: ResourceKind, value: Value) -> Result<ResourceItem, 
         .and_then(Value::as_str)
         .ok_or(ConnectionError::InvalidResponse)?
         .to_owned();
-    if !valid_name(&name) {
+    if !super::details::valid_resource_name(kind, &name) {
         return Err(ConnectionError::InvalidResponse);
     }
     let uid = identity(meta, "uid")?;

@@ -41,6 +41,7 @@ test("live sync keeps an open actions menu usable across polling and repeated to
   for (let cycle = 0; cycle < 3; cycle++) {
     await clusterAction(page, "Enable live sync");
     await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+    await expect(page.getByRole("menuitem", { name: "Refresh pods", exact: true })).toHaveCount(0);
     const pause = page.getByRole("menuitem", { name: "Pause live sync", exact: true });
     await expect(pause).toBeEnabled();
     await page.mouse.move(0, 0);
@@ -286,6 +287,8 @@ test("Pod name and Details reuse the sidebar; stream actions open only bottom do
   await fixture(page);
   await row(page).getByRole("button", { name: "api-pod", exact: true }).click();
   await expect(inspector(page).getByRole("heading", { name: "api-pod", exact: true })).toBeVisible();
+  await expect(inspector(page).getByRole("heading", { name: "Pods: api-pod", exact: true })).toHaveCount(0);
+  await expect(inspector(page).getByRole("button", { name: "Refresh details", exact: true })).toHaveCount(1);
   for (const [label, value] of [["Namespace", "team-a"], ["UID", "pod-uid-123"], ["Resource version", "42"], ["Node", "worker-a"], ["Pod IPs", "10.0.0.8"], ["Host IPs", "10.0.0.1"], ["Service account", "default"], ["QoS", "Burstable"], ["Created", "2026-10-01T00:00:00Z"], ["Reason", "Started"], ["Type", "Normal"], ["Count", "2"]]) {
     await expect(fact(page, label)).toHaveText(value);
   }
@@ -637,7 +640,7 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
   await control(page, { syncError: "permissionDenied" });
   await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
   await expect(grid(page)).toContainText("Succeeded");
-  await expect(page.getByRole("status").filter({ hasText: "Previously fetched pods" })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: "Updates unavailable" })).toBeVisible();
   await control(page, { syncError: undefined });
   const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
   await namespace.click();
@@ -701,7 +704,7 @@ test("details reload retains stale values after failure and scoped child actions
   await fixture(page); await action(page, "Details");
   await expect(fact(page, "Resource version")).toHaveText("42");
   await control(page, { detailError: "resourceUnavailable" });
-  await inspector(page).getByRole("button", { name: "Reload details", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Refresh details", exact: true }).click();
   await expect(inspector(page).getByRole("alert")).toContainText("Retained details may be stale");
   await expect(fact(page, "Resource version")).toHaveText("42");
   await control(page, { detailError: undefined, malformedDetails: true });

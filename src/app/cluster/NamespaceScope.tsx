@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { Button } from "@astryxdesign/core/Button";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Text } from "@astryxdesign/core/Text";
+import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack } from "@astryxdesign/core/Stack";
 import { IconRefresh } from "@tabler/icons-react";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceRequest, type SessionRequest } from "./api";
@@ -87,7 +88,7 @@ export function NamespaceSelector({ value, onChange, label = "Namespace", allowA
       isLoading={loading} placeholder={allowAll ? "All namespaces" : "Choose namespace"}
       options={[...(allowAll ? [{ value: "", label: "All namespaces" }] : []), ...choices]}
       emptyText={loading ? "Loading namespaces…" : error ? "Namespace list unavailable" : "No namespaces returned"} />
-    {loading && <Text type="supporting" role="status">Loading namespaces…</Text>}
+    {loading && <Spinner size="sm" aria-label="Loading namespaces…" />}
     {error && <>
       <Text role="status" type="supporting">Could not load namespaces. {connectionMessage(error)}{allowAll ? " All namespaces remains available." : " Retry to choose a namespace."}</Text>
       <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />

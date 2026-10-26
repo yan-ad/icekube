@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDebouncedSearch } from "./useDebouncedSearch";
+import { ContentLoading } from "../components/ContentLoading";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -28,6 +29,7 @@ import { StatusBadge } from "./StatusBadge";
 import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector";
 import type { ResourceReference } from "./detailApi";
 import { useResourceRowMenu } from "./RowContextMenu";
+import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 
 function PodHealth({ item }: { item: ResourceItem }) {
   const state = item.columns.health;
@@ -116,20 +118,27 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const filtered = !!(filters.query.trim() || filters.status || filters.group);
   const requestFiltered = !!(query.trim() || status || group);
   const syncing = live && view.kind === "pods" && token === null && !filtered && !pending && !requestFiltered;
+  const auto = useAutoRefresh({ scope: JSON.stringify([clusterId, sessionId, view.kind, namespace, token, query, status, group]), interval: 10_000,
+    busy: loading, paused: pending || syncing || index > 0, refresh: () => setRevision(value => value + 1) });
   useRegisterWorkspacePageActions({ clusterId, section: view.section,
     previous: { enabled: index > 0 && !loading && !pending, run: previous },
     next: { enabled: !pending && !syncing && !!page?.continueToken && !loading && !error, run: () => { if (page?.continueToken) next(page.continueToken); } },
     live: view.kind === "pods" ? { enabled: token === null && !filtered && !pending, checked: live, run: () => setLive(value => !value) } : undefined,
   });
-  useRegisterWorkspaceRefresh({ clusterId, section: view.section, enabled: true, refresh: () => setRevision((value) => value + 1) });
+  useRegisterWorkspaceRefresh({ clusterId, section: view.section, enabled: !loading && !pending, refresh: () => setRevision((value) => value + 1) });
   useEffect(() => {
     if (!view.kind || syncing || pending) return;
     let disposed = false;
     const request = { clusterId, sessionId, kind: view.kind, readId: nextReadId(), namespace: namespace || null, continueToken: token,
       ...(requestFiltered ? { query: query.trim() || null, status: status || null, group: group || null } : {}) };
-    setLoading(true); setError(null);
-    void loadResources(request).then((result) => { if (!disposed) { setPage(result); } })
-      .catch((reason) => { if (!disposed) setError(errorCode(reason)); })
+    setLoading(true);
+    if (!auto.background.current) setError(null);
+    void loadResources(request).then((result) => { if (!disposed) auto.deliver(() => {
+      if (disposed) return;
+      setError(null); setPage(current => sameInventory(current, result) ? current : result);
+      auto.complete();
+    }); })
+      .catch((reason) => { if (!disposed) auto.deliver(() => { if (!disposed) { setError(errorCode(reason)); auto.complete(reason); } }); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; void cancelResources(request).catch(() => {}); };
   }, [clusterId, sessionId, view.kind, namespace, token, index, revision, syncing, query, status, group, requestFiltered, pending]);
@@ -174,13 +183,15 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const rows = useMemo(() => page?.items ?? [], [page]);
   const statuses = useMemo(() => [...new Set([...rows.map(item => item.status), ...(filters.status ? [filters.status] : [])])].sort(), [rows, filters.status]);
   const groups = useMemo(() => [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(filters.group ? [filters.group] : [])])].sort(), [rows, filters.group]);
-  const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, filters, syncing]);
-  const inventoryUnavailable = pending || loading || !!error || syncing && syncStatus !== "syncing";
+  const actionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, filters, syncing]);
+  const selectionScope = JSON.stringify([actionScope, rows]);
+  const visibleLoading = loading && !auto.background.current;
+  const inventoryUnavailable = pending || visibleLoading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
   const tableColumns = useMemo(() => columns(view, Date.now(), openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-    <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
+    <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
       <TextInput label={`Search ${view.label}`} isLabelHidden value={filters.query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
         startIcon={IconSearch} hasClear size="sm" width="min(18rem, 100%)" />
@@ -191,13 +202,14 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
     </TableToolbar>
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
-    {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}
+    <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} refreshing active={visibleLoading && !!page} />
+    {loading && !page && <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} />}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && (pending || loading || error || syncing && syncStatus !== "syncing") && <Text role="status">Previously fetched {view.label.toLowerCase()} are shown and may be stale.</Text>}
-    {page && <Table aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading || pending}
+    {page && error && <Text role="status">Updates unavailable. Showing the last successful snapshot, which may be stale.</Text>}
+    {page && <Table aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={visibleLoading || pending}
       plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
-    {view.kind && <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
+    {view.kind && <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
       selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
   </VStack>;
 }

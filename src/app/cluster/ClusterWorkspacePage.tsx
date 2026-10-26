@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { useNavigate, useParams, useSearch } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
@@ -28,6 +30,7 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
   const session = useClusterSession(cluster.id);
   const workspaceRefresh = useWorkspaceRefresh();
   const [showMetadata, setShowMetadata] = useState(false);
+  useEffect(() => { setShowMetadata(false); }, [session.snapshot?.sessionId, session.phase === "releasing"]);
   const selected = clusterDestinations.find((item) => item.id === section);
   const connection = session.snapshot;
   const connected = connection?.status === "connected";
@@ -52,18 +55,21 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     ...(session.phase === "failed" ? [{ label: "Reopen workspace", run: onReopen }] : []),
     ...(!connected && !busy ? [{ label: "Connect to cluster", run: () => void session.connect() }] : []),
     ...(session.canRelease ? [{ label: session.phase === "connecting" ? "Cancel connection" : "Disconnect", enabled: session.phase !== "releasing", run: () => void session.disconnect() }] : []),
-    { label: showMetadata ? "Hide saved metadata" : "Show saved metadata", run: () => setShowMetadata(value => !value) },
+    { label: "Show saved metadata", run: () => setShowMetadata(true) },
   ] });
   return <>
     <VisuallyHidden><Heading level={1}>{cluster.name} · {selected?.label ?? "Cluster"}</Heading></VisuallyHidden>
     {!connected && <Text role="status">{status}</Text>}
     {failure && <Text as="p" role="alert">Connection error [{failure}]: {connectionMessage(failure)}</Text>}
-    {showMetadata && <VStack gap={2}>
-      <Text weight="semibold">Saved metadata</Text>
-      <Text>Context: {cluster.contextName}</Text>
-      <Text>Source: {cluster.source}</Text>
-      {cluster.labels.length ? cluster.labels.map((label) => <Text key={label}>{label}</Text>) : <Text color="secondary">No labels saved.</Text>}
-    </VStack>}
+    <Dialog isOpen={showMetadata} onOpenChange={setShowMetadata} purpose="info">
+      <Layout header={<DialogHeader title="Saved metadata" onOpenChange={setShowMetadata} />}
+        content={<LayoutContent><MetadataList label={{ position: "top" }} style={{ overflowWrap: "anywhere" }}>
+          <MetadataListItem label="Cluster">{cluster.name}</MetadataListItem>
+          <MetadataListItem label="Context">{cluster.contextName}</MetadataListItem>
+          <MetadataListItem label="Source">{cluster.source}</MetadataListItem>
+          <MetadataListItem label="Labels">{cluster.labels.length ? cluster.labels.join(", ") : "No labels saved."}</MetadataListItem>
+        </MetadataList></LayoutContent>} />
+    </Dialog>
     {section === "overview" && connected && <Text color="secondary">Choose a resource view from the cluster navigation.</Text>}
     {connected && <ResourceInspectorProvider key={`${cluster.id}:${connection.sessionId}`} clusterId={cluster.id}>
     <PodDockProvider clusterId={cluster.id} sessionId={connection.sessionId} outlet={dockOutlet}

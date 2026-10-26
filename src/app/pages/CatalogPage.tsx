@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Button } from "@astryxdesign/core/Button";
@@ -20,6 +20,7 @@ import {
   type TablePlugin,
 } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
+import { ContentLoading } from "../components/ContentLoading";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { catalogError } from "../catalog/api";
@@ -40,6 +41,8 @@ type CatalogRow = {
   url?: string;
 };
 
+const CatalogTable = memo(Table) as typeof Table;
+
 export default function CatalogPage() {
   const pathname = useRouterState({
     select: (state) => state.location.pathname,
@@ -50,6 +53,7 @@ export default function CatalogPage() {
   const navigate = useNavigate();
   const { snapshot, loading, busy, error, available, run, openWebLink } = useCatalog();
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
   const [remove, setRemove] = useState<CatalogRow | null>(null);
   const kind =
     pathname === "/catalog/clusters"
@@ -57,7 +61,7 @@ export default function CatalogPage() {
       : pathname === "/catalog/web-links"
         ? "Web Links"
         : "All Categories";
-  const rows: CatalogRow[] = [
+  const rows = useMemo<CatalogRow[]>(() => [
     ...(snapshot?.clusters ?? []).map((item) => ({
       ...item,
       category: "Clusters" as const,
@@ -70,20 +74,21 @@ export default function CatalogPage() {
     })),
   ]
     .filter((item) => kind === "All Categories" || item.category === kind)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
-  const filtered = rows.filter(
-    (item) =>
-      (!selectedItem || item.id === selectedItem) &&
-      `${item.name} ${item.category} ${item.source} ${item.labels.join(" ")} ${item.url ?? ""}`
-        .toLowerCase()
-        .includes(query.toLowerCase()),
-  );
-  function activate(item: CatalogRow) {
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), [snapshot, kind]);
+  const searchable = useMemo(() => rows.map(item => ({ item, text:
+    `${item.name} ${item.category} ${item.source} ${item.labels.join(" ")} ${item.url ?? ""}`.toLowerCase(),
+  })), [rows]);
+  const needle = deferredQuery.toLowerCase();
+  const filtered = useMemo(() => searchable.filter(
+    ({ item, text }) =>
+      (!selectedItem || item.id === selectedItem) && text.includes(needle),
+  ).map(({ item }) => item), [searchable, selectedItem, needle]);
+  const activate = useCallback((item: CatalogRow) => {
     if (busy) return;
     if (item.category === "Clusters") void navigate({ to: "/cluster/$clusterId", params: { clusterId: item.id }, search: {} });
     else void openWebLink(item.id);
-  }
-  const activation: TablePlugin<CatalogRow> = {
+  }, [busy, navigate, openWebLink]);
+  const activation = useMemo<TablePlugin<CatalogRow>>(() => ({
     transformBodyRow: (props, item) => ({ ...props, htmlProps: {
       ...props.htmlProps,
       tabIndex: 0,
@@ -100,8 +105,8 @@ export default function CatalogPage() {
         }
       },
     } }),
-  };
-  const columns: TableColumn<CatalogRow>[] = [
+  }), [busy, activate]);
+  const columns = useMemo<TableColumn<CatalogRow>[]>(() => [
     {
       key: "name",
       header: "Name",
@@ -187,20 +192,27 @@ export default function CatalogPage() {
         </HStack>
       ),
     },
-  ];
+  ], [busy, run]);
   const emptyTitle = loading
     ? "Loading catalog…"
     : !available
       ? "Desktop engine required"
       : !snapshot
         ? "Catalog unavailable"
-        : selectedItem || (query && rows.length)
+        : selectedItem || (deferredQuery && rows.length)
           ? "No matching items"
           : kind === "Clusters"
             ? "No clusters imported"
             : kind === "Web Links"
               ? "No web links saved"
               : "Your catalog is empty";
+  const plugins = useMemo(() => ({ activation, viewport: tableViewport<CatalogRow>() }), [activation]);
+  const emptyState = useMemo(() => <VStack padding={6} gap={2} hAlign="center">
+    <Heading level={2}>{emptyTitle}</Heading>
+    <Text color="secondary" justify="center">{deferredQuery && rows.length ? "Try a different filter." : !available
+      ? "Open the desktop app to import cluster contexts and save web links."
+      : "Import a kubeconfig or add a web link to populate the catalog."}</Text>
+  </VStack>, [emptyTitle, !!deferredQuery, rows.length, available]);
 
   return (
     <>
@@ -210,7 +222,7 @@ export default function CatalogPage() {
           <LayoutContent padding={0} isScrollable={false}>
             <VStack gap={0} style={{ position: "relative", height: "100%", minHeight: 0, minWidth: 0, overflow: "hidden" }}>
               <VisuallyHidden><Heading level={1}>{kind}</Heading></VisuallyHidden>
-              <TableToolbar label="Catalog" count={snapshot ? `${filtered.length} items` : loading ? "Loading…" : "Unavailable"}>
+              <TableToolbar label="Catalog" count={snapshot ? `${filtered.length} items` : loading ? undefined : "Unavailable"}>
                 <TextInput
                   label="Filter catalog"
                   isLabelHidden
@@ -224,6 +236,7 @@ export default function CatalogPage() {
                 />
               <TableActionOverlay label="Catalog actions"><CatalogForms /></TableActionOverlay>
               </TableToolbar>
+              <ContentLoading label="Loading catalog…" refreshing active={!!snapshot && (loading || busy)} />
               {error && (
                 <Text role="alert">
                   {error}
@@ -232,7 +245,7 @@ export default function CatalogPage() {
                     : ""}
                 </Text>
               )}
-              {loading && <Text role="status">Loading catalog…</Text>}
+              {loading && !snapshot && <ContentLoading label="Loading catalog…" />}
               {snapshot?.discoveryError && <Text role="alert">Could not refresh file=~/.kube/config. {catalogError(snapshot.discoveryError)} Previously saved records are kept. Use Refresh to retry.</Text>}
               {selectedItem && (
                 <HStack gap={2} vAlign="center" wrap="wrap">
@@ -246,28 +259,17 @@ export default function CatalogPage() {
                   />
                 </HStack>
               )}
-              <Table
+              {!(loading && !snapshot) && <CatalogTable
                 data={filtered}
                 columns={columns}
                 idKey="id"
                 density="compact"
                 hasHover
-                plugins={{ activation, viewport: tableViewport<CatalogRow>() }}
+                plugins={plugins}
                 aria-label={kind === "Web Links" ? "Web links" : kind}
                 aria-busy={busy}
-                emptyState={
-                  <VStack padding={6} gap={2} hAlign="center">
-                    <Heading level={2}>{emptyTitle}</Heading>
-                    <Text color="secondary" justify="center">
-                      {query && rows.length
-                        ? "Try a different filter."
-                        : !available
-                          ? "Open the desktop app to import cluster contexts and save web links."
-                          : "Import a kubeconfig or add a web link to populate the catalog."}
-                    </Text>
-                  </VStack>
-                }
-              />
+                emptyState={emptyState}
+              />}
             </VStack>
           </LayoutContent>
         }

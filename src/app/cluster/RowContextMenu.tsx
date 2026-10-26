@@ -20,14 +20,14 @@ type Options<T> = SessionRequest & { rows: T[]; scope: string; rowKey: (item: T)
 export function useRowContextMenu<T extends Record<string, unknown>>(options: Options<T>): TablePlugin<T> {
   const rowsFingerprint = useMemo(() => JSON.stringify(options.rows), [options.rows]);
   const actionFingerprint = useMemo(() => JSON.stringify(options.rows.map(item => options.actions(item))), [options.rows, options.actions]);
-  const fingerprint = useMemo(() => JSON.stringify([options.clusterId, options.sessionId, options.scope, rowsFingerprint,
-    actionFingerprint]), [options.clusterId, options.sessionId, options.scope, rowsFingerprint, actionFingerprint]);
+  const fingerprint = useMemo(() => ({ clusterId: options.clusterId, sessionId: options.sessionId, scope: options.scope, rowsFingerprint,
+    actionFingerprint }), [options.clusterId, options.sessionId, options.scope, rowsFingerprint, actionFingerprint]);
   const latest = useRef(options);
   latest.current = options;
   const current = useRef(fingerprint);
   current.current = fingerprint;
   const active = useRef<AbortController | null>(null);
-  const [fallback, setFallback] = useState<{ key: string; fingerprint: string; item: T; actions: RowMenuAction[]; controller: AbortController } | null>(null);
+  const [fallback, setFallback] = useState<{ key: string; fingerprint: typeof fingerprint; item: T; actions: RowMenuAction[]; controller: AbortController } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useLayoutEffect(() => {
     setFallback(null);
@@ -36,6 +36,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
   }, [fingerprint]);
   function close() { active.current?.abort(); active.current = null; setFallback(null); }
   function open(item: T) {
+    const options = latest.current;
     close(); setError(null);
     const controller = new AbortController();
     active.current = controller;
@@ -55,9 +56,10 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
         if (!controller.signal.aborted && current.current === fingerprint) setError("Could not open row actions. Try again.");
       });
   }
-  return {
+  return useMemo<TablePlugin<T>>(() => ({
     transformColumns: columns => [...columns.filter(column => column.key !== "actions"), {
       key: "actions", header: "Actions", width: pixel(80), renderCell: item => {
+        const options = latest.current;
         const menu = fallback?.fingerprint === fingerprint && fallback.key === options.rowKey(item) ? fallback : null;
         return <DropdownMenu presentation="popover" alignment="end" hasChevron={false} isMenuOpen={!!menu}
           onOpenChange={value => { if (!value) close(); }}
@@ -66,7 +68,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
           items={(menu?.actions ?? options.actions(item)).map(entry => ({ label: labels[entry.action], isDisabled: entry.disabled,
             onClick: () => {
               if (!menu || menu.controller.signal.aborted || current.current !== menu.fingerprint || entry.disabled) return;
-              close(); options.onAction(menu.item, entry.action);
+              close(); latest.current.onAction(menu.item, entry.action);
             } }))} />;
       },
     }],
@@ -78,21 +80,20 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
       },
     } }),
     transformTableContext: children => <>{children}{error && <Text role="alert">{error}</Text>}</>,
-  };
+  }), [fingerprint, fallback, error]);
 }
 
 export function useResourceRowMenu(options: SessionRequest & { rows: ResourceItem[]; scope: string; kind: ResourceKind; unavailable: boolean;
   openResource: (reference: ResourceReference) => void; openPod?: (item: ResourceItem, mode: PodMode) => void }) {
-  const rowsFingerprint = useMemo(() => JSON.stringify(options.rows), [options.rows]);
-  const identity = useMemo(() => JSON.stringify([options.scope, options.unavailable, rowsFingerprint]), [options.scope, options.unavailable, rowsFingerprint]);
-  const [deletion, setDeletion] = useState<{ identity: string; item: ResourceItem } | null>(null);
+  const identity = useMemo(() => ({}), [options.clusterId, options.sessionId, options.scope, options.kind, options.unavailable, options.rows]);
+  const [deletion, setDeletion] = useState<{ identity: typeof identity; item: ResourceItem } | null>(null);
   const hasPodActions = !!options.openPod;
   const actions = useCallback((item: ResourceItem): RowMenuAction[] => [
     { action: "details" },
     ...(hasPodActions ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid })) : []),
     { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) },
   ], [hasPodActions, options.unavailable]);
-  const plugin = useRowContextMenu({ ...options, scope: identity, rowKey: resourceRowKey, rowLabel: item => item.name,
+  const plugin = useRowContextMenu({ ...options, scope: JSON.stringify([options.scope, options.kind]), rowKey: resourceRowKey, rowLabel: item => item.name,
     target: item => ({ type: "resource", reference: { kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid } }),
     actions,
     onAction: (item, action) => {

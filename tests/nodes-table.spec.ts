@@ -151,7 +151,7 @@ test("failed refresh retains rows and flags the snapshot stale", async ({ page }
   await fixture(page, { failedRefresh: true });
   await clusterAction(page, "Refresh nodes");
   await expect(page.getByRole("alert")).toContainText("could not be reached");
-  await expect(page.getByRole("status").filter({ hasText: /Previously fetched nodes/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Updates unavailable.*stale/ })).toBeVisible();
   await expect(table(page)).toContainText("6.70 / 23.9");
 });
 
@@ -175,6 +175,10 @@ test("empty inventory is not confused with search or unavailable metrics", async
 });
 
 async function clusterAction(page: Page, name: string) {
+  if (name.startsWith("Refresh ")) {
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }

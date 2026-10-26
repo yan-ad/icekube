@@ -95,6 +95,10 @@ test("changing filters on a continuation page resets pagination and cancels the 
   await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeEnabled();
 });
 async function clusterAction(page: Page, name: string) {
+  if (name.startsWith("Refresh ")) {
+    await page.getByRole("button", { name, exact: true }).click();
+    return;
+  }
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
 }
@@ -117,7 +121,7 @@ const calls = (page: Page, command = "cluster_resources", kind?: string) => page
 async function selectNamespace(page: Page, namespace: string) {
   const selector = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
   await expect(selector).toBeVisible();
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await selector.click();
   await page.getByRole("option", { name: namespace, exact: true }).click();
 }
@@ -251,7 +255,7 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
 async function ready(page: Page, name = "Pods") {
   await expect(table(page, name)).toBeVisible();
   await expect(table(page, name).getByRole("row")).toHaveCount(3);
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
 }
 
 test("all 43 registry views expose their direct route, columns and explicit creation contract", async ({ page }) => {
@@ -422,7 +426,7 @@ test("late results from a cancelled namespace read cannot replace the current sc
   await fixture(page); await ready(page);
   await controls(page, { hold: true });
   await clusterAction(page, "Next page");
-  await expect(page.getByRole("status").filter({ hasText: "Loading pods…" })).toBeVisible();
+  await expect(page.getByRole("progressbar", { name: "Loading pods…", exact: true })).toBeVisible();
   const pending = (await calls(page)).at(-1)!.request;
   await controls(page, { hold: false });
   await selectNamespace(page, "production");
@@ -480,6 +484,35 @@ for (const malformed of ["namespace", "session", "readId", "columns", "duplicate
   });
 }
 
+test("automatic Pod LIST updates are quiet, do not overlap, and leave continuation pages alone", async ({ page }) => {
+  await page.clock.install();
+  await fixture(page); await ready(page);
+  const initial = (await calls(page)).length;
+  await controls(page, { hold: true });
+  await page.clock.fastForward(10_000);
+  await expect.poll(async () => (await calls(page)).length).toBe(initial + 1);
+  await expect(page.getByRole("status", { name: "Loading pods…", exact: true })).toHaveCount(0);
+  await expect(page.getByText(/Previously fetched|Fetched \d/)).toHaveCount(0);
+  await page.clock.fastForward(60_000);
+  expect((await calls(page)).length).toBe(initial + 1);
+  await page.evaluate(() => { const dialog = document.createElement("section"); dialog.setAttribute("role", "dialog"); dialog.id = "held-confirmation"; dialog.textContent = "Confirmation"; document.body.append(dialog); });
+  await controls(page, { hold: false, empty: true });
+  await page.evaluate(() => (window as MockWindow).__releaseResources());
+  await page.clock.fastForward(1_000);
+  await expect(table(page)).toContainText("shared-name");
+  await page.evaluate(() => document.querySelector("#held-confirmation")!.remove());
+  await page.clock.fastForward(250);
+  await expect(table(page)).toContainText("No pods were returned.");
+  await controls(page, { empty: false });
+  await page.clock.fastForward(10_000);
+  await expect(table(page)).toContainText("shared-name");
+  await clusterAction(page, "Next page");
+  await expect(table(page)).toContainText("second-page-hit");
+  const continued = (await calls(page)).length;
+  await page.clock.fastForward(60_000);
+  expect((await calls(page)).length).toBe(continued);
+});
+
 test("failed refresh preserves rows and reports stale data without reconnecting", async ({ page }) => {
   await fixture(page); await ready(page);
   const connections = await calls(page, "cluster_connect");
@@ -487,17 +520,17 @@ test("failed refresh preserves rows and reports stale data without reconnecting"
   await clusterAction(page, "Refresh pods");
   await expect(page.getByRole("alert")).toContainText("could not be reached");
   await ready(page);
-  await expect(page.getByRole("status").filter({ hasText: /Previously fetched pods.*stale/ })).toBeVisible();
+  await expect(page.getByRole("status").filter({ hasText: /Updates unavailable.*stale/ })).toBeVisible();
   expect(await calls(page, "cluster_connect")).toEqual(connections);
   await controls(page, { failure: "" });
   await clusterAction(page, "Refresh pods");
   await expect(page.getByRole("alert")).toHaveCount(0);
-  await expect(page.getByText(/Previously fetched pods/)).toHaveCount(0);
+  await expect(page.getByText(/Updates unavailable.*stale/)).toHaveCount(0);
 });
 
 test("successful empty response is distinct from loading and failures", async ({ page }) => {
   await fixture(page, { hold: true, empty: true });
-  await expect(page.getByRole("status").filter({ hasText: "Loading pods…" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Loading pods…", exact: true })).toBeVisible();
   await expect(table(page)).toHaveCount(0);
   await page.evaluate(() => (window as MockWindow).__releaseResources());
   await expect(table(page)).toContainText("No pods were returned.");

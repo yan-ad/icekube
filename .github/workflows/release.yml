@@ -2,7 +2,7 @@ name: Release Apple Silicon
 
 on:
   push:
-    tags: ['v*']
+    tags: ['v*', '!v*-*']
 
 permissions:
   contents: read

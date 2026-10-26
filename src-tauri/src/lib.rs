@@ -4,6 +4,7 @@ mod context_menu;
 #[cfg(target_os = "macos")]
 mod menu;
 mod preferences;
+mod project;
 mod updates;
 mod window;
 
@@ -215,14 +216,14 @@ fn cluster_resources_cancel(
 
 #[tauri::command]
 async fn cluster_resource_detail(
-    engine: tauri::State<'_, connection::ConnectionEngine>,
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::details::DetailRequest,
 ) -> Result<connection::details::ResourceDetail, connection::ConnectionError> {
     engine.resource_detail(request).await
 }
 #[tauri::command]
 fn cluster_resource_detail_cancel(
-    engine: tauri::State<'_, connection::ConnectionEngine>,
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::details::DetailRequest,
 ) -> Result<(), connection::ConnectionError> {
     engine.cancel_resource_detail(request)
@@ -258,6 +259,15 @@ fn cluster_resource_create_cancel(
     request: connection::create::CreateCancelRequest,
 ) -> Result<(), connection::ConnectionError> {
     connections.cancel_create(request)
+}
+
+#[tauri::command]
+async fn project_open_repository(app: tauri::AppHandle) -> Result<(), project::ProjectError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        project::open_repository_with(|url| app.opener().open_url(url, None::<&str>))
+    })
+    .await
+    .map_err(|_| project::ProjectError::OpenFailed)?
 }
 
 #[tauri::command]
@@ -386,6 +396,7 @@ pub fn run() {
             catalog_set_pin,
             catalog_remove,
             catalog_open_web_link,
+            project_open_repository,
             cluster_session_open,
             cluster_connect,
             cluster_disconnect,
@@ -437,4 +448,28 @@ pub fn run() {
                 tauri::async_runtime::block_on(updater.drain());
             }
         });
+}
+
+#[cfg(test)]
+mod command_state_tests {
+    #[test]
+    fn generic_details_extract_the_registered_shared_engine_type() {
+        let source = include_str!("lib.rs");
+        for command in ["cluster_resource_detail", "cluster_resource_detail_cancel"] {
+            let signature = source
+                .split(&format!("fn {command}("))
+                .nth(1)
+                .expect("detail command exists")
+                .split(") ->")
+                .next()
+                .unwrap();
+            assert!(
+                signature.contains("tauri::State<'_, Arc<connection::ConnectionEngine>>"),
+                "{command} must use the same Arc state registered by setup"
+            );
+        }
+        assert!(
+            source.contains("app.manage(Arc::new(connection::ConnectionEngine::new(catalog)))")
+        );
+    }
 }

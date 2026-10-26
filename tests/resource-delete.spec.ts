@@ -19,7 +19,7 @@ async function clusterAction(page: Page, name: string) {
   await page.getByRole("menuitem", { name, exact: true }).click();
 }
 async function namespace(page: Page, name: string) {
-  await expect(page.getByText("Loading namespaces…", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).click();
   await page.getByRole("option", { name, exact: true }).click();
 }

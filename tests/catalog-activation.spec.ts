@@ -47,6 +47,7 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   await page.getByRole("row", { name: "Open cluster Development", exact: true }).getByRole("cell", { name: "kubeconfig", exact: true }).click();
   await expect(page).toHaveURL(/#\/cluster\/cluster-one$/);
   await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
+  await expect(page.getByRole("button", { name: "Switch cluster", exact: true })).toContainText("Development");
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem("icekube.sidebar-collapsed.v1"))).toBe("false");
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
@@ -86,6 +87,7 @@ test("row Enter/Space and pinned cluster activation work; pin/remove buttons do 
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-two$/);
   await expect(page.getByRole("heading", { level: 1, name: /^Staging · / })).toBeAttached();
+  await expect(page.getByRole("button", { name: "Switch cluster", exact: true })).toContainText("Staging");
 });
 
 test("web-link rows and pinned links delegate saved ID to Rust without navigation", async ({ page }) => {
