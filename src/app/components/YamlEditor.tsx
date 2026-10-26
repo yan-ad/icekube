@@ -24,33 +24,122 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
   const id = useId();
   const editorRef = useRef<HTMLPreElement>(null);
   const jarRef = useRef<CodeJarInstance | null>(null);
+  const composing = useRef(false);
   const latest = useRef({ value, onChange });
   latest.current = { value, onChange };
 
   useEffect(() => {
     const editor = editorRef.current;
     if (!editor) return;
-    const jar = CodeJar(editor, highlightYaml, { tab: "  ", addClosing: false, catchTab: false });
-    jarRef.current = jar;
-    jar.updateCode(latest.current.value, false);
-    // Read-only views must not retain CodeJar's paste, cut, undo or indent handlers.
-    if (isReadOnly) {
-      jar.destroy();
-      editor.contentEditable = "false";
+    composing.current = false;
+    if (editor.textContent !== latest.current.value) {
+      editor.textContent = latest.current.value;
+      highlightYaml(editor);
     }
+    if (isReadOnly) {
+      editor.contentEditable = "false";
+      return;
+    }
+
+    let disposed = false;
+    let published = latest.current.value;
+    // CodeJar observes keyup/paste/cut, but not input or compositionend.
+    const readCode = () => editor.querySelector("br")
+      ? editor.innerText.replace(/\n$/, "") : editor.textContent ?? "";
+    const publish = () => {
+      const code = readCode();
+      if (!disposed && !composing.current && code !== published) {
+        published = code;
+        latest.current.onChange(code);
+      }
+    };
+    const startComposition = () => { composing.current = true; };
+    const guardComposition = (event: KeyboardEvent) => {
+      if (composing.current || event.isComposing || event.keyCode === 229) {
+        event.stopImmediatePropagation();
+      } else if (event.type === "keydown" && event.key === "Enter") {
+        // Native contenteditable Enter inserts BR nodes, which CodeJar's textContent serialization drops.
+        event.preventDefault();
+        const selection = window.getSelection();
+        if (!selection?.rangeCount) return;
+        const before = selection.getRangeAt(0).cloneRange();
+        before.selectNodeContents(editor);
+        before.setEnd(selection.anchorNode!, selection.anchorOffset);
+        const lines = before.toString().split("\n");
+        const padding = lines[lines.length - 1]?.match(/^[ \t]*/)?.[0] ?? "";
+        document.execCommand("insertHTML", false, `\n${padding}`);
+        publish();
+      }
+    };
+    editor.addEventListener("keydown", guardComposition, true);
+    editor.addEventListener("keyup", guardComposition, true);
+    const jar = CodeJar(editor, element => {
+      // destroy() removes listeners, not CodeJar's already queued timers.
+      if (!disposed && !composing.current) {
+        if (editor.querySelector("br")) {
+          const selection = window.getSelection();
+          const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+          const position = range ? range.cloneRange() : null;
+          if (position) {
+            position.selectNodeContents(editor);
+            position.setEnd(range!.startContainer, range!.startOffset);
+          }
+          const offset = position?.toString().length ?? 0;
+          editor.textContent = readCode();
+          highlightYaml(element);
+          jarRef.current?.restore({ start: offset, end: offset });
+        } else highlightYaml(element);
+      }
+    }, {
+      tab: "  ", addClosing: false, catchTab: false,
+      window: new Proxy(window, {
+        get(target, key) {
+          if (key === "setTimeout") return (callback: () => void, delay: number) =>
+            target.setTimeout(() => { if (!disposed) callback(); }, delay);
+          return Reflect.get(target, key);
+        },
+      }),
+    });
+    jarRef.current = jar;
+    const endComposition = () => {
+      composing.current = false;
+      const position = jar.save();
+      highlightYaml(editor);
+      jar.restore(position);
+      publish();
+    };
     editor.style.removeProperty("outline");
-    const update = () => latest.current.onChange(editor.innerText);
-    if (!isReadOnly) jar.onUpdate(update);
+    jar.onUpdate(publish);
+    editor.addEventListener("input", publish);
+    editor.addEventListener("compositionstart", startComposition);
+    editor.addEventListener("compositionend", endComposition);
     return () => {
+      disposed = true;
       jar.onUpdate(() => {});
       jar.destroy();
       jarRef.current = null;
+      editor.removeEventListener("input", publish);
+      editor.removeEventListener("compositionstart", startComposition);
+      editor.removeEventListener("compositionend", endComposition);
+      editor.removeEventListener("keydown", guardComposition, true);
+      editor.removeEventListener("keyup", guardComposition, true);
     };
   }, [isReadOnly]);
 
   useEffect(() => {
+    const editor = editorRef.current;
+    if (!editor || composing.current || editor.textContent === value) return;
     const jar = jarRef.current;
-    if (jar && jar.toString() !== value) jar.updateCode(value, false);
+    const selection = window.getSelection();
+    const position = jar && selection?.anchorNode && selection.focusNode &&
+      editor.contains(selection.anchorNode) && editor.contains(selection.focusNode) ? jar.save() : null;
+    if (jar) {
+      jar.updateCode(value, false);
+      if (position) jar.restore(position);
+    } else {
+      editor.textContent = value;
+      highlightYaml(editor);
+    }
   }, [value]);
 
   return <VStack gap={2} style={{ minWidth: 0 }}>

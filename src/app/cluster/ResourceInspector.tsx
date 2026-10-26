@@ -81,8 +81,10 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
   const [width, setWidth] = useState(54);
   const [expanded, setExpanded] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [revision, setRevision] = useState(0);
   const [loading, setLoading] = useState(false);
   const [minimum, setMinimum] = useState(20);
+  const onLoadingChange = useCallback((next: boolean) => setLoading(next), []);
   const drag = useRef<{ id: number; target: HTMLElement; x: number; width: number; parent: number } | null>(null);
   const endDrag = useCallback(() => {
     const current = drag.current;
@@ -111,7 +113,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
     if (!isOpen) return;
     const timer = requestAnimationFrame(() => panel.current?.focus());
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('dialog[open], [role="menu"]')) return;
+      if (event.key !== "Escape" || event.defaultPrevented || [...document.querySelectorAll('dialog[open], [role="menu"]')].some(element => element.getClientRects().length > 0 && getComputedStyle(element).visibility !== "hidden")) return;
       if (event.composedPath().some(target => target instanceof HTMLElement &&
         (target.isContentEditable || target.matches('input, textarea, select, [role="textbox"], [role="terminal"]')))) return;
       event.preventDefault(); closeInspector();
@@ -141,7 +143,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
       onPointerUp={endDrag} onPointerCancel={endDrag} onLostPointerCapture={endDrag}
       onKeyDown={event => {
         const current = expanded ? 75 : boundedWidth;
-        const next = event.key === "Home" ? minimum : event.key === "End" ? 75 : event.key === "ArrowLeft" ? current + 2 : event.key === "ArrowRight" ? current - 2 : null;
+        const next = event.key === "Home" ? minimum : event.key === "End" ? 75 : event.key === "ArrowLeft" ? current - 2 : event.key === "ArrowRight" ? current + 2 : null;
         if (next !== null) { event.preventDefault(); resize(next); }
       }} />
     <Layout height="fill" header={<HStack padding={3} gap={2} vAlign="center" hAlign="between" wrap="wrap">
@@ -157,7 +159,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
         <MetadataList label={{ position: "top" }}>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</MetadataList>
       </VStack> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
         <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.reference, revision])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} /> :
-        <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={setLoading} />)}
+        <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} />)}
     </LayoutContent>} />
     </>}
   </VStack>;
@@ -179,7 +181,6 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
   const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
   useEffect(() => {
     let disposed = false;
     const request = { clusterId, sessionId, reference: selection.reference, readId: nextReadId() };

@@ -714,6 +714,16 @@ fn job_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
         }
     }
     suspend(v, c);
+    if let Some(conditions) = v.pointer("/status/conditions").and_then(Value::as_array) {
+        for (condition, status) in [("Failed", "Failed"), ("Complete", "Completed")] {
+            if conditions.iter().any(|item| {
+                item.get("type").and_then(Value::as_str) == Some(condition)
+                    && item.get("status").and_then(Value::as_str) == Some("True")
+            }) {
+                return status.into();
+            }
+        }
+    }
     "Unknown".into()
 }
 fn service_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
@@ -773,17 +783,48 @@ fn pvc_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
         .into()
 }
 fn event_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
-    for (k, p) in [("type", "/type"), ("reason", "/reason")] {
+    for (k, p) in [
+        ("type", "/type"),
+        ("reason", "/reason"),
+        ("message", "/message"),
+    ] {
         if let Some(x) = v.pointer(p).and_then(Value::as_str) {
             insert(c, k, bounded(x));
         }
     }
     if let Some(count) = v
-        .pointer("/count")
-        .or_else(|| v.pointer("/series/count"))
+        .pointer("/series/count")
         .and_then(Value::as_u64)
+        .or_else(|| v.pointer("/count").and_then(Value::as_u64))
     {
         insert(c, "count", count.to_string());
+    }
+    for (key, paths) in [
+        (
+            "lastSeen",
+            vec![
+                "/series/lastObservedTime",
+                "/lastTimestamp",
+                "/eventTime",
+                "/firstTimestamp",
+            ],
+        ),
+        ("occurrenceTime", vec!["/eventTime", "/firstTimestamp"]),
+    ] {
+        if let Some(time) = paths
+            .into_iter()
+            .find_map(|path| v.pointer(path).and_then(Value::as_str).and_then(timestamp))
+        {
+            insert(c, key, time);
+        }
+    }
+    if let Some(source) = v
+        .pointer("/reportingComponent")
+        .and_then(Value::as_str)
+        .filter(|value| !bounded(value).is_empty())
+        .or_else(|| v.pointer("/source/component").and_then(Value::as_str))
+    {
+        insert(c, "source", bounded(source));
     }
     if let (Some(kind), Some(name)) = (
         v.pointer("/involvedObject/kind").and_then(Value::as_str),
@@ -804,7 +845,7 @@ fn insert(c: &mut BTreeMap<String, String>, k: &str, v: String) {
 }
 fn bounded(s: &str) -> String {
     let mut out = String::new();
-    for c in s.chars().filter(|c| !c.is_control()) {
+    for c in s.chars().filter(|c| !c.is_control() && !matches!(*c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')) {
         if out.len() + c.len_utf8() > 256 {
             break;
         }

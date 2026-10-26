@@ -61,7 +61,7 @@ export function CatalogForms() {
             variant="primary"
             size="lg"
             elevation="med"
-            style={{ borderRadius: "var(--radius-container)" }}
+            style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
             isDisabled={disabled}
             onClick={() => setMode("import")}
           />
@@ -72,7 +72,7 @@ export function CatalogForms() {
             variant="primary"
             size="lg"
             elevation="med"
-            style={{ borderRadius: "var(--radius-container)" }}
+            style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
             isDisabled={disabled}
             onClick={() => setMode("link")}
           />

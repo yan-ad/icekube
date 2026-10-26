@@ -3,7 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 type RefreshAction = { clusterId: string; section: string; enabled: boolean; refresh: () => void };
 type Registration = RefreshAction & { owner: symbol };
 type MenuAction = { label: string; enabled?: boolean; run: () => void };
-type ClusterActions = { clusterId: string; section: string; items: MenuAction[] };
+type ClusterActions = { clusterId: string; section: string; status?: string; items: MenuAction[] };
 type PageAction = { enabled: boolean; run: () => void };
 type PageActions = { clusterId: string; section: string; previous: PageAction; next: PageAction; live?: PageAction & { checked: boolean } };
 const Context = createContext<{
@@ -37,7 +37,7 @@ export function useRegisterClusterActions(action: ClusterActions) {
   const current = useRef(action); current.current = action;
   const state = JSON.stringify(action.items.map(({ label, enabled }) => [label, enabled]));
   useEffect(() => registerCluster({ ...action, items: action.items.map((item, index) => ({ ...item, run: () => current.current.items[index]?.run() })) }),
-    [registerCluster, action.clusterId, action.section, state]);
+    [registerCluster, action.clusterId, action.section, action.status, state]);
 }
 
 export function useRegisterWorkspacePageActions(action: PageActions) {

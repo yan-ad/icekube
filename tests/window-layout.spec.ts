@@ -25,7 +25,7 @@ for (const platform of ["macos", "windows", "linux"]) {
     page.on("pageerror", (error) => errors.push(error.message));
     await mockWindow(page, platform);
     await page.goto("/");
-  await page.setViewportSize({ width: 1100, height: 700 });
+    await page.setViewportSize({ width: 1100, height: 700 });
     await expect(page).toHaveURL(/#\/catalog$/);
     const toolbar = page.getByTestId("window-safe-area");
     await expect(toolbar).toBeVisible();
@@ -43,7 +43,7 @@ for (const platform of ["macos", "windows", "linux"]) {
       expect(chrome!.height).toBeGreaterThanOrEqual(44);
       expect(chrome!.y).toBe(0);
       expect(chrome!.height).toBeLessThanOrEqual(48);
-      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Search"]) {
+      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Preferences", "Search", "Refresh catalog"]) {
         const action = page.getByRole("button", { name, exact: true });
         await expect(action).toBeVisible();
         const bounds = await action.boundingBox();
@@ -53,7 +53,13 @@ for (const platform of ["macos", "windows", "linux"]) {
         expect(await action.evaluate((element) => element.closest("[data-tauri-drag-region]") === null)).toBe(true);
       }
       const home = await page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true }).boundingBox();
-      if (platform === "macos") expect(home!.x).toBeGreaterThanOrEqual(80);
+      if (platform === "macos") {
+        expect(home!.x).toBeGreaterThanOrEqual(80);
+        const refresh = (await toolbar.getByRole("button", { name: "Refresh catalog", exact: true }).boundingBox())!;
+        const clearance = await toolbar.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
+        expect(clearance).toBeGreaterThan(0);
+        expect(chrome!.x + chrome!.width - refresh.x - refresh.width).toBeCloseTo(clearance, 1);
+      }
       expect(main!.y).toBeGreaterThanOrEqual(chrome!.y + chrome!.height);
       expect(main!.y).toBeLessThanOrEqual(chrome!.y + chrome!.height + 1);
       expect(main!.y + main!.height).toBeLessThanOrEqual(601);
@@ -66,6 +72,12 @@ for (const platform of ["macos", "windows", "linux"]) {
     await mockWindow(page, platform, false);
     await page.goto("/");
     await expect(page.getByTestId("window-safe-area")).toHaveCount(0);
+  await expect(page.locator("[data-seamless], [data-tauri-drag-region]")).toHaveCount(0);
+  for (const name of ["Minimize window", "Maximize or restore window", "Close window"]) {
+    await expect(page.getByRole("button", { name, exact: true })).toHaveCount(0);
+  }
+  const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
+  expect(await toolbar.evaluate(element => getComputedStyle(element).paddingRight)).toBe("0px");
     await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: "Close window", exact: true })).toHaveCount(0);
   });

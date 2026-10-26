@@ -15,17 +15,18 @@ const inspector = (page: Page) => page.getByRole("region", { name: "Resource det
 const workspace = (page: Page) => page.locator('[aria-label="Resource workspace"]');
 
 async function expectInsetInspector(page: Page, closedWidth: number) {
-  const tableArea = (await workspace(page).boundingBox())!;
-  const sidebar = (await inspector(page).boundingBox())!;
   const content = await inspector(page).evaluate(element => {
     const parent = element.parentElement!;
     const bounds = parent.getBoundingClientRect();
     const style = getComputedStyle(parent);
     return {
       sibling: element.previousElementSibling?.getAttribute("aria-label"),
+      tableArea: element.previousElementSibling!.getBoundingClientRect().toJSON(),
+      sidebar: element.getBoundingClientRect().toJSON(),
       right: bounds.right - parseFloat(style.paddingRight) - parseFloat(style.borderRightWidth),
     };
   });
+  const { tableArea, sidebar } = content;
   expect(content.sibling).toBe("Resource workspace");
   expect(tableArea.width).toBeLessThan(closedWidth);
   expect(tableArea.x + tableArea.width).toBeLessThanOrEqual(sidebar.x + 1);
@@ -366,9 +367,9 @@ test("Pod detail uses the Pod API in the inspector, never the bottom dock or gen
 test("Pod health icons and status badges distinguish healthy, warning, completed, terminating and unknown", async ({ page }) => {
   await fixture(page, "pods");
   for (const [name, health, status, variant] of [
-    ["sample-a", "Ready: all required containers and readiness gates are ready", "Running", "neutral"],
+    ["sample-a", "Ready: all required containers and readiness gates are ready", "Running", "success"],
     ["pod-warning", "Pod needs attention: Crash Loop Back Off", "CrashLoopBackOff", "error"],
-    ["pod-completed", "Completed: Pod finished successfully", "Succeeded", "neutral"],
+    ["pod-completed", "Completed: Pod finished successfully", "Succeeded", "success"],
     ["pod-terminating", "Terminating: Pod shutdown is in progress", "Terminating", "warning"],
     ["pod-unknown", "Pod readiness unknown", "Unknown", "neutral"],
   ]) {

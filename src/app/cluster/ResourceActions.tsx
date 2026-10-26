@@ -13,7 +13,7 @@ export function ResourceActions(props: Props) {
   return <>
     {notice && <Text role="status">{notice}</Text>}
     <TableActionOverlay label="Resource actions">
-      <ResourceDelete key={props.contextTarget ? JSON.stringify([props.contextTarget.namespace, props.contextTarget.name, props.contextTarget.uid, props.contextTarget.resourceVersion]) : "selection"} {...props} onNotice={setNotice} />
+      <ResourceDelete {...props} onNotice={setNotice} />
       <ResourceCreate clusterId={props.clusterId} sessionId={props.sessionId} kind={props.kind} namespace={props.namespace}
         label={props.createLabel} inline onNotice={setNotice} onCreated={props.onRefresh} />
     </TableActionOverlay>

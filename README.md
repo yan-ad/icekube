@@ -19,7 +19,9 @@ Say goodbye to clunky kube managed experience and don't loose all of your RAM us
 ## Resource selection and deletion
 
 Kubernetes resource tables have row checkboxes and a select-all checkbox for the
-displayed page. The selection count and Clear selection appear in the filter row.
+displayed page. The selection count and Clear selection replace the first data
+heading after the checkbox. Other heading labels are visually hidden without
+changing column sizing or removing accessible labels.
 Selection resets when you change filters, pages, namespaces, or workspace sessions;
 it never selects unseen continuation pages. Rows without safe UID/version metadata
 cannot be selected.
@@ -44,6 +46,36 @@ on both Helm pages, and Create port forward opens the namespace/Pod/ports form.
 These actions sit at the bottom right; Refresh and Live sync remain in Cluster
 actions. Resource creation and Helm installation require server dry-run followed
 by confirmation. Opening a dialog alone does not submit a mutation.
+
+## Workspace UI reference
+
+- Catalog Add config and Add web link are bottom-right icon actions. Refresh
+  remains beside Search in the top toolbar.
+- Known positive statuses use Astryx success colors; warning/error states retain
+  their meanings. Unknown states and generic booleans stay neutral.
+- Resource details use a bordered, resizable right sidebar that reflows the
+  workspace, not an overlay. Named Refresh, Expand/Restore and Close icons,
+  keyboard resizing and reduced-motion transitions are supported. Closing
+  unmounts content and cancels its reads while an inert empty shell collapses.
+- CodeJar 4.3.0 with highlight.js YAML runs as browser code in Pod YAML,
+  resource creation and Helm values. Read-only and busy states prevent edits;
+  Rust still owns validation, dry-run and mutations. No runtime Node backend
+  is introduced.
+- Workloads overview shows seven status donuts from loaded inventories, with
+  sequential reads bounded to five pages/500 resources per kind. It labels
+  loading, partial, stale, empty and failed results, not live cluster totals.
+  Latest events shows ten entries from loaded pages, including bounded message,
+  source, count and occurrence times. Projected text is not guaranteed secret-free.
+- CRD inventory starts at limit 10 and retries an oversized page at limit 1 with
+  the same token. Only CRD single-object reads get a 16 MiB body allowance;
+  projected CRD items remain bounded to 64 KiB. Ordinary response caps are unchanged.
+  Dynamic custom-resource instance/schema browsing is not implemented.
+
+See [workspace UI reference](docs/workspace-ui-reference.md) and
+[resource inspector reference](docs/resource-inspector-reference.md) for source,
+ownership and exact acceptance-test mappings. These are behavior references, not
+full Freelens parity. Final validation of this change set is pending; browser
+fixtures are not native-window or real-cluster smoke tests.
 
 ## Standalone React DevTools (development only)
 

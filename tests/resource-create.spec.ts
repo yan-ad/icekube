@@ -109,7 +109,7 @@ async function fixture(page: Page, section = "config-maps") {
         if (command === "preferences_get") return null;
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? `lease-${++session}`, contextName: "dev",
           status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
-        if (["cluster_disconnect", "cluster_resources_cancel", "cluster_resource_create_cancel"].includes(command)) return null;
+        if (["cluster_disconnect", "cluster_resources_cancel", "cluster_resource_create_cancel", "cluster_pod_detail_cancel"].includes(command)) return null;
         if (command === "cluster_resources") return { ...r, namespace: r.namespace ?? null, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null,
           items: r.kind === "namespaces" ? ["team-a", "team-b", "default"].map(name => ({ name, namespace: null, status: "Active", createdAt: null, columns: {}, node: null })) :
             r.kind === "pods" ? [{ name: "api-pod", namespace: r.namespace ?? "team-a", status: "Running", createdAt: null, columns: {}, node: null }] : [] };
@@ -348,6 +348,9 @@ test("Secret values are hidden from confirmation, statuses, console, events, sto
 for (const width of [1440, 390]) test(`FAB remains visible and clickable at ${width}px with Pod dock`, async ({ page }) => {
   await fixture(page, "pods");
   await page.getByRole("table", { name: "Pods", exact: true }).getByRole("button", { name: "api-pod", exact: true }).click();
+  const details = page.getByRole("region", { name: "Resource details", exact: true });
+  await details.getByRole("button", { name: "Logs", exact: true }).click();
+  await details.getByRole("button", { name: "Close inspector", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible();
   await page.setViewportSize({ width, height: 900 });
   const fab = page.getByRole("button", { name: "Create Pod", exact: true });

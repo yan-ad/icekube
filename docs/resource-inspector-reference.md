@@ -2,7 +2,7 @@
 
 ## Reference authority and scope
 
-The previously recorded local Freelens revision is `cd07118f843c4a69f937a319a37a7c12ef2c92d8`. This audit could not independently verify that revision or its component files: the explicit glob of `/Users/user1/Kerjaa/freelens/packages/core/src/renderer/components/**/*details*` was denied to the audit subagent. **Exact upstream source paths and per-kind behavioral comparison remain unverified.** The parent agent can access the checkout and must supply those paths after reading the actual files; guessed filenames are not references.
+Local `/Users/user1/Kerjaa/freelens` HEAD was verified as `cd07118f843c4a69f937a319a37a7c12ef2c92d8`, described by Git as `v1.10.3-533-gcd07118f`. Read sources under `packages/core/src/renderer/components/`: `kube-object-details/kube-object-details.tsx`, `drawer/drawer.tsx`, `custom-resource-definitions/view.tsx`, `custom-resource-definitions/details.tsx`, and `custom-resources/details.tsx`. They establish the object-details drawer and CRD reference workflows, not a completed per-kind parity comparison.
 
 The inventory below is verified against Icekube source, not against Freelens. Icekube uses upstream inspector workflows as behavioral reference only, not Electron/Node implementation code or a parity claim.
 
@@ -10,7 +10,7 @@ The inventory below is verified against Icekube source, not against Freelens. Ic
 
 - `src-tauri/src/connection/detail_facts.rs`: explicit kind-specific scalar/array projection into section titles and label/value facts. No raw JSON serialization fallback.
 - `src-tauri/src/connection/details.rs`: validated named-object GET identity, UID conflict checks, session/read ownership, cancellation, related-resource references, and composition with the existing inventory item.
-- `src-tauri/src/connection/transport.rs`: fixed allowlisted resource paths; a 2 MiB response-body bound; Secret/ConfigMap `PartialObjectMetadata` Accept negotiation without a full-object fallback.
+- `src-tauri/src/connection/transport.rs`: fixed allowlisted resource paths; an ordinary 2 MiB response-body bound; Secret/ConfigMap `PartialObjectMetadata` Accept negotiation without a full-object fallback. CRD inventory alone starts at limit 10 and retries `LimitExceeded` at limit 1 using the same unconsumed token. A CRD limit-1 body is capped at 16 MiB; projected items are capped at 64 KiB per page and accumulated scan. No global cap was raised and schemas are not forwarded.
 - `src-tauri/src/connection/resources.rs`: inventory columns/status included alongside facts; Nodes also carry their separate typed node contract.
 - `src/app/cluster/detailApi.ts`: closed IPC response shape, matching cluster/session/read/object identity, bounded facts and related references. `sections` remains optional for older fixtures.
 - Pods opened by name currently use the separate Pod detail API, not the generic facts transport: see `tests/resource-inspector.spec.ts`, test `Pod detail uses the Pod API in the inspector, never the bottom dock or generic detail API`. The generic Pod facts below describe backend support, not proof of that UI route rendering these sections.
@@ -44,7 +44,7 @@ All rows below refer to the named match arm in the exact Icekube source path `sr
 | ServiceAccounts | Automount-token setting; secret-reference and image-pull-secret-reference counts | No secret names, keys, tokens or values. |
 | CustomResourceDefinitions | Group, scope, kind/plural, conversion strategy; version name/served/storage; stored versions | No schemas, conversion webhook client configuration, CA bundle, or custom resource instances. |
 | Namespaces | Phase | No arbitrary metadata/finalizer payload. |
-| Events | Type, reason, count, first/last timestamp, reporting controller | No message; involved-object navigation is separately validated in `details.rs`. |
+| Events | Detail sections: type, reason, count, first/last timestamp, reporting controller. Inventory columns also project message, source, series/count and validated occurrence times. | Message/source are bounded selected text, not raw events or guaranteed secret-free text; involved-object navigation is separately validated in `details.rs`. |
 | ResourceQuotas | Hard and used CPU/memory requests/limits, pods, storage requests from status | Not all quota resource names; no spec fallback or scopes. |
 | LimitRanges | Entry type; min/max/default/default-request CPU and memory | No other resource dimensions or ratios. |
 | HorizontalPodAutoscalers | Target kind/name, min/max/current/desired replicas, last scale | No metrics, scaling behavior or recommendation history. |
@@ -72,7 +72,10 @@ No audited facts path projects environment variables, webhook CA bundles, ingres
 
 ## Acceptance mapping
 
-These are exact local test paths and test identifiers, not upstream parity evidence. Tests listed as present were inspected; only Rust commands were executed by this audit.
+These are local test paths and test identifiers, not upstream parity evidence.
+The current documentation pass inspected source only; final validation is pending.
+See [workspace UI reference](workspace-ui-reference.md) for exact sidebar,
+CodeJar, status, overview and CRD acceptance cases.
 
 | Acceptance obligation | Existing evidence | Remaining gap |
 | --- | --- | --- |
@@ -86,4 +89,21 @@ These are exact local test paths and test identifiers, not upstream parity evide
 | Nonmodal inspector, identity rejection, stale refresh and disposal | `tests/resource-inspector.spec.ts`: per-view name-opening tests, `rejects … detail contract without exposing raw secrets`, `late old detail cannot overwrite the latest selection and each disposal cancels its own read`, `failed refresh marks retained metadata stale and recovery replaces it` | IPC mocks, not native/cluster proof; section-specific bounds tests are not established by these metadata tests. |
 | Narrow/internal scrolling and themes | `tests/resource-inspector.spec.ts`: `inspector stays inside viewport with internal scrolling at …` | Browser fixture coverage only; not native OS verification. |
 
-Audit verification: `cargo fmt --manifest-path src-tauri/Cargo.toml --check` passed; `cargo test --manifest-path src-tauri/Cargo.toml` passed (199 tests); `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings` passed. No real kubeconfig, cluster, native app or commits were used. No production code was changed by this audit.
+### Sidebar interaction and scope
+
+`ResourceInspector.tsx` owns the layout sidebar, icon-only named Refresh details,
+Expand inspector/Restore inspector width and Close inspector controls. A token
+border separates it from the table; pointer capture and a keyboard separator
+resize it without covering the workspace. Home/End reach bounds, arrows adjust
+width, expansion uses 75%, and Restore retains the previous width. CSS transitions
+are disabled for reduced motion and dragging. Close immediately unmounts content
+and cancels reads; the collapsing shell is inert and hidden from accessibility.
+Rust `connection/details.rs` retains ownership of scoped GET/cancellation;
+Pods retain their separate `pods.rs` contract. Loading, retained-stale,
+missing/replaced, permission/error and disconnected states must remain honest.
+
+`resources.rs` inventory event text is capped at 256 UTF-8 bytes after control and
+bidi-character filtering. This does not detect credentials in messages or other
+selected text. CRD facts remain group/scope/versions, not schemas or dynamic
+custom-resource instance browsing. Native smoke tests and real-cluster validation
+have not been performed by this documentation pass. No real kubeconfig was read.

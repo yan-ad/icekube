@@ -12,7 +12,7 @@ import { IconChevronLeft, IconChevronRight, IconSearch } from "@tabler/icons-rea
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceKind, type ResourcePage, type SessionRequest } from "./api";
 import { ResourceActions } from "./ResourceActions";
-import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelection";
+import { useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
 import { useResourceRowMenu } from "./RowContextMenu";
 import { NodesTable } from "./NodesTable";
@@ -91,7 +91,6 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
           if (!page?.continueToken) return;
           setLoading(true); setTokens((previous) => [...previous.slice(0, index + 1), page.continueToken]); setIndex((value) => value + 1);
         }} />
-      <ResourceSelectionSummary count={selection.selected.length} clear={selection.clear} />
     </TableToolbar>}
     {loading && <Text role="status">Loading {kind}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}

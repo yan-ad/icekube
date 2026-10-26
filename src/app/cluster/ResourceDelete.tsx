@@ -20,29 +20,35 @@ const uncertainty = "A deletion may already have reached the API server. Stoppin
 export function ResourceDelete(props: Props) {
   const { snapshot } = useCatalog();
   const cluster = snapshot?.clusters.find(item => item.id === props.clusterId);
-  const [targets, setTargets] = useState<DeleteTarget[] | null>(null);
-  useEffect(() => {
-    if (props.contextTarget && hasDeleteIdentity(props.contextTarget) && !props.disabled) {
-      setTargets([{ name: props.contextTarget.name, namespace: props.contextTarget.namespace, uid: props.contextTarget.uid, resourceVersion: props.contextTarget.resourceVersion }]);
+  const [confirmation, setConfirmation] = useState<{ targets: DeleteTarget[]; contextTarget?: ResourceItem } | null>(null);
+  const consumedContext = useRef<ResourceItem | null>(null);
+  useLayoutEffect(() => {
+    const target = props.contextTarget;
+    if (!target || consumedContext.current === target) return;
+    consumedContext.current = target;
+    if (!confirmation && hasDeleteIdentity(target) && !props.disabled) {
+      setConfirmation({ targets: [{ name: target.name, namespace: target.namespace, uid: target.uid, resourceVersion: target.resourceVersion }], contextTarget: target });
     }
-  }, [props.contextTarget, props.disabled]);
+  }, [props.contextTarget, props.disabled, confirmation]);
   return <>
     {props.selected.length > 0 && <IconButton label="Delete selected resources" tooltip={`Delete selected resources (${props.selected.length})`}
       icon={<Icon icon={IconTrash} />} size="lg" variant="secondary" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster}
-      onClick={() => setTargets(props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })))} />}
-    {targets && cluster && <DeleteConfirmation {...props} targets={targets} clusterName={cluster.name} contextName={cluster.contextName} onClose={() => { setTargets(null); props.onContextClose?.(); }} />}
+      onClick={() => setConfirmation({ targets: props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })) })} />}
+    {confirmation && cluster && <DeleteConfirmation {...props} targets={confirmation.targets}
+      invalidated={!!confirmation.contextTarget && props.contextTarget !== confirmation.contextTarget}
+      clusterName={cluster.name} contextName={cluster.contextName} onClose={() => { setConfirmation(null); props.onContextClose?.(); }} />}
   </>;
 }
-function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, contextName, disabled, onAccepted, onRefresh, onNotice, onClose }: Props & {
-  targets: DeleteTarget[]; clusterName: string; contextName: string; onClose: () => void;
+function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, contextName, disabled, invalidated, onAccepted, onRefresh, onNotice, onClose }: Props & {
+  targets: DeleteTarget[]; invalidated: boolean; clusterName: string; contextName: string; onClose: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const [progress, setProgress] = useState<Outcome[]>([]);
   const completed = useRef<Outcome[]>([]);
-  const unavailable = useRef(disabled);
-  unavailable.current = disabled;
+  const unavailable = useRef(disabled || invalidated);
+  unavailable.current = disabled || invalidated;
   const alive = useRef(false);
   const running = useRef(false);
   const active = useRef<DeleteCancelRequest | null>(null);
@@ -67,11 +73,11 @@ function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, 
     onClose();
   };
   useLayoutEffect(() => {
-    if (disabled && !outcomes) {
+    if ((disabled || invalidated) && !outcomes) {
       if (!running.current) onNotice("Inventory changed or became unavailable. Refresh and review the selection before deleting.");
       close();
     }
-  }, [disabled, outcomes]);
+  }, [disabled, invalidated, outcomes]);
   const submit = async () => {
     if (!alive.current || unavailable.current || running.current || outcomes) return;
     running.current = true;

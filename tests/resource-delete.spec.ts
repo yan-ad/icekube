@@ -211,7 +211,13 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
   await fixture(page, "pods"); await page.setViewportSize({ width, height: 900 });
   await row(page).check(); expect(await calls(page, "cluster_pod_detail")).toEqual([]);
   await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toHaveCount(0);
-  if (dock) { await page.getByRole("button", { name: "alpha", exact: true }).click(); await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible(); }
+  if (dock) {
+    await page.getByRole("button", { name: "alpha", exact: true }).click();
+    const details = page.getByRole("region", { name: "Resource details", exact: true });
+    await details.getByRole("button", { name: "Logs", exact: true }).click();
+    await details.getByRole("button", { name: "Close inspector", exact: true }).click();
+    await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible();
+  }
   const group = page.getByRole("group", { name: "Resource actions", exact: true });
   await expect(group).toHaveCSS("pointer-events", "none");
   await expect(group).toHaveCSS("background-image", /linear-gradient/);

@@ -5,6 +5,8 @@ import "@astryxdesign/core/astryx.css";
 import "@xterm/xterm/css/xterm.css";
 import "./app/layouts/viewport.css";
 import "./app/components/yaml-editor.css";
+import "./app/components/table-composition.css";
+import "./app/cluster/resource-inspector.css";
 import { Theme } from "@astryxdesign/core/theme";
 import { brandTheme } from "./themes/brand";
 import App from "./App";

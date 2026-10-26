@@ -69,8 +69,9 @@ unused starter CSS, not design authority. The active brand theme lives in
    clearance when seamless is enabled. No app-name strip or extra title-bar row.
 2. **Toolbar:** Sidebar toggle, back/forward history, and Search directly in that top row.
    History controls disable when unavailable. Search opens from its icon button
-   or Cmd/Ctrl+K. Add config, Add web link, and Refresh sit beside Search; at narrow
-   widths these actions share a keyboard-accessible Catalog actions menu.
+   or Cmd/Ctrl+K. Catalog Refresh stays beside Search. Add config and Add web link
+   are named icon actions at the Catalog's bottom right, outside its table scroll
+   region; they are not duplicated in the toolbar or a Catalog actions menu.
    Empty space between actions is draggable in native seamless mode.
 3. **Single sidebar:** No separate app rail, Home button, or Welcome destination.
    `/` redirects to `/catalog`. The first toolbar control collapses/expands the
@@ -96,8 +97,10 @@ unused starter CSS, not design authority. The active brand theme lives in
    Kind uses the category name and matching sidebar icon; Source identifies
    `kubeconfig` or `local`; Labels show where metadata was loaded, such as
    `file=~/.kube/config` or `file=/absolute/path/config`. Web links have no file
-   label and show their saved URL under the name. Status uses neutral Astryx badges
-   for Disconnected/Not checked, never an invented healthy/connected state.
+   label and show their saved URL under the name. Disconnected/Not checked remain
+   neutral; known positive resource/connection states use semantic success tokens,
+   failures use error, and pending/degraded states use warning. Unknown text and
+   generic booleans stay neutral, never an invented healthy/connected state.
    Each entry has a category glyph on a random persisted hex-color background,
    with a black/white glyph chosen by WCAG relative luminance for contrast. Colors
    identify entries only, never health or category; category text remains visible.
@@ -308,7 +311,8 @@ not persisted into Catalog's metadata snapshot.
   mutations have separate scoped engine services, not arbitrary renderer URLs.
   Requests have a 15-second deadline,
   four-operation admission bound, cancellation inside the client's buffered service,
-  and body limits before JSON parsing (64 KiB version, 2 MiB resource response).
+  and body limits before JSON parsing (64 KiB version, ordinarily 2 MiB resource
+  response; CRD-only limit-1 inventory reads permit 16 MiB as documented below).
   API error bodies and underlying credential/TLS/transport messages never reach IPC.
 - `cluster_resources` fetches pages of at most 100 allowlisted resources with
   per-kind safe projection and validated continuation. Nodes retains its own
@@ -408,12 +412,16 @@ select-all of enabled visible items, selected-item removal confirmation),
 (selected resource removal). No upstream source was copied or adapted.
 
 `ResourceSelection.tsx` uses Astryx controlled selection with accessible row names,
-a mixed-state header checkbox, a count and Clear selection. Selection is confined
+a mixed-state header checkbox, a count and Clear selection in the first data
+heading (after the checkbox). Other heading labels become visually hidden while
+selected, retaining accessible labels and column sizing; focused heading controls
+become visible. Selection is confined
 to the currently displayed Kubernetes page and resets on filter, page, namespace,
 kind or session changes. Refresh/live updates retain only visible matching UIDs;
 a replacement with the same name is not selected. Rows lacking UID/resourceVersion
 remain readable but cannot be selected. Inventory DTOs project only bounded identity
-metadata, never whole objects or Secret contents.
+metadata and allowlisted facts, never whole objects or Secret contents. Event
+messages are bounded projected text, not guaranteed secret-free content.
 
 `ResourceActions.tsx` groups Delete immediately left of Create at the bottom right,
 outside the scrolling viewport and above the Pod dock. Delete is disabled without
@@ -585,6 +593,27 @@ Freelens extensions remain outside scope. Tests use synthetic fixtures and mocke
 they do not prove production-cluster or native OS integration.
 
 ## Interaction and safety
+
+### Current workspace UI reference
+
+The scoped source/ownership/state/acceptance mapping is in
+[`docs/workspace-ui-reference.md`](docs/workspace-ui-reference.md). It records
+CodeJar 4.3.0/highlight.js YAML at the three existing editor locations, semantic
+status colors, selection headings, Catalog action placement, and the layout-owned
+resizable inspector. The inspector's CSS transitions honor reduced motion;
+closing removes content and cancels reads immediately, leaving an inert collapsing
+shell rather than an active hidden panel.
+
+Workloads overview has seven donuts for bounded loaded inventories, not live
+totals: at most five pages/500 resources per kind, read sequentially. Actual
+readiness/terminal conditions determine status; unknown facts remain unknown.
+Events show message/source/count/times from Rust projection (text capped at 256
+UTF-8 bytes with control/bidi filtering), not raw objects or universally
+secret-free text. CRD inventory uses limit 10, same-token limit-1 retry on an
+oversized response, a CRD-only 16 MiB single-object body bound, and a 64 KiB
+projected-item budget. The ordinary 2 MiB response cap is unchanged. Custom
+instances and dynamic schema browsing are not implemented. Final validation of
+these changes is pending; no native smoke result is implied.
 
 - Data views distinguish not connected, loading, empty, filtered-empty, stale,
   permission denied, and failed requests. Preserve useful data during reconnects

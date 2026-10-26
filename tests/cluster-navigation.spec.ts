@@ -85,7 +85,8 @@ test("every reference group exposes its children with resource tables or destina
       const view = resourceViews.find(view => view.section === child.id);
       const tableName = child.id === "helm-charts" ? "Helm Charts" : child.id === "helm-releases" ? "Helm Releases"
         : child.id === "port-forwarding" ? "Port forwards" : view?.label ?? `${child.label} destinations`;
-      await expect(page.getByRole("table", { name: tableName, exact: true })).toBeVisible();
+      if (child.id === "workloads-overview") await expect(page.getByRole("heading", { name: "Workloads overview", exact: true })).toBeVisible();
+      else await expect(page.getByRole("table", { name: tableName, exact: true })).toBeVisible();
       await expect(nav.getByRole("link", { name: child.label, exact: true })).toHaveAttribute("aria-current", "page");
     }
     await nav.getByRole("button", { name: `Collapse ${group.label}`, exact: true }).click();

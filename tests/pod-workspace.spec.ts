@@ -290,19 +290,19 @@ test("Pod name and Details reuse the sidebar; stream actions open only bottom do
     await expect(fact(page, label)).toHaveText(value);
   }
   await expect(fact(page, "Age")).toHaveText(/^\d+[smhd]$/);
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   await row(page).getByRole("button", { name: "api-pod", exact: true }).press("Enter");
   await expect(inspector(page)).toBeVisible();
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   await action(page, "Details");
   await expect(inspector(page)).toHaveCount(1);
   await expect(dock(page)).toHaveCount(0);
   await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toHaveAttribute("aria-readonly", "true");
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   await action(page, "Edit YAML");
   await expect(inspector(page).getByRole("textbox", { name: "YAML", exact: true })).toBeEditable();
   await expect(dock(page)).toHaveCount(0);
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   for (const [label, mode] of [["Logs", "logs"], ["Shell", "shell"], ["Attach", "attach"], ["Port forward", "forward"]]) {
     await action(page, label);
     await expect(dock(page).getByRole("tab", { name: `api-pod · ${mode}`, exact: true })).toHaveAttribute("aria-selected", "true");

@@ -18,6 +18,7 @@ import { ResourceTablePage } from "./ResourceTablePage";
 import { PodDock, PodDockProvider } from "./PodDock";
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
+import { WorkloadsOverview } from "./WorkloadsOverview";
 import { NamespaceScopeProvider } from "./NamespaceScope";
 import { ResourceInspectorLayout, ResourceInspectorProvider } from "./ResourceInspector";
 import { useClusterSession } from "./useClusterSession";
@@ -34,9 +35,10 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
   const replacement = section !== "nodes" ? resourceView(section) : undefined;
   const resourceKind = section === "nodes" ? section : replacement?.kind ?? null;
   const serviceView = !!replacement && !replacement.kind;
-  const refreshSection = replacement ? section : resourceKind ?? "cluster";
+  const workloadsOverview = section === "workloads-overview";
+  const refreshSection = workloadsOverview ? section : replacement ? section : resourceKind ?? "cluster";
   const category = clusterSections.find((item) => item.id === (section === "workloads-overview" ? "workloads" : section));
-  const destinations = category && "children" in category ? category.children.filter((item) => item.id !== "workloads-overview")
+  const destinations = !workloadsOverview && category && "children" in category ? category.children.filter((item) => item.id !== "workloads-overview")
     : section === "overview" ? clusterSections.filter((item) => item.id !== "overview") : [];
   const busy = ["opening", "connecting", "releasing"].includes(session.phase);
   const status = session.phase === "opening" ? "Opening…" : session.phase === "releasing" ? "Disconnecting…"
@@ -45,8 +47,8 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     if (session.phase === "failed") onReopen();
     else if (connected) void session.reconnect();
     else void session.connect();
-  } }, !connected || (!resourceKind && !serviceView));
-  useRegisterClusterActions({ clusterId: cluster.id, section: refreshSection, items: [
+  } }, !connected || (!resourceKind && !serviceView && !workloadsOverview));
+  useRegisterClusterActions({ clusterId: cluster.id, section: refreshSection, status, items: [
     ...(session.phase === "failed" ? [{ label: "Reopen workspace", run: onReopen }] : []),
     ...(!connected && !busy ? [{ label: "Connect to cluster", run: () => void session.connect() }] : []),
     ...(session.canRelease ? [{ label: session.phase === "connecting" ? "Cancel connection" : "Disconnect", enabled: session.phase !== "releasing", run: () => void session.disconnect() }] : []),
@@ -68,6 +70,7 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
       onMutation={() => { if (workspaceRefresh.action?.section === "pods") workspaceRefresh.action.refresh(); }}>
     <NamespaceScopeProvider clusterId={cluster.id} sessionId={connection.sessionId}>
     <ResourceInspectorLayout clusterId={cluster.id} sessionId={connection.sessionId}>
+    {workloadsOverview && <WorkloadsOverview clusterId={cluster.id} sessionId={connection.sessionId} />}
     {replacement && (section === "helm-charts" || section === "helm-releases" ?
       <HelmTablePage key={section} clusterId={cluster.id} sessionId={connection.sessionId} view={section === "helm-charts" ? "charts" : "releases"} /> :
       section === "port-forwarding" ? <PortForwardTablePage clusterId={cluster.id} sessionId={connection.sessionId} /> :
@@ -79,9 +82,9 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     <PodDock />
     </NamespaceScopeProvider>
     </PodDockProvider></ResourceInspectorProvider>}
-    {!connected && replacement && !busy && <Text color="secondary">{selected?.label} unavailable while disconnected. Refresh to reconnect.</Text>}
+    {!connected && (replacement || workloadsOverview) && !busy && <Text color="secondary">{selected?.label} unavailable while disconnected. Refresh to reconnect.</Text>}
     {!connected && resourceKind && !replacement && !busy && <Text color="secondary">{selected?.label} unavailable while disconnected. Refresh to reconnect.</Text>}
-    {selected && section !== "overview" && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}
+    {selected && section !== "overview" && !workloadsOverview && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}
   </>;
 }
 

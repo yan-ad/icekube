@@ -556,7 +556,7 @@ fn representative_projection_has_only_bounded_allowed_scalars() {
         ),
         (
             ResourceKind::Events,
-            json!({"type":"Warning","reason":"Failed","count":3,"message":"PRIVATE","involvedObject":{"kind":"Pod","name":"example"}}),
+            json!({"type":"Warning","reason":"Failed","count":3,"message":"Container could not start","involvedObject":{"kind":"Pod","name":"example"}}),
             "count",
             "3",
         ),
@@ -1095,4 +1095,68 @@ fn pod_health_is_bounded_and_never_copies_server_messages_or_container_secrets()
             .all(|value| value.len() <= 256 && !value.chars().any(char::is_control))
     );
     assert!(!serde_json::to_string(&row).unwrap().contains(marker));
+}
+
+#[test]
+fn event_projection_bounds_messages_and_prefers_reported_occurrences() {
+    let row = resources::project(
+        ResourceKind::Events,
+        json!({
+            "metadata":{"name":"event","namespace":"team","annotations":{"secret":"PRIVATE"}},
+            "type":"Warning\u{202e}", "reason":"BackOff\n", "message":"é\u{2066}\n".repeat(400),
+            "source":{"component":"legacy"}, "reportingComponent":"kubelet\u{200f}",
+            "count":1, "series":{"count":9,"lastObservedTime":"2026-10-25T00:00:00Z"},
+            "lastTimestamp":"2026-10-24T00:00:00Z", "eventTime":"2026-10-01T00:00:00Z",
+            "involvedObject":{"kind":"Pod\u{202e}","name":"example"},
+            "data":{"token":"PRIVATE"}, "credentials":{"token":"PRIVATE"}
+        }),
+    )
+    .unwrap();
+    assert_eq!(row.status, "Warning");
+    assert_eq!(row.columns["reason"], "BackOff");
+    assert_eq!(row.columns["message"], "é".repeat(128));
+    assert_eq!(row.columns["source"], "kubelet");
+    assert_eq!(row.columns["count"], "9");
+    assert_eq!(row.columns["lastSeen"], "2026-10-25T00:00:00Z");
+    assert_eq!(row.columns["occurrenceTime"], "2026-10-01T00:00:00Z");
+    assert_eq!(row.columns["involvedObject"], "Pod/example");
+    assert!(row.columns.len() <= 12);
+    assert!(!serde_json::to_string(&row).unwrap().contains("PRIVATE"));
+}
+
+#[test]
+fn event_projection_validates_timestamps_and_preserves_missing_facts() {
+    let row = resources::project(
+        ResourceKind::Events,
+        json!({
+            "metadata":{"name":"event","namespace":"team"},
+            "source":{"component":"scheduler"}, "count":3,
+            "series":{"count":-1,"lastObservedTime":"invalid"},
+            "lastTimestamp":"2026-10-24T00:00:00Z", "eventTime":"invalid"
+        }),
+    )
+    .unwrap();
+    assert_eq!(row.columns["count"], "3");
+    assert_eq!(row.columns["source"], "scheduler");
+    assert_eq!(row.columns["lastSeen"], "2026-10-24T00:00:00Z");
+    assert!(!row.columns.contains_key("occurrenceTime"));
+    assert!(!row.columns.contains_key("message"));
+}
+
+#[test]
+fn workload_overview_projects_observed_readiness_and_terminal_job_conditions() {
+    for kind in [
+        ResourceKind::Deployments,
+        ResourceKind::ReplicaSets,
+        ResourceKind::StatefulSets,
+    ] {
+        let row = resources::project(kind, json!({"metadata":{"name":"app","namespace":"team"},"spec":{"replicas":3},"status":{"readyReplicas":3}})).unwrap();
+        assert_eq!(row.columns["desired"], "3");
+        assert_eq!(row.columns["ready"], "3");
+    }
+    for (condition, expected) in [("Complete", "Completed"), ("Failed", "Failed")] {
+        let row = resources::project(ResourceKind::Jobs, json!({"metadata":{"name":"job","namespace":"team"},"status":{"conditions":[{"type":condition,"status":"True"}],"active":0}})).unwrap();
+        assert_eq!(row.status, expected);
+        assert_eq!(row.columns["active"], "0");
+    }
 }

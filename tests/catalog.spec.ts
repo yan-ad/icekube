@@ -197,8 +197,11 @@ test("default discovery is built in without a visible title, switch, or informat
   const heading = page.getByRole("heading", { level: 1, name: "All Categories", exact: true });
   expect(await heading.evaluate((element) => element.parentElement!.getBoundingClientRect().height)).toBeLessThanOrEqual(1);
   const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
-  for (const name of ["Search", "Add config", "Add web link", "Refresh catalog"]) await expect(toolbar.getByRole("button", { name, exact: true })).toBeVisible();
-  await expect(page.getByRole("main").getByRole("button", { name: "Add config", exact: true })).toHaveCount(0);
+  for (const name of ["Search", "Refresh catalog"]) await expect(toolbar.getByRole("button", { name, exact: true })).toBeVisible();
+  for (const name of ["Add config", "Add web link"]) {
+    await expect(toolbar.getByRole("button", { name, exact: true })).toHaveCount(0);
+    await expect(page.getByRole("main").getByRole("button", { name, exact: true })).toBeVisible();
+  }
   expect(await page.evaluate(() => (window as unknown as { __catalogCalls: { command: string }[] }).__catalogCalls.every((call) => call.command === "catalog_list"))).toBe(true);
   await page.reload();
   await expect(page.getByRole("cell", { name: "Default context", exact: true })).toBeVisible();
@@ -294,29 +297,71 @@ test("cluster sidebar truncates long names and keeps the full name available", a
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
-test("compact catalog actions remain beside Search and support keyboard dialogs", async ({ page }) => {
+test("bottom catalog actions support keyboard dialogs while Refresh stays beside Search", async ({ page }) => {
   await engineFixture(page);
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/");
   const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
-  const actions = toolbar.getByRole("button", { name: "Catalog actions", exact: true });
-  await expect(actions).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Catalog actions", exact: true })).toHaveCount(0);
   await expect(toolbar.getByRole("button", { name: "Search", exact: true })).toBeVisible();
-  await expect(page.getByRole("main").getByRole("button", { name: "Add config", exact: true })).toHaveCount(0);
-  await actions.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("menuitem", { name: "Add config", exact: true })).toBeVisible();
-  await page.keyboard.press("Escape");
-  await expect(actions).toBeFocused();
   for (const [action, title] of [["Add config", "Import kubeconfig"], ["Add web link", "Add web link"]]) {
-    await actions.click();
-    await page.getByRole("menuitem", { name: action, exact: true }).click();
-    await expect(page.getByRole("dialog").getByRole("heading", { name: title, exact: true })).toBeVisible();
-    await page.getByRole("dialog").getByRole("button", { name: "Cancel", exact: true }).click();
+    const trigger = page.getByRole("main").getByRole("button", { name: action, exact: true });
+    await expect(toolbar.getByRole("button", { name: action, exact: true })).toHaveCount(0);
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("heading", { name: title, exact: true })).toBeVisible();
+    await expect(dialog.getByRole("button", { name: action === "Add config" ? "Import contexts" : "Save web link", exact: true })).toBeDisabled();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog")).toHaveCount(0);
+    await expect(trigger).toBeFocused();
   }
-  await actions.click();
-  await page.getByRole("menuitem", { name: "Refresh catalog", exact: true }).click();
+  await toolbar.getByRole("button", { name: "Refresh catalog", exact: true }).click();
   await expect(page.getByRole("cell", { name: "Development", exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __catalogCalls: { command: string }[] }).__catalogCalls.filter((call) => call.command === "catalog_list").length)).toBeGreaterThanOrEqual(2);
 });
+
+for (const [route, category, tableName] of [
+  ["all", "All Categories", "All Categories"],
+  ["clusters", "Clusters", "Clusters"],
+  ["web-links", "Web Links", "Web links"],
+]) {
+  test(`${category}: bottom actions clear the table and viewport at desktop and narrow widths`, async ({ page }) => {
+    await engineFixture(page);
+    await page.goto(`/#/catalog/${route}`);
+    const main = page.getByRole("main");
+    await expect(main.getByRole("table", { name: tableName, exact: true })).toBeVisible();
+    for (const width of [1100, 800, 360]) {
+      await page.setViewportSize({ width, height: 700 });
+      const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
+      await expect(toolbar.getByRole("button", { name: "Refresh catalog", exact: true })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Catalog actions", exact: true })).toHaveCount(0);
+      const mainBounds = (await main.boundingBox())!;
+      const filterBounds = (await main.getByRole("textbox", { name: "Filter catalog", exact: true }).boundingBox())!;
+      const buttons = [];
+      for (const name of ["Add config", "Add web link"]) {
+        const action = main.getByRole("button", { name, exact: true });
+        await expect(action).toBeVisible();
+        await expect(action).toHaveAccessibleName(name);
+        await expect(toolbar.getByRole("button", { name, exact: true })).toHaveCount(0);
+        const bounds = (await action.boundingBox())!;
+        expect(bounds.width).toBeGreaterThanOrEqual(44);
+        expect(bounds.height).toBeGreaterThanOrEqual(44);
+        expect(bounds.y).toBeGreaterThan(filterBounds.y + filterBounds.height);
+        expect(bounds.x).toBeGreaterThanOrEqual(mainBounds.x);
+        expect(bounds.x + bounds.width).toBeLessThanOrEqual(mainBounds.x + mainBounds.width);
+        expect(bounds.y + bounds.height).toBeLessThanOrEqual(mainBounds.y + mainBounds.height);
+        expect(bounds.y + bounds.height).toBeGreaterThan(mainBounds.y + mainBounds.height - 48);
+        expect(await action.evaluate(element => {
+          const bounds = element.getBoundingClientRect();
+          return element.contains(document.elementFromPoint(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2));
+        })).toBe(true);
+        buttons.push(bounds);
+      }
+      expect(buttons[0].x + buttons[0].width).toBeLessThan(buttons[1].x);
+      expect(buttons[0].y).toBe(buttons[1].y);
+      expect(mainBounds.x + mainBounds.width - buttons[1].x - buttons[1].width).toBeGreaterThan(0);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+  });
+}

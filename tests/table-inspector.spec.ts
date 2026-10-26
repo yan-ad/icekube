@@ -66,7 +66,7 @@ const badge = (page: Page, name: string, label: string) => table(page, name).loc
 
 test("node condition and schedulability badges distinguish adverse conditions from normal and unknown", async ({ page }) => {
   await fixture(page, "nodes");
-  await expect(badge(page, "Nodes", "Ready")).toHaveAttribute("data-variant", "neutral");
+  await expect(badge(page, "Nodes", "Ready")).toHaveAttribute("data-variant", "success");
   await expect(badge(page, "Nodes", "MemoryPressure: False")).toHaveCount(0);
   await expect(badge(page, "Nodes", "CustomCondition: Unknown")).toHaveCount(0);
   await expect(table(page, "Nodes").getByRole("button", { name: "+2 conditions", exact: true })).toBeVisible();
@@ -87,7 +87,7 @@ test("node condition and schedulability badges distinguish adverse conditions fr
 
 test("namespace names inspect the namespace and unknown state stays neutral", async ({ page }) => {
   await fixture(page, "namespaces");
-  await expect(badge(page, "Namespaces", "Active")).toHaveAttribute("data-variant", "neutral");
+  await expect(badge(page, "Namespaces", "Active")).toHaveAttribute("data-variant", "success");
   await expect(badge(page, "Namespaces", "Unknown")).toHaveAttribute("data-variant", "neutral");
   await table(page, "Namespaces").getByRole("button", { name: "team-a", exact: true }).click();
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("team-a");
@@ -105,7 +105,7 @@ for (const view of ["charts", "releases"] as const) test(`Helm ${view} inspect a
 
 test("port-forward name and related Pod inspect the exact Pod rather than treating the address as a link", async ({ page }) => {
   await fixture(page, "port-forwarding");
-  await expect(badge(page, "Port forwards", "running")).toHaveAttribute("data-variant", "neutral");
+  await expect(badge(page, "Port forwards", "running")).toHaveAttribute("data-variant", "success");
   const grid = table(page, "Port forwards");
   await expect(grid.getByRole("link")).toHaveCount(0);
   await grid.getByRole("button", { name: "forward-one", exact: true }).click();

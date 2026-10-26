@@ -19,7 +19,7 @@ import { openPodSync, readPodSync, closePodSync, type PodSyncStatus } from "./po
 import { HelmTablePage } from "./HelmTablePage";
 import { PortForwardTablePage } from "./PortForwardTablePage";
 import { ResourceActions } from "./ResourceActions";
-import { ResourceSelectionSummary, useResourceSelection } from "./ResourceSelection";
+import { useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
 import { NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
@@ -36,7 +36,7 @@ function PodHealth({ item }: { item: ResourceItem }) {
     : state === "completed" ? "Completed: Pod finished successfully"
     : state === "warning" ? `Pod needs attention: ${warning?.replace(/([a-z])([A-Z])/g, "$1 $2") ?? "not ready"}` : "Pod readiness unknown";
   const icon = state === "terminating" ? IconHourglass : state === "healthy" || state === "completed" ? IconCircleCheck : state === "warning" ? IconAlertTriangle : IconCircleDashed;
-  return <Tooltip content={message}><HStack role="img" aria-label={message} vAlign="center" style={{ color: state === "warning" || state === "terminating" ? "var(--color-warning-text, var(--color-text-primary))" : "var(--color-text-secondary)" }}><Icon icon={icon} /></HStack></Tooltip>;
+  return <Tooltip content={message}><HStack role="img" aria-label={message} vAlign="center"><Icon icon={icon} color={state === "healthy" || state === "completed" ? "success" : state === "warning" || state === "terminating" ? "warning" : "secondary"} /></HStack></Tooltip>;
 }
 const relationColumns = new Set(["node", "controlledBy", "storageClass", "volume", "claim", "roleRef", "policy", "target", "class", "involvedObject"]);
 const stateColumns = new Set(["phase", "suspend", "globalDefault", "readOnly", "allowExpansion", "privileged", "hostNetwork"]);
@@ -185,7 +185,6 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       {view.kind === "customResourceDefinitions" && <Selector label="Group" isLabelHidden value={group} onChange={value => onFilter({ group: value })} size="sm" presentation="adaptive" hasSearch
         options={[{ value: "", label: "All groups" }, ...groups.map(value => ({ value, label: value }))]} />}
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
-      <ResourceSelectionSummary count={selection.selected.length} clear={selection.clear} />
     </TableToolbar>
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}

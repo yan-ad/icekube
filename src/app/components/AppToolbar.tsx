@@ -22,6 +22,7 @@ import { CatalogRefreshButton } from "../catalog/CatalogForms";
 import { useWorkspaceRefresh } from "../cluster/WorkspaceRefresh";
 import { RestartUpdateButton } from "../updates/RestartUpdateButton";
 import { usePreferences } from "../preferences/PreferencesProvider";
+import { StatusBadge } from "../cluster/StatusBadge";
 
 export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
   const history = useNavigationHistory();
@@ -114,6 +115,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         aria-keyshortcuts="Control+k Meta+k"
       />
       {isCatalog && <CatalogRefreshButton />}
+      {clusterActions?.status && <StatusBadge status={clusterActions.status} variant={clusterActions.status === "Connection error" ? "error" : undefined} />}
       {clusterId && items.length > 0 && <DropdownMenu presentation="popover" alignment="end" hasChevron={false}
         renderTrigger={props => <IconButton {...props} label="Cluster actions" tooltip="Cluster actions" icon={<Icon icon={IconDots} />} variant="ghost" />}
         items={items} />}

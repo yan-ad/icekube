@@ -4,7 +4,7 @@ import { resourceViews } from "../src/app/cluster/resourceViews";
 type Request = Record<string, any>;
 type Call = { command: string; request: Request };
 type Menu = Request & { clusterId: string; sessionId: string; requestId: string; actions: string[] };
-type Controls = { readFailure?: boolean; replacement?: boolean; missing?: boolean; holdShow?: boolean; holdListen?: boolean; showFailure?: boolean };
+type Controls = { readFailure?: boolean; replacement?: boolean; missing?: boolean; holdShow?: boolean; holdListen?: boolean; showFailure?: boolean; removeAccepted?: boolean };
 type FixtureWindow = Window & {
   __rowCalls: Call[]; __rowControls: Controls; __rowUnexpected: string[];
   __rowEmit: (payload: Request, late?: boolean) => void; __rowRelease: () => void;
@@ -19,6 +19,7 @@ async function fixture(page: Page, section: string) {
   await page.addInitScript(({ registry }) => {
     const calls: Call[] = [], unexpected: string[] = [], order: string[] = [], pending: (() => void)[] = [];
     const controls: Controls = {};
+    const removed = new Set<string>();
     const callbacks = new Map<number, (value: unknown) => void>();
     const listeners = new Map<number, { event: string; handler: number }>();
     const retired: { id: number; event: string; handler: number }[] = [];
@@ -61,13 +62,16 @@ async function fixture(page: Page, section: string) {
           if (command === "cluster_resources") {
             if (controls.readFailure) throw "permissionDenied";
             const namespace = namespaced.has(r.kind) ? r.namespace ?? "team-a" : null;
-            return { ...r, namespace: r.namespace ?? null, items: [item("alpha", namespace, r.kind), item("beta", namespace, r.kind)],
+            return { ...r, namespace: r.namespace ?? null, items: ["alpha", "beta"].filter(name => !removed.has(`${r.kind}/${name}`)).map(name => item(name, namespace, r.kind)),
               continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
           }
           if (command === "cluster_resource_detail") return { ...r, item: item(r.reference.name, r.reference.namespace, r.reference.kind), related: {}, sections: [] };
           if (command === "cluster_pod_detail") return { ...r, uid: `${r.name}-uid`, resourceVersion: "11", phase: "Running", node: null, podIps: [], hostIps: [], serviceAccount: null,
             qos: null, createdAt: null, deletionTimestamp: null, containers: [], conditions: [], yaml: "apiVersion: v1\nkind: Pod\n", events: [] };
-          if (command === "cluster_resource_delete") return { ...r, accepted: true, deleted: false };
+          if (command === "cluster_resource_delete") {
+            if (controls.removeAccepted) removed.add(`${r.kind}/${r.name}`);
+            return { ...r, accepted: true, deleted: false };
+          }
           if (command === "helm_table") return { ...r, truncated: false, items: ["alpha", "beta"].map(name => ({ id: `cached-${name}`, name: r.view === "charts" ? `stable/${name}` : name,
             namespace: r.view === "charts" ? null : "team-a", version: name === "alpha" ? "1.2.3" : "2.0.0", appVersion: "4", description: r.view === "charts" ? `Metadata for ${name}` : null, status: r.view === "charts" ? null : "deployed", revision: r.view === "charts" ? null : 3, updated: r.view === "charts" ? null : "2026-10-26" })) };
           if (command === "helm_install") return { clusterId: r.clusterId, sessionId: r.sessionId, namespace: r.namespace, releaseName: r.releaseName, chart: r.chart, created: !r.dryRun };
@@ -119,7 +123,7 @@ for (const view of registry) test(`${view.kind}: real right-click details and Sh
   await expect.poll(async () => (await calls(page, command)).length).toBeGreaterThan(0);
   expect((await calls(page, command)).at(-1)!.request).toMatchObject(view.kind === "pods" ? { clusterId: "one", sessionId: menu.sessionId, name: "alpha", namespace, uid: "alpha-uid" } : { clusterId: "one", sessionId: menu.sessionId, reference: menu.target.reference });
   await expect(selected).toBeChecked();
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   const deletion = await openMenu(page, "alpha", "keyboard");
   await select(page, deletion, "delete");
   await expect(dialog(page).getByRole("listitem")).toHaveText([`${namespace ? "team-a/" : ""}alpha`]);
@@ -132,6 +136,51 @@ for (const view of registry) test(`${view.kind}: real right-click details and Sh
   await noListener(page);
 });
 
+for (const section of ["nodes", "config-maps"]) for (const removeAccepted of [false, true]) test(`${section}: accepted deletion keeps results through refresh${removeAccepted ? " and row removal" : " with the row retained"}`, async ({ page }) => {
+  await fixture(page, section); await control(page, { removeAccepted });
+  const menu = await openMenu(page, "alpha"); await select(page, menu, "delete");
+  await expect(dialog(page).getByRole("listitem")).toHaveText([section === "nodes" ? "alpha" : "team-a/alpha"]);
+  const reads = (await calls(page, "cluster_resources")).length;
+  await dialog(page).getByRole("button", { name: "Delete 1 resource", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "cluster_resources")).length).toBeGreaterThan(reads);
+  const beta = page.getByRole("checkbox", { name: `Select ${section === "nodes" ? "" : "team-a/"}beta`, exact: true });
+  await expect(beta).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Actions for alpha", exact: true })).toHaveCount(removeAccepted ? 0 : 1);
+  await expect(dialog(page).getByLabel("Deletion results")).toContainText("1 accepted or deleted; 0 failed");
+  await expect(dialog(page)).toContainText("Deletion accepted; grace periods or finalizers may still apply.");
+  await expect(dialog(page).getByRole("button", { name: "Delete 1 resource", exact: true })).toHaveCount(0);
+  const refreshedReads = (await calls(page, "cluster_resources")).length;
+  await page.keyboard.press("ControlOrMeta+r");
+  await expect.poll(async () => (await calls(page, "cluster_resources")).length).toBeGreaterThan(refreshedReads);
+  await expect(beta).toBeEnabled();
+  await expect(dialog(page).getByLabel("Deletion results")).toContainText("1 accepted or deleted; 0 failed");
+  expect(await calls(page, "cluster_resource_delete")).toHaveLength(1);
+  await dialog(page).getByRole("button", { name: "Close", exact: true }).filter({ hasText: /^Close$/ }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  const next = await openMenu(page, removeAccepted ? "beta" : "alpha", "keyboard"); await select(page, next, "delete");
+  await expect(dialog(page).getByRole("listitem")).toHaveText([`${section === "nodes" ? "" : "team-a/"}${removeAccepted ? "beta" : "alpha"}`]);
+  await expect(dialog(page).getByRole("button", { name: "Delete 1 resource", exact: true })).toBeEnabled();
+  expect(await calls(page, "cluster_resource_delete")).toHaveLength(1);
+  await page.keyboard.press("Escape"); await expect(dialog(page)).toHaveCount(0);
+});
+
+for (const change of ["replacement", "stale"] as const) test(`${change}: refresh invalidates an unsubmitted context confirmation without reopening`, async ({ page }) => {
+  await fixture(page, "config-maps");
+  const menu = await openMenu(page, "alpha"); await select(page, menu, "delete");
+  await expect(dialog(page).getByRole("listitem")).toHaveText(["team-a/alpha"]);
+  await control(page, change === "replacement" ? { replacement: true } : { readFailure: true });
+  await page.keyboard.press("ControlOrMeta+r");
+  await expect(dialog(page)).toHaveCount(0);
+  await control(page, { readFailure: false }); await page.keyboard.press("ControlOrMeta+r");
+  await expect(page.getByRole("checkbox", { name: "Select team-a/alpha", exact: true })).toBeEnabled();
+  await expect(dialog(page)).toHaveCount(0);
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+  const next = await openMenu(page, "alpha"); await select(page, next, "delete");
+  await expect(dialog(page).getByRole("listitem")).toHaveText(["team-a/alpha"]);
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+  await page.keyboard.press("Escape");
+});
+
 for (const view of ["charts", "releases"] as const) test(`Helm ${view}: both gestures preserve exact metadata and implemented actions`, async ({ page }) => {
   await fixture(page, `helm-${view}`);
   const name = view === "charts" ? "stable/alpha" : "alpha";
@@ -142,7 +191,7 @@ for (const view of ["charts", "releases"] as const) test(`Helm ${view}: both ges
   await expect(inspector(page)).toContainText(name);
   await expect(inspector(page)).toContainText("1.2.3");
   await expect(inspector(page)).not.toContainText("Metadata for beta");
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   const keyboard = await openMenu(page, name, "keyboard");
   if (view === "releases") {
     await select(page, keyboard, "delete"); await expect(inspector(page)).toHaveCount(0); await select(page, keyboard, "details"); await expect(inspector(page)).toContainText(name);
@@ -174,7 +223,7 @@ for (const status of ["running", "stopped", "error"]) test(`forward ${status}: d
   await select(page, menu, "details");
   await expect(inspector(page)).toContainText(id);
   await expect(inspector(page)).toContainText(`pod-${["running", "stopped", "error"].indexOf(status)}`);
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   const keyboard = await openMenu(page, id, "keyboard"); await select(page, keyboard, action);
   await expect.poll(async () => (await calls(page, "cluster_pod_forward_stop")).length).toBe(1);
   expect((await calls(page, "cluster_pod_forward_stop"))[0].request).toEqual({ clusterId: "one", sessionId: menu.sessionId, id });
@@ -190,7 +239,7 @@ test("replacement menu, malformed scope, dismissal and retired callback cannot a
   await select(page, second, "install");
   await expect(inspector(page)).toHaveCount(0);
   await select(page, second, "details"); await expect(inspector(page)).toContainText("beta");
-  await inspector(page).getByRole("button", { name: "Close", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   const dismissed = await openMenu(page, "alpha"); await select(page, dismissed, null); await noListener(page);
   await select(page, dismissed, "delete", true); await expect(dialog(page)).toHaveCount(0);
   expect(await calls(page, "cluster_resource_delete")).toEqual([]);
