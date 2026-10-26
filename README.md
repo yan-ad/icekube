@@ -1,4 +1,4 @@
-<img width="256" height="256" alt="128x128@2x" src="https://github.com/user-attachments/assets/ce02739d-b816-423c-b939-06f690075053" />
+<img width="64" height="64" alt="branding" src="https://github.com/user-attachments/assets/731a88cd-19d2-470b-9649-e990e11d259c" />
 
 
 # IceKube
