@@ -112,6 +112,28 @@ fn fake(status: u16, body: Vec<u8>) -> Client {
     )
 }
 #[test]
+fn sync_start_from_native_command_thread_uses_app_runtime_and_drains() {
+    let app_runtime = tauri::async_runtime::handle();
+    let client = {
+        let _entered = app_runtime.inner().enter();
+        fake(403, Vec::new())
+    };
+    assert!(tokio::runtime::Handle::try_current().is_err());
+    let runtime = PodSyncRuntime::default();
+    let snapshot = runtime
+        .start(client, request(), CancellationToken::new())
+        .unwrap();
+    assert_eq!(snapshot.status, "opening");
+    assert!(snapshot.page.is_none());
+    tauri::async_runtime::block_on(async {
+        tokio::time::timeout(Duration::from_secs(1), runtime.drain())
+            .await
+            .unwrap();
+    });
+    assert!(runtime.tasks.is_empty());
+    assert!(runtime.registry.lock().unwrap().is_empty());
+}
+#[test]
 fn requests_only_allow_first_pod_page_and_valid_scope() {
     let mut r = request();
     assert!(validate(&r).is_ok());

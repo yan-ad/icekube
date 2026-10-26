@@ -154,7 +154,11 @@ impl PodSyncRuntime {
             .map_err(|_| ConnectionError::StoreUnavailable)?
             .snapshot();
         registry.insert(id, slot.clone());
-        self.tasks.spawn(run(client, slot));
+        // Tauri invokes synchronous commands on a non-Tokio thread. Use the
+        // application runtime explicitly rather than relying on a thread-local
+        // runtime context (which would panic on the Enable live sync action).
+        self.tasks
+            .spawn_on(run(client, slot), tauri::async_runtime::handle().inner());
         Ok(snapshot)
     }
 }

@@ -6,6 +6,8 @@ type Controls = {
   podName?: string;
   holdStreams?: boolean;
   holdSync?: boolean;
+  syncOpening?: boolean;
+  syncOpenError?: string;
   detailError?: string;
   mutateError?: string;
   malformedDetails?: boolean;
@@ -183,10 +185,11 @@ async function fixture(page: Page, options: Controls = {}) {
             case "cluster_pod_forward_list": return [...forwards.values()];
             case "cluster_pod_forward_stop": forwards.delete(String(r.id)); return null;
             case "cluster_pod_sync_open": {
+              if (control.syncOpenError) throw control.syncOpenError;
               const id = `sync-${++syncId}`;
               syncs.set(id, { request: r, sequence: 0 });
               if (control.holdSync) await new Promise<void>(resolve => syncWaiters.push(resolve));
-              return { ...scope(r), syncId: id, sequence: 0, page: resourcePage(r), status: "syncing", error: null };
+              return { ...scope(r), syncId: id, sequence: 0, page: control.syncOpening ? null : resourcePage(r), status: control.syncOpening ? "opening" : "syncing", error: null };
             }
             case "cluster_pod_sync_read": {
               const s = syncs.get(String(r.syncId));
@@ -489,6 +492,29 @@ test("port forwarding resolves UID, shows loopback engine state and stops on clo
   await expect(dock(page)).toContainText("127.0.0.1:43210");
   await dock(page).getByRole("button", { name: "Close api-pod forward", exact: true }).click();
   await expect.poll(async () => (await calls(page, "cluster_pod_forward_stop")).map(c => c.request.id)).toEqual(["forward-1", "forward-2"]);
+});
+
+test("live sync renders the native opening response and polls without losing toolbar actions", async ({ page }) => {
+  await fixture(page, { syncOpening: true });
+  await clusterAction(page, "Enable live sync");
+  await expect(page.getByRole("status").filter({ hasText: /^Live sync: opening$/ })).toBeVisible();
+  await expect(row(page)).toBeVisible();
+  await expect(row(page)).toContainText("Succeeded");
+  await clusterAction(page, "Pause live sync");
+  await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).length).toBe(1);
+  await expect(row(page)).toContainText("Running");
+});
+
+test("live sync open rejection leaves the table and pause action usable", async ({ page }) => {
+  await fixture(page, { syncOpenError: "connectionFailed" });
+  await clusterAction(page, "Enable live sync");
+  await expect(page.getByRole("status").filter({ hasText: /^Live sync: error$/ })).toBeVisible();
+  await expect(page.getByRole("alert")).toBeVisible();
+  await expect(row(page)).toContainText("Running");
+  await clusterAction(page, "Pause live sync");
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  expect(await calls(page, "cluster_pod_sync_read")).toHaveLength(0);
+  expect(await calls(page, "cluster_pod_sync_close")).toHaveLength(0);
 });
 
 test("live sync updates rows, pauses, retains failures, and closes on namespace change and section navigation without closing the dock", async ({ page }) => {
