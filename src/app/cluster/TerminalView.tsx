@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { Button } from "@astryxdesign/core/Button";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { HStack, StackItem, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { IconArrowDown, IconArrowUp, IconDownload, IconPlayerPause, IconPlayerPlay, IconRefresh, IconSearch, IconTextWrap, IconTrash } from "@tabler/icons-react";
 import { podMessage, podStreamRead, podStreamResize, podStreamWrite, type PodStreamSnapshot } from "./podApi";
 
 const LIMIT = 512 * 1024;
@@ -45,7 +48,7 @@ export function boundedPodOutput(previous: string, next: string): { output: stri
   while (start < bytes.length && (bytes[start] & 0xc0) === 0x80) start++;
   return { output: new TextDecoder().decode(bytes.subarray(start)), dropped: true };
 }
-export function TerminalView({ snapshot, logs, visible, onRestart }: { snapshot: PodStreamSnapshot; logs: boolean; visible: boolean; onRestart: () => void }) {
+export function TerminalView({ snapshot, logs, visible, toolbar, options, onRestart }: { snapshot: PodStreamSnapshot; logs: boolean; visible: boolean; toolbar: ReactNode; options: ReactNode; onRestart: () => void }) {
   const [buffer, setBuffer] = useState(snapshot.output);
   const [display, setDisplay] = useState(snapshot.output);
   const [paused, setPaused] = useState(false);
@@ -130,15 +133,33 @@ export function TerminalView({ snapshot, logs, visible, onRestart }: { snapshot:
     const url = URL.createObjectURL(new Blob([value], { type: "text/plain;charset=utf-8" }));
     const a = document.createElement("a"); a.href = url; a.download = `pod-${suffix}.log`; a.click(); window.setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return <VStack gap={2} padding={3} style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onKeyDown={e => {
+  return <VStack gap={0} style={{ flex: 1, minHeight: 0, overflow: "hidden" }} onKeyDown={e => {
     if (logs && (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") { e.preventDefault(); e.stopPropagation(); search.current?.focus(); search.current?.select(); }
     if (logs && e.target === search.current && e.key === "Enter") { e.preventDefault(); if (matches.length) setMatch(n => (n + (e.shiftKey ? -1 : 1) + matches.length) % matches.length); }
   }}>
-    <HStack gap={2} vAlign="center" wrap="wrap" style={{ flexShrink: 0 }}><Text as="p" role="status">{status}{dropped ? " · partial output: earlier bytes dropped" : ""}</Text>
-      {logs && <><TextInput ref={search} label="Search buffered logs" value={query} onChange={value => { setQuery(value); setMatch(0); }} /><Button label="Previous match" variant="ghost" isDisabled={!matches.length} onClick={() => setMatch(n => (n - 1 + matches.length) % matches.length)} /><Button label="Next match" variant="ghost" isDisabled={!matches.length} onClick={() => setMatch(n => (n + 1) % matches.length)} /><Text as="p">{query ? `${matches.length ? match % matches.length + 1 : 0}/${matches.length}${matches.length === 10000 ? "+" : ""} matches` : ""}</Text><Button label={paused ? "Resume follow" : "Pause follow"} variant="ghost" onClick={() => { pausedRef.current = !paused; setPaused(!paused); if (paused) setDisplay(all.current); }} /><Button label={wrap ? "No wrap" : "Wrap lines"} variant="ghost" aria-pressed={wrap} onClick={() => setWrap(!wrap)} /></>}
-      <Button label="Restart stream" variant="ghost" onClick={onRestart} /><Button label="Clear" variant="ghost" onClick={() => { all.current = ""; setBuffer(""); setDisplay(""); terminal.current?.clear(); }} /><Button label="Download buffered" variant="ghost" onClick={() => download(buffer, "buffered")} />{logs && <Button label="Download visible snapshot" variant="ghost" onClick={() => download(display, "visible")} />}
+    <HStack gap={2} paddingInline={2} paddingBlock={1} vAlign="center" wrap="wrap" aria-label="Stream toolbar" style={{ flexShrink: 0, minWidth: 0, borderBlockEnd: "var(--spacing-px, thin) solid var(--color-border)" }}>
+      <HStack gap={2} vAlign="center" style={{ minWidth: 0, flex: "1 1 auto" }}>{toolbar}</HStack>
+      {logs && <HStack gap={1} vAlign="center" style={{ minWidth: 0, flex: "1 1 calc(var(--spacing-10) * 7)", maxWidth: "100%" }}>
+        <TextInput ref={search} size="sm" containerStyle={{ flex: 1, minWidth: 0 }} isLabelHidden startIcon={IconSearch} label="Search buffered logs" placeholder="Search logs…" value={query} onChange={value => { setQuery(value); setMatch(0); }} />
+        <IconButton label="Previous match" tooltip="Previous match (Shift+Enter)" icon={<Icon icon={IconArrowUp} />} size="sm" variant="ghost" isDisabled={!matches.length} onClick={() => setMatch(n => (n - 1 + matches.length) % matches.length)} />
+        <IconButton label="Next match" tooltip="Next match (Enter)" icon={<Icon icon={IconArrowDown} />} size="sm" variant="ghost" isDisabled={!matches.length} onClick={() => setMatch(n => (n + 1) % matches.length)} />
+        {query && <Text as="p" color="secondary" style={{ whiteSpace: "nowrap" }}>{`${matches.length ? match % matches.length + 1 : 0}/${matches.length}${matches.length === 10000 ? "+" : ""} matches`}</Text>}
+      </HStack>}
     </HStack>
     {error && <Text role="alert">{error}</Text>}
-    {logs ? <pre ref={pre} tabIndex={0} aria-label="Pod logs" style={{ flex: 1, minHeight: 0, overflow: "auto", whiteSpace: wrap ? "pre-wrap" : "pre", overflowWrap: wrap ? "anywhere" : "normal", margin: 0 }}>{selected === undefined ? display || "Waiting for output…" : <>{display.slice(0, selected)}<mark ref={marker}>{display.slice(selected, selected + query.length)}</mark>{display.slice(selected + query.length)}</>}</pre> : <VStack ref={host} aria-label="Pod terminal" style={{ flex: 1, minHeight: 0, overflow: "hidden" }} />}
+    {logs ? <pre ref={pre} tabIndex={0} aria-label="Pod logs" style={{ flex: 1, minHeight: 0, overflow: "auto", whiteSpace: wrap ? "pre-wrap" : "pre", overflowWrap: wrap ? "anywhere" : "normal", margin: 0, padding: "var(--spacing-2)", fontFamily: "var(--font-family-mono)" }}>{selected === undefined ? display || "Waiting for output…" : <>{display.slice(0, selected)}<mark ref={marker}>{display.slice(selected, selected + query.length)}</mark>{display.slice(selected + query.length)}</>}</pre> : <VStack ref={host} aria-label="Pod terminal" style={{ flex: 1, minHeight: 0, overflow: "hidden", padding: "var(--spacing-2)" }} />}
+    <HStack gap={1} paddingInline={2} paddingBlock={1} vAlign="center" aria-label="Stream controls" style={{ flexShrink: 0, minWidth: 0, overflowX: "auto", borderBlockStart: "var(--spacing-px, thin) solid var(--color-border)" }}>
+      <Text as="p" role="status" style={{ whiteSpace: "nowrap" }}>{status}{dropped ? " · partial output: earlier bytes dropped" : ""}</Text>
+      <StackItem size="fill" />
+      {options}
+      {logs && <>
+        <IconButton label={paused ? "Resume follow" : "Pause follow"} tooltip={paused ? "Resume follow" : "Pause follow"} icon={<Icon icon={paused ? IconPlayerPlay : IconPlayerPause} />} size="sm" variant="ghost" aria-pressed={paused} onClick={() => { pausedRef.current = !paused; setPaused(!paused); if (paused) setDisplay(all.current); }} />
+        <IconButton label={wrap ? "No wrap" : "Wrap lines"} tooltip="Word wrap" icon={<Icon icon={IconTextWrap} />} size="sm" variant="ghost" aria-pressed={wrap} onClick={() => setWrap(!wrap)} />
+      </>}
+      <IconButton label="Restart stream" tooltip="Restart stream" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" onClick={onRestart} />
+      <IconButton label="Clear" tooltip="Clear buffered output" icon={<Icon icon={IconTrash} />} size="sm" variant="ghost" onClick={() => { all.current = ""; setBuffer(""); setDisplay(""); terminal.current?.clear(); }} />
+      <DropdownMenu presentation="popover" placement="above" alignment="end" hasChevron={false} renderTrigger={props => <IconButton {...props} label="Download output" tooltip="Download output" icon={<Icon icon={IconDownload} />} size="sm" variant="ghost" />}
+        items={[{ label: "Download buffered", onClick: () => download(buffer, "buffered") }, ...(logs ? [{ label: "Download visible snapshot", onClick: () => download(display, "visible") }] : [])]} />
+    </HStack>
   </VStack>;
 }

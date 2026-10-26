@@ -8,11 +8,15 @@ import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { Selector } from "@astryxdesign/core/Selector";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { IconChevronDown, IconChevronUp, IconDots, IconFileText, IconList, IconMaximize, IconMinimize, IconPlug, IconRefresh, IconTerminal2, IconX } from "@tabler/icons-react";
 import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage, podMutate, podStreamClose, podStreamOpen, type PodDetails, type PodForward, type PodIdentity, type PodMode, type PodMutation, type PodRequest, type PodStreamSnapshot } from "./podApi";
 import { PodDetailsView } from "./PodDetailsView";
 import { TerminalView } from "./TerminalView";
 
 type Tab = { id: string; pod: PodRequest; mode: PodMode };
+const modeIcons = { details: IconFileText, edit: IconFileText, logs: IconList, shell: IconTerminal2, attach: IconTerminal2, forward: IconPlug };
 type DockApi = { openPod: (pod: PodIdentity, mode: PodMode) => void; tabs: Tab[]; active: string | null; minimized: boolean; setMinimized: (value: boolean) => void; setActive: (id: string) => void; close: (id: string) => void; onMutation?: () => void; error: string | null; outlet?: HTMLElement | null };
 const Context = createContext<DockApi | null>(null);
 export function PodDockProvider({ clusterId, sessionId, children, onMutation, outlet }: { clusterId: string; sessionId: string; children: ReactNode; onMutation?: () => void; outlet?: HTMLElement | null }) {
@@ -67,7 +71,7 @@ export function PodDock() {
     {!dock.minimized && <HStack role="separator" aria-label="Resize Pod dock" aria-orientation="horizontal" aria-valuemin={20} aria-valuemax={80} aria-valuenow={maximized ? 80 : height} tabIndex={0} style={{ cursor: "ns-resize", minHeight: "var(--spacing-2)", flexShrink: 0 }} onKeyDown={e => { if (["ArrowUp", "ArrowDown", "Home", "End"].includes(e.key)) { e.preventDefault(); setMaximized(false); setHeight(h => e.key === "Home" ? 20 : e.key === "End" ? 80 : Math.max(20, Math.min(80, h + (e.key === "ArrowUp" ? 5 : -5)))); } }} onPointerDown={e => {
       e.currentTarget.setPointerCapture(e.pointerId);
     }} onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) { setMaximized(false); setHeight(Math.max(20, Math.min(80, (window.innerHeight - e.clientY) / window.innerHeight * 100))); } }} onPointerUp={e => e.currentTarget.releasePointerCapture(e.pointerId)} />}
-    <HStack gap={2} padding={2} style={{ flexShrink: 0 }}>
+    <HStack gap={1} paddingInline={2} vAlign="center" style={{ flexShrink: 0, minWidth: 0, borderBlockEnd: "var(--spacing-px, thin) solid var(--color-border)" }}>
       <HStack role="tablist" aria-label="Pod sessions" gap={1} style={{ flex: 1, minWidth: 0, overflowX: "auto" }} onKeyDown={e => {
         const index = dock.tabs.findIndex(t => t.id === dock.active);
         let target: Tab | undefined;
@@ -77,16 +81,16 @@ export function PodDock() {
         if (e.key === "End") target = dock.tabs[dock.tabs.length - 1];
         if (e.key === "Delete" && dock.active) { e.preventDefault(); dock.close(dock.active); }
         if (target) { e.preventDefault(); select(target.id); document.getElementById(`pod-tab-${target.id}`)?.focus(); }
-      }}>{dock.tabs.map(t => <HStack key={t.id} gap={0} style={{ flexShrink: 0 }}><Button id={`pod-tab-${t.id}`} role="tab" aria-selected={dock.active === t.id} aria-controls={`pod-panel-${t.id}`} tabIndex={dock.active === t.id ? 0 : -1} label={`${t.pod.name} · ${t.mode}`} variant="ghost" onClick={() => select(t.id)} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); dock.close(t.id); } }} /><Button label={`Close ${t.pod.name} ${t.mode}`} variant="ghost" onClick={() => dock.close(t.id)} /></HStack>)}</HStack>
-      <DropdownMenu presentation="popover" alignment="end" renderTrigger={props => <Button {...props} label="Tab actions" variant="ghost" />}
+      }}>{dock.tabs.map(t => <HStack key={t.id} gap={0} vAlign="center" style={{ flexShrink: 0, minWidth: 0, maxWidth: "min(70vw, calc(var(--spacing-10) * 9))", borderBlockEnd: `var(--spacing-0-5) solid ${dock.active === t.id ? "var(--color-text-primary)" : "transparent"}` }}><Button id={`pod-tab-${t.id}`} role="tab" aria-selected={dock.active === t.id} aria-controls={`pod-panel-${t.id}`} tabIndex={dock.active === t.id ? 0 : -1} label={`${t.pod.name} · ${t.mode}`} tooltip={`${t.pod.namespace}/${t.pod.name} · ${t.mode}`} icon={<Icon icon={modeIcons[t.mode]} />} size="sm" variant="ghost" style={{ minWidth: 0 }} onClick={() => select(t.id)} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); dock.close(t.id); } }} /><IconButton label={`Close ${t.pod.name} ${t.mode}`} tooltip="Close tab" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => dock.close(t.id)} /></HStack>)}</HStack>
+      <DropdownMenu presentation="popover" alignment="end" hasChevron={false} renderTrigger={props => <IconButton {...props} label="Tab actions" tooltip="Tab actions" icon={<Icon icon={IconDots} />} size="sm" variant="ghost" />}
         items={[
           { label: "Close active tab", onClick: () => { if (dock.active) dock.close(dock.active); } },
           { label: "Close other tabs", onClick: () => dock.tabs.filter(tab => tab.id !== dock.active).forEach(tab => dock.close(tab.id)) },
           { label: "Close tabs to the right", onClick: () => dock.tabs.slice(dock.tabs.findIndex(tab => tab.id === dock.active) + 1).forEach(tab => dock.close(tab.id)) },
           { label: "Close all tabs", onClick: () => dock.tabs.forEach(tab => dock.close(tab.id)) },
         ]} />
-      <Button label={dock.minimized ? "Show dock" : "Minimize dock"} variant="ghost" onClick={() => dock.setMinimized(!dock.minimized)} />
-      {!dock.minimized && <Button label={maximized ? "Restore dock" : "Maximize dock"} variant="ghost" onClick={() => setMaximized(!maximized)} />}
+      {!dock.minimized && <IconButton label={maximized ? "Restore dock" : "Maximize dock"} tooltip={maximized ? "Restore dock" : "Maximize dock"} icon={<Icon icon={maximized ? IconMinimize : IconMaximize} />} size="sm" variant="ghost" onClick={() => setMaximized(!maximized)} />}
+      <IconButton label={dock.minimized ? "Show dock" : "Minimize dock"} tooltip={dock.minimized ? "Show dock" : "Minimize dock"} icon={<Icon icon={dock.minimized ? IconChevronUp : IconChevronDown} />} size="sm" variant="ghost" onClick={() => dock.setMinimized(!dock.minimized)} />
     </HStack>
     {dock.error && <Text role="alert">{dock.error}</Text>}
     {dock.tabs.map(t => <VStack key={t.id} id={`pod-panel-${t.id}`} role="tabpanel" aria-labelledby={`pod-tab-${t.id}`} style={{ display: !dock.minimized && dock.active === t.id ? "flex" : "none", flex: 1, minHeight: 0, overflow: "hidden" }}><PodTab tab={t} visible={!dock.minimized && dock.active === t.id} /></VStack>)}
@@ -113,14 +117,16 @@ function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
     try { await podMutate(details, confirm.action, confirm.yaml); if (!alive.current) return; setConfirm(null); onMutation?.(); setRevision(r => r + 1); }
     catch (e) { if (alive.current) setError(podMessage(e)); } finally { if (alive.current) setBusy(false); }
   }
-  return <VStack gap={2} height="100%" style={{ minHeight: 0, overflow: "hidden" }}>
-    <HStack gap={2} paddingInline={3} wrap="wrap" style={{ flexShrink: 0 }}><Text as="p">Cluster {tab.pod.clusterId} · {tab.pod.namespace}/{tab.pod.name}</Text><Button label="Reload details" variant="ghost" isDisabled={busy} onClick={() => setRevision(r => r + 1)} /></HStack>
+  const streaming = tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach";
+  const reload = <IconButton label="Reload details" tooltip="Reload Pod details" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={busy} onClick={() => setRevision(r => r + 1)} />;
+  return <VStack gap={0} height="100%" style={{ minHeight: 0, overflow: "hidden" }}>
+    {(!streaming || !details) && <HStack gap={2} paddingInline={3} vAlign="center" style={{ flexShrink: 0, minWidth: 0 }}><Text as="p" maxLines={1} style={{ flex: 1, minWidth: 0 }}>{tab.pod.namespace}/{tab.pod.name}</Text>{reload}</HStack>}
     {error && <Text role="alert">{details ? "Retained details may be stale. " : ""}{error}</Text>}
-    {!details ? <Text as="p">{error ? "Pod details unavailable." : "Loading Pod…"}</Text> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} onEdit={() => openPod(tab.pod, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
+    {!details ? <Text as="p">{error ? "Pod details unavailable." : "Loading Pod…"}</Text> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} reload={reload} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} onEdit={() => openPod(tab.pod, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
     <Dialog isOpen={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} purpose={busy ? "required" : "form"}><Layout header={<DialogHeader title={`${confirm?.action === "replace" ? "Save YAML for" : confirm?.action ?? "Update"} ${tab.pod.name}?`} />} content={<LayoutContent><VStack gap={3}><Text as="p">Cluster: {tab.pod.clusterId}. Namespace: {tab.pod.namespace}. Pod: {tab.pod.name}. UID: {details?.uid}. Resource version: {details?.resourceVersion}.</Text><Text as="p">{confirm?.action === "forceDelete" ? "Danger: force deletion removes the API record without waiting for the process to stop. The workload may continue running." : confirm?.action === "finalize" ? "Danger: removing finalizers bypasses cleanup and may leave resources behind. Only continue if you understand the finalizer's purpose." : confirm?.action === "replace" ? "This updates the live Pod. Protected server fields are preserved by the engine; immutable edits may be rejected." : "This deletes the live Pod. A workload controller may create a replacement."}</Text>{error && <Text role="alert">{error}</Text>}</VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2}><Button label="Cancel" variant="ghost" isDisabled={busy} onClick={() => setConfirm(null)} /><Button label={busy ? "Working…" : "Confirm mutation"} isDisabled={busy} onClick={() => void mutate()} /></HStack></LayoutFooter>} /></Dialog>
   </VStack>;
 }
-function StreamPanel({ details, mode, visible }: { details: PodDetails; mode: "logs" | "shell" | "attach"; visible: boolean }) {
+function StreamPanel({ details, mode, visible, reload }: { details: PodDetails; mode: "logs" | "shell" | "attach"; visible: boolean; reload: ReactNode }) {
   const containers = details.containers.filter(c => mode === "logs" || c.state === "running");
   const [selection, setContainer] = useState("");
   const container = containers.find(c => c.name === selection)?.name ?? containers.find(c => c.kind === "container")?.name ?? containers[0]?.name ?? "";
@@ -140,11 +146,21 @@ function StreamPanel({ details, mode, visible }: { details: PodDetails; mode: "l
     }).catch(e => { if (!disposed) setError(podMessage(e)); });
     return () => { disposed = true; if (owned) void podStreamClose(owned).catch(() => {}); };
   }, [details.clusterId, details.sessionId, details.namespace, details.name, details.uid, container, mode, previous, timestamps, shell, revision]);
-  return <VStack gap={2} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
-    <HStack gap={2} paddingInline={3} wrap="wrap" style={{ flexShrink: 0 }}><Selector label="Container" value={container} onChange={setContainer} options={containers.map(c => ({ value: c.name, label: `${c.name} (${c.kind})` }))} />{mode === "logs" ? <><Button label={previous ? "Previous: on" : "Previous: off"} variant="ghost" aria-pressed={previous} onClick={() => setPrevious(p => !p)} /><Button label={timestamps ? "Timestamps: on" : "Timestamps: off"} variant="ghost" aria-pressed={timestamps} onClick={() => setTimestamps(p => !p)} /></> : mode === "shell" ? <Selector label="Shell" value={shell} onChange={setShell} options={["sh", "bash", "ash", "powershell", "cmd"]} /> : <Text as="p">Attach sends input to the container's existing process.</Text>}</HStack>
+  const toolbar = <>
+    <Text as="p" color="secondary" maxLines={1} style={{ minWidth: 0, maxWidth: "calc(var(--spacing-10) * 4)" }}>{details.namespace}</Text>
+    <Selector label="Container" isLabelHidden size="sm" width="calc(var(--spacing-10) * 5)" value={container} onChange={setContainer} options={containers.map(c => ({ value: c.name, label: `${c.name} (${c.kind})` }))} />
+    {mode === "shell" && <Selector label="Shell" isLabelHidden size="sm" width="calc(var(--spacing-10) * 3)" value={shell} onChange={setShell} options={["sh", "bash", "ash", "powershell", "cmd"]} />}
+    {reload}
+  </>;
+  const options = mode === "logs" ? <>
+    <Button label={timestamps ? "Timestamps: on" : "Timestamps: off"} tooltip="Show timestamps" size="sm" variant="ghost" aria-pressed={timestamps} onClick={() => setTimestamps(p => !p)} />
+    <Button label={previous ? "Previous: on" : "Previous: off"} tooltip="Show previous terminated container" size="sm" variant="ghost" aria-pressed={previous} onClick={() => setPrevious(p => !p)} />
+  </> : mode === "attach" ? <Text as="p" color="secondary">Attach sends input to the container's existing process.</Text> : null;
+  return <VStack gap={0} style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+    {!snapshot && <HStack gap={2} padding={2} vAlign="center" style={{ flexShrink: 0, minWidth: 0, overflowX: "auto" }}>{toolbar}</HStack>}
     {error && <Text role="alert">{error}</Text>}
     {!snapshot && error && container && <Button label="Restart stream" variant="ghost" onClick={() => setRevision(r => r + 1)} />}
-    {snapshot ? <TerminalView key={snapshot.streamId} snapshot={snapshot} logs={mode === "logs"} visible={visible} onRestart={() => setRevision(r => r + 1)} /> : !error && <Text as="p">Opening {mode}…</Text>}
+    {snapshot ? <TerminalView key={snapshot.streamId} snapshot={snapshot} logs={mode === "logs"} visible={visible} toolbar={toolbar} options={options} onRestart={() => setRevision(r => r + 1)} /> : !error && <Text as="p">Opening {mode}…</Text>}
   </VStack>;
 }
 function ForwardPanel({ details }: { details: PodDetails }) {
