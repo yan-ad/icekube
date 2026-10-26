@@ -53,6 +53,8 @@ export type ResourceRequest = SessionRequest & {
 };
 export type ResourceItem = {
   name: string;
+  uid?: string | null;
+  resourceVersion?: string | null;
   status: string;
   namespace: string | null;
   createdAt: string | null;
@@ -88,6 +90,10 @@ function text(value: unknown, max = 4096): value is string {
 }
 function safeText(value: unknown, max = 4096): value is string {
   return text(value, max) && !/[\u0000-\u001f\u007f-\u009f]/.test(value);
+}
+export function validResourceIdentity(value: unknown): value is string | null | undefined {
+  return value === undefined || value === null
+    || typeof value === "string" && value.length > 0 && value.length <= 256 && !/[^\x21-\x7e]/.test(value);
 }
 function validNamespace(value: unknown): value is string {
   return typeof value === "string" && value.length <= 63
@@ -182,6 +188,7 @@ export async function loadResources(request: ResourceRequest): Promise<ResourceP
     || !Array.isArray(value.items) || value.items.length > 100
     || !value.items.every((item) => {
       if (!record(item) || !safeText(item.name, 253) || !safeText(item.status, 256)) return false;
+      if (!validResourceIdentity(item.uid) || !validResourceIdentity(item.resourceVersion)) return false;
       const itemNamespace = item.namespace;
       if (!legacyKind && itemNamespace === undefined) return false;
       if (itemNamespace !== undefined && itemNamespace !== null
@@ -207,6 +214,8 @@ export async function loadResources(request: ResourceRequest): Promise<ResourceP
   if (value.metrics !== null && value.metrics !== undefined && metrics === null) throw "invalidResponse";
   const items = value.items.map((item) => ({
     name: item.name as string,
+    uid: typeof item.uid === "string" ? item.uid : null,
+    resourceVersion: typeof item.resourceVersion === "string" ? item.resourceVersion : null,
     status: item.status as string,
     namespace: typeof item.namespace === "string" ? item.namespace : null,
     createdAt: typeof item.createdAt === "string" ? item.createdAt : null,

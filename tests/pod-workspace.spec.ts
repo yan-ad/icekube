@@ -6,6 +6,7 @@ type Controls = {
   podName?: string;
   holdStreams?: boolean;
   holdSync?: boolean;
+  holdSyncReads?: boolean;
   syncOpening?: boolean;
   syncOpenError?: string;
   detailError?: string;
@@ -26,9 +27,46 @@ type MockWindow = Window & {
   __podControl: Controls;
   __releasePodStreams: () => void;
   __releasePodSync: () => void;
+  __releasePodSyncReads: () => void;
 };
 const route = (section: string) => `/cluster/one?section=${section}`;
 const dock = (page: Page) => page.getByRole("complementary", { name: "Pod dock", exact: true });
+
+test("live sync keeps an open actions menu usable across polling and repeated toggles", async ({ page }) => {
+  await fixture(page);
+  for (let cycle = 0; cycle < 3; cycle++) {
+    await clusterAction(page, "Enable live sync");
+    await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
+    const pause = page.getByRole("menuitem", { name: "Pause live sync", exact: true });
+    await expect(pause).toBeEnabled();
+    await page.mouse.move(0, 0);
+    await pause.focus();
+    const reads = (await calls(page, "cluster_pod_sync_read")).length;
+    await expect.poll(async () => (await calls(page, "cluster_pod_sync_read")).length).toBeGreaterThan(reads + 1);
+    await expect(pause).toBeFocused();
+    await expect(row(page)).toContainText("Succeeded");
+    await pause.press("Enter");
+    await expect(row(page)).toContainText("Running");
+    const stoppedReads = (await calls(page, "cluster_pod_sync_read")).length;
+    await page.waitForTimeout(600);
+    expect(await calls(page, "cluster_pod_sync_read")).toHaveLength(stoppedReads);
+  }
+});
+
+test("live sync serializes reads and ignores a read resolved after pause", async ({ page }) => {
+  await fixture(page, { holdSyncReads: true });
+  await clusterAction(page, "Enable live sync");
+  await expect.poll(async () => (await calls(page, "cluster_pod_sync_read")).length).toBe(1);
+  await page.waitForTimeout(1100);
+  expect(await calls(page, "cluster_pod_sync_read")).toHaveLength(1);
+  await clusterAction(page, "Pause live sync");
+  await expect(row(page)).toContainText("Running");
+  await page.evaluate(() => (window as MockWindow).__releasePodSyncReads());
+  await page.waitForTimeout(600);
+  expect(await calls(page, "cluster_pod_sync_read")).toHaveLength(1);
+  await expect(row(page)).not.toContainText("Succeeded");
+  await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).length).toBe(1);
+});
 
 for (const status of ["exited", "error"] as const) test(`drains ${status} stream chunks before the final empty read and downloads the full fixture`, async ({ page }) => {
   const chunks = ["a".repeat(65536), "b".repeat(65536), "final marker\n", ""];
@@ -111,7 +149,7 @@ async function fixture(page: Page, options: Controls = {}) {
     const streams = new Map<string, { request: Request; sequence: number }>();
     const syncs = new Map<string, { request: Request; sequence: number }>();
     const forwards = new Map<string, Request>();
-    const streamWaiters: (() => void)[] = [], syncWaiters: (() => void)[] = [];
+    const streamWaiters: (() => void)[] = [], syncWaiters: (() => void)[] = [], syncReadWaiters: (() => void)[] = [];
     const scope = (r: Request) => ({ clusterId: r.clusterId, sessionId: r.sessionId });
     const resourcePage = (r: Request, status = "Running") => ({
       ...r, namespace: r.namespace ?? null, continueToken: null, metrics: null,
@@ -130,6 +168,7 @@ async function fixture(page: Page, options: Controls = {}) {
       isTauri: true, __podCalls: calls, __podControl: control,
       __releasePodStreams: () => { control.holdStreams = false; streamWaiters.splice(0).forEach(resolve => resolve()); },
       __releasePodSync: () => { control.holdSync = false; syncWaiters.splice(0).forEach(resolve => resolve()); },
+      __releasePodSyncReads: () => { control.holdSyncReads = false; syncReadWaiters.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args?: { request: Request }) => {
           const r = { ...args?.request };
@@ -194,6 +233,7 @@ async function fixture(page: Page, options: Controls = {}) {
             case "cluster_pod_sync_read": {
               const s = syncs.get(String(r.syncId));
               if (!s) throw "staleSession";
+              if (control.holdSyncReads) await new Promise<void>(resolve => syncReadWaiters.push(resolve));
               return { ...scope(r), syncId: r.syncId, sequence: ++s.sequence,
                 page: control.syncError ? null : resourcePage(s.request, control.syncPodStatus ?? "Succeeded"),
                 status: control.syncStatus ?? (control.syncError ? "error" : "syncing"), error: control.syncError ?? null };

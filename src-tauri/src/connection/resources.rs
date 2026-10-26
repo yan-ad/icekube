@@ -349,6 +349,20 @@ fn rbac_status(v: &Value, c: &mut BTreeMap<String, String>) -> String {
     "Unknown".into()
 }
 
+fn identity(meta: &Value, field: &str) -> Result<Option<String>, ConnectionError> {
+    match meta.get(field) {
+        None => Ok(None),
+        Some(Value::String(value))
+            if !value.is_empty()
+                && value.len() <= 256
+                && value.bytes().all(|byte| byte.is_ascii_graphic()) =>
+        {
+            Ok(Some(value.clone()))
+        }
+        _ => Err(ConnectionError::InvalidResponse),
+    }
+}
+
 pub(super) fn project(kind: ResourceKind, value: Value) -> Result<ResourceItem, ConnectionError> {
     let meta = value
         .get("metadata")
@@ -361,6 +375,8 @@ pub(super) fn project(kind: ResourceKind, value: Value) -> Result<ResourceItem, 
     if !valid_name(&name) {
         return Err(ConnectionError::InvalidResponse);
     }
+    let uid = identity(meta, "uid")?;
+    let resource_version = identity(meta, "resourceVersion")?;
     let namespace = meta.get("namespace").and_then(Value::as_str).map(bounded);
     if namespace
         .as_deref()
@@ -405,6 +421,8 @@ pub(super) fn project(kind: ResourceKind, value: Value) -> Result<ResourceItem, 
     };
     Ok(ResourceItem {
         name,
+        uid,
+        resource_version,
         namespace,
         created_at,
         status: bounded(&status),
@@ -735,4 +753,81 @@ pub(super) fn parse_quantity(s: &str) -> Option<f64> {
     }
     let value = number.parse::<f64>().ok()? * multiplier;
     (value.is_finite() && value >= 0.0 && value <= i64::MAX as f64).then_some(value)
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn resource_identity_projection_retains_only_safe_metadata() {
+        for kind in [
+            ResourceKind::Pods,
+            ResourceKind::Secrets,
+            ResourceKind::ConfigMaps,
+        ] {
+            let row = project(kind, json!({
+                "metadata": {"name":"example", "namespace":"team", "uid":"uid-123", "resourceVersion":"v1:42", "annotations":{"private":"PRIVATE"}, "managedFields":[{"private":"PRIVATE"}]},
+                "data":{"password":"PRIVATE"}, "stringData":{"password":"PRIVATE"},
+                "spec":{"private":"PRIVATE"}
+            })).unwrap();
+            let wire = serde_json::to_value(row).unwrap();
+            assert_eq!(wire["uid"], "uid-123");
+            assert_eq!(wire["resourceVersion"], "v1:42");
+            assert!(!wire.to_string().contains("PRIVATE"));
+            assert!(wire.get("metadata").is_none());
+            assert!(wire.get("data").is_none());
+            assert!(wire.get("spec").is_none());
+        }
+    }
+
+    #[test]
+    fn resource_identity_projection_absence_serializes_as_null() {
+        let row = project(
+            ResourceKind::Pods,
+            json!({"metadata":{"name":"example","namespace":"team"}}),
+        )
+        .unwrap();
+        let wire = serde_json::to_value(row).unwrap();
+        assert_eq!(wire.get("uid"), Some(&Value::Null));
+        assert_eq!(wire.get("resourceVersion"), Some(&Value::Null));
+    }
+
+    #[test]
+    fn resource_identity_projection_rejects_malformed_present_fields() {
+        for field in ["uid", "resourceVersion"] {
+            for invalid in [
+                json!(null),
+                json!(42),
+                json!(false),
+                json!([]),
+                json!({"private":"PRIVATE"}),
+                json!(""),
+                json!(" "),
+                json!("a b"),
+                json!("a\tb"),
+                json!("a\nb"),
+                json!("a\n"),
+                json!("a\u{0000}b"),
+                json!("a\u{007f}b"),
+                json!("a\u{0085}b"),
+                json!("a\u{00a0}b"),
+                json!("é"),
+                json!("x".repeat(257)),
+            ] {
+                let mut input = json!({"metadata":{"name":"example","namespace":"team","uid":"valid","resourceVersion":"valid"}});
+                input["metadata"][field] = invalid;
+                assert_eq!(
+                    project(ResourceKind::Pods, input),
+                    Err(ConnectionError::InvalidResponse),
+                    "{field}"
+                );
+            }
+            let mut input = json!({"metadata":{"name":"example","namespace":"team"}});
+            input["metadata"][field] = json!("x".repeat(256));
+            let wire = serde_json::to_value(project(ResourceKind::Pods, input).unwrap()).unwrap();
+            assert_eq!(wire[field], "x".repeat(256));
+        }
+    }
 }

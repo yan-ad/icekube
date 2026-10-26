@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { errorCode, type ConnectionErrorCode, type ResourcePage, type ResourceRequest } from "./api";
+import { errorCode, validResourceIdentity, type ConnectionErrorCode, type ResourcePage, type ResourceRequest } from "./api";
 
 export type PodSyncStatus = "opening" | "syncing" | "retrying" | "error" | "stopped";
 export type PodSyncSnapshot = {
@@ -33,11 +33,13 @@ function parsePage(value: unknown, request: PodSyncRequest): ResourcePage | null
     || (value.namespace !== null && !namespace(value.namespace)) || value.metrics !== null) throw "invalidResponse";
   const items = value.items.map((item): ResourcePage["items"][number] => {
     if (!record(item) || !safeText(item.name, 253) || !safeText(item.status, 256)
+      || !validResourceIdentity(item.uid) || !validResourceIdentity(item.resourceVersion)
       || !namespace(item.namespace) || (request.namespace != null && item.namespace !== request.namespace)
       || (item.createdAt !== null && (!safeText(item.createdAt, 64) || !Number.isFinite(Date.parse(item.createdAt)))) || !record(item.columns)
       || Object.keys(item.columns).length > 12 || !Object.entries(item.columns).every(([key, column]) => safeText(key, 128) && typeof column === "string" && column.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/.test(column))
       || item.node !== null) throw "invalidResponse";
     return { name: item.name, status: item.status, namespace: item.namespace as string | null,
+      uid: typeof item.uid === "string" ? item.uid : null, resourceVersion: typeof item.resourceVersion === "string" ? item.resourceVersion : null,
       createdAt: item.createdAt as string | null, columns: Object.fromEntries(Object.entries(item.columns).filter(([, column]) => typeof column === "string")) as Record<string, string>, node: null };
   });
   if (new Set(items.map((item) => `${item.namespace ?? ""}\u0000${item.name}`)).size !== items.length) throw "invalidResponse";

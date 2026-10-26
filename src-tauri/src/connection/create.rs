@@ -112,7 +112,7 @@ pub fn creation_info(kind: ResourceKind) -> (&'static str, &'static str) {
         CustomResourceDefinitions => ("apiextensions.k8s.io/v1", "CustomResourceDefinition"),
     }
 }
-fn plural(kind: ResourceKind) -> &'static str {
+pub(super) fn plural(kind: ResourceKind) -> &'static str {
     use ResourceKind::*;
     match kind {
         Nodes => "nodes",
@@ -244,13 +244,12 @@ pub fn validate_yaml(request: &CreateRequest) -> Result<(Value, String, Option<S
         }
         None
     };
-    if let Some(ns) = &namespace {
-        if metadata
+    if let Some(ns) = &namespace
+        && metadata
             .get("namespace")
             .is_some_and(|v| v.as_str() != Some(ns))
-        {
-            return Err(ConnectionError::InvalidInput);
-        }
+    {
+        return Err(ConnectionError::InvalidInput);
     }
     if let Some(ns) = &namespace {
         value["metadata"]["namespace"] = Value::String(ns.clone());

@@ -204,6 +204,22 @@ fn cluster_resources_cancel(
 }
 
 #[tauri::command]
+async fn cluster_resource_delete(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::delete::DeleteRequest,
+) -> Result<connection::delete::DeleteResult, connection::ConnectionError> {
+    connections.delete(request).await
+}
+
+#[tauri::command]
+fn cluster_resource_delete_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::delete::DeleteCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.cancel_delete(request)
+}
+
+#[tauri::command]
 async fn cluster_resource_create(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::create::CreateRequest,
@@ -310,6 +326,8 @@ pub fn run() {
             cluster_resources_cancel,
             cluster_resource_create,
             cluster_resource_create_cancel,
+            cluster_resource_delete,
+            cluster_resource_delete_cancel,
             cluster_pod_detail,
             cluster_pod_mutate,
             cluster_pod_stream_open,

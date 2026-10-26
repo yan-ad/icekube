@@ -17,6 +17,9 @@ mod config;
 pub(crate) mod create;
 #[cfg(test)]
 mod create_tests;
+pub(crate) mod delete;
+#[cfg(test)]
+mod delete_tests;
 pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
@@ -205,6 +208,8 @@ pub struct ResourcePage {
 #[serde(rename_all = "camelCase")]
 pub struct ResourceItem {
     pub name: String,
+    pub uid: Option<String>,
+    pub resource_version: Option<String>,
     pub status: String,
     pub namespace: Option<String>,
     pub created_at: Option<String>,
@@ -255,6 +260,7 @@ struct Session {
     cancel: CancellationToken,
     reads: HashMap<ResourceKind, ReadSlot>,
     creates: HashMap<ResourceKind, CreateSlot>,
+    deletes: HashMap<ResourceKind, delete::DeleteSlot>,
 }
 struct ReadSlot {
     id: u64,
@@ -334,6 +340,7 @@ impl ConnectionEngine {
             cancel: CancellationToken::new(),
             reads: HashMap::new(),
             creates: HashMap::new(),
+            deletes: HashMap::new(),
         });
         Ok(snapshot)
     }
