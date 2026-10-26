@@ -12,6 +12,7 @@ import type { PodDetails, PodMode, PodMutation } from "./podApi";
 type Props = {
   details: PodDetails;
   edit: boolean;
+  embedded?: boolean;
   onEdit: () => void;
   onOpen: (mode: PodMode) => void;
   onAction: (action: PodMutation, yaml?: string) => void;
@@ -27,21 +28,21 @@ function podAge(createdAt: string | null) {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function PodDetailsView({ details, edit, onEdit, onOpen, onAction }: Props) {
+export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen, onAction }: Props) {
   const [yaml, setYaml] = useState(details.yaml);
-  return <VStack gap={5} padding={4}>
+  return <VStack gap={5} padding={4} style={{ minWidth: 0, flexShrink: 0, overflowWrap: "anywhere" }}>
     <VStack gap={2}>
-      <Heading level={2} wordBreak="break-all">{details.name}</Heading>
+      {!embedded && <Heading level={2} wordBreak="break-all">{details.name}</Heading>}
       <HStack gap={2} wrap="wrap">
         <StatusBadge status={details.phase} />
         {details.deletionTimestamp && <StatusBadge status="Terminating" />}
       </HStack>
-      <HStack gap={2} wrap="wrap">
+      {!embedded && <HStack gap={2} wrap="wrap">
         <Button label="Logs" variant="ghost" onClick={() => onOpen("logs")} />
         <Button label="Shell" variant="ghost" onClick={() => onOpen("shell")} />
         <Button label="Attach" variant="ghost" onClick={() => onOpen("attach")} />
         <Button label="Port forward" variant="ghost" onClick={() => onOpen("forward")} />
-      </HStack>
+      </HStack>}
     </VStack>
 
     <MetadataList title="Pod facts" columns="single" label={{ position: "top" }}>

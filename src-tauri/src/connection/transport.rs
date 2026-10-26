@@ -492,6 +492,9 @@ fn map_kube_error(error: kube::Error) -> ConnectionError {
                 let Some(current) = cause else {
                     break;
                 };
+                if let Some(error) = current.downcast_ref::<super::renewal::RenewalError>() {
+                    return error.0;
+                }
                 if current.is::<rustls::Error>() {
                     return ConnectionError::TlsFailed;
                 }

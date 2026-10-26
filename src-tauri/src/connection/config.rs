@@ -13,10 +13,26 @@ use std::{
 
 const FILE_LIMIT: usize = 1024 * 1024;
 
+#[cfg(test)]
 pub(super) async fn build_client(
     target: ConnectionTarget,
     admission: Arc<tokio::sync::Semaphore>,
     auth_tasks: tokio_util::task::TaskTracker,
+) -> Result<Client> {
+    build_client_owned(
+        target,
+        admission,
+        auth_tasks,
+        tokio_util::sync::CancellationToken::new(),
+    )
+    .await
+}
+
+pub(super) async fn build_client_owned(
+    target: ConnectionTarget,
+    admission: Arc<tokio::sync::Semaphore>,
+    auth_tasks: tokio_util::task::TaskTracker,
+    cancel: tokio_util::sync::CancellationToken,
 ) -> Result<Client> {
     let context = target.context_name.clone();
     let base = target
@@ -30,11 +46,28 @@ pub(super) async fn build_client(
     // Blocking preparation has a fixed input bound and never executes plugins or opens sockets.
     let mut config = tauri::async_runtime::spawn_blocking(move || {
         let _permit = permit;
-        prepare(&target)
+        prepare_inner(&target, true)
     })
     .await
     .map_err(|_| ConnectionError::KubeconfigInvalid)??;
+    let source = config.clone();
+    let renewable = super::auth::renewable(&source);
     let expiry = super::auth::resolve_tracked(&mut config, &base, &auth_tasks).await?;
+    let client = materialize(config, context, expiry).await?;
+    if renewable {
+        Ok(super::renewal::wrap(
+            client, source, base, auth_tasks, cancel,
+        ))
+    } else {
+        Ok(client)
+    }
+}
+
+pub(super) async fn materialize(
+    config: Kubeconfig,
+    context: String,
+    expiry: Option<jiff::Timestamp>,
+) -> Result<Client> {
     let mut config = Config::from_custom_kubeconfig(
         config,
         &KubeConfigOptions {
@@ -59,6 +92,10 @@ pub(super) async fn build_client(
 }
 
 pub(super) fn prepare(target: &ConnectionTarget) -> Result<Kubeconfig> {
+    prepare_inner(target, false)
+}
+
+fn prepare_inner(target: &ConnectionTarget, retain_token_file: bool) -> Result<Kubeconfig> {
     let canonical = fs::canonicalize(&target.provenance_path)
         .map_err(|_| ConnectionError::KubeconfigUnavailable)?;
     if canonical != target.source_path {
@@ -160,6 +197,9 @@ pub(super) fn prepare(target: &ConnectionTarget) -> Result<Kubeconfig> {
                 return Err(ConnectionError::KubeconfigInvalid);
             }
             auth.token = Some(token.to_owned().into());
+            if retain_token_file {
+                auth.token_file = Some(base.join(file).to_string_lossy().into_owned());
+            }
         } else {
             auth.token_file = None;
         }

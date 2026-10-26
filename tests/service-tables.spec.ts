@@ -31,17 +31,30 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   )).toBe(true);
 });
 
-test("stopped and errored forwards use Remove and remove the actual session record", async ({ page }) => {
+for (const forwardStatus of ["stopped", "error"]) test(`${forwardStatus} forwards use Remove and remove the actual session record`, async ({ page }) => {
   await fixture(page, "port-forwarding"); await startForward(page);
   const table = grid(page, "Port forwards");
   await expect(table).toContainText("api-pod");
-  await controls(page, { forwardStatus: "stopped" });
+  await controls(page, { forwardStatus });
   await refreshForwards(page);
-  await expect(page.getByRole("button", { name: "Remove team-a/api-pod on port 49152", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Remove team-a/api-pod on port 49152", exact: true }).click();
+  await openForwardActions(page);
+  await expect(page.getByRole("menuitem", { name: "Stop", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("menuitem", { name: "Remove", exact: true })).toBeEnabled();
+  await page.getByRole("menuitem", { name: "Remove", exact: true }).click();
   await expect(table).toContainText("No active port forwards were returned.");
-  expect(await calls(page, "cluster_pod_forward_stop")).toHaveLength(1);
+  expect(await calls(page, "cluster_pod_forward_stop")).toEqual([{ command: "cluster_pod_forward_stop", request: {
+    clusterId: "one", sessionId: (await calls(page, "cluster_pod_forward_start"))[0].request.sessionId, id: "forward-one",
+  } }]);
 });
+async function openForwardActions(page: Page) {
+  // Switch only for the synchronous menu trigger; background polling must retain native IPC.
+  await grid(page, "Port forwards").getByRole("button", { name: "Actions for forward-one", exact: true }).evaluate(element => {
+    Object.assign(window, { isTauri: false });
+    try { (element as HTMLButtonElement).click(); }
+    finally { Object.assign(window, { isTauri: true }); }
+  });
+  await expect(page.getByRole("menuitem", { name: "Details", exact: true })).toBeEnabled();
+}
 const calls = (page: Page, command: string) => page.evaluate((command) => (window as MockWindow).__serviceCalls.filter((call) => call.command === command), command);
 const navigate = (page: Page, section: string) => page.evaluate((section) => { location.hash = `/cluster/one?section=${section}`; }, section);
 const controls = (page: Page, value: Controls) => page.evaluate((value) => Object.assign((window as MockWindow).__serviceControls, value), value);
@@ -170,7 +183,7 @@ test("Helm charts search cached inventory locally and open explicit installation
   await fixture(page, "helm-charts");
   const table = grid(page, "Helm Charts");
   await expect(table).toContainText("Cached HTTP chart");
-  await expect(table.getByRole("columnheader")).toHaveText(["Name", "Version", "App version", "Description"]);
+  await expect(table.getByRole("columnheader")).toHaveText(["Name", "Version", "App version", "Description", "Actions"]);
   await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Charts filters", exact: true })).toBeVisible();
   const before = await calls(page, "helm_table");
@@ -292,7 +305,9 @@ test("port table resolves Pod UID before loopback auto-port start, survives navi
   await navigate(page, "port-forwarding"); await expect(table).toContainText("api-pod");
   expect(await calls(page, "cluster_connect")).toEqual(connections);
   expect((await calls(page, "cluster_pod_forward_list")).every((call) => call.request.sessionId === start.request.sessionId)).toBe(true);
-  await page.getByRole("button", { name: "Stop team-a/api-pod on port 49152", exact: true }).click();
+  await openForwardActions(page);
+  await expect(page.getByRole("menuitem", { name: "Remove", exact: true })).toHaveCount(0);
+  await page.getByRole("menuitem", { name: "Stop", exact: true }).click();
   await expect(table).toContainText("No active port forwards were returned.");
   expect((await calls(page, "cluster_pod_forward_stop"))[0].request).toEqual({ clusterId: "one", sessionId: start.request.sessionId, id: "forward-one" });
   expect(await page.evaluate(() => (window as MockWindow).__externalOpens)).toEqual([]);
@@ -314,6 +329,27 @@ test("forward filters are local and failed refresh retains honest stale rows", a
   await refreshForwards(page);
   await expect(page.getByRole("alert")).toContainText("Retained forward states may be stale");
   await expect(grid(page, "Port forwards")).toContainText("api-pod");
+  await openForwardActions(page);
+  await expect(page.getByRole("menuitem", { name: "Stop", exact: true })).toBeDisabled();
+  expect(await calls(page, "cluster_pod_forward_stop")).toEqual([]);
+});
+
+test("failed forward Stop retains its row, reports the error, and retries the same session record", async ({ page }) => {
+  await fixture(page, "port-forwarding", { stopFailure: "permissionDenied" });
+  await startForward(page);
+  const start = (await calls(page, "cluster_pod_forward_start"))[0].request;
+  const stop = { command: "cluster_pod_forward_stop", request: { clusterId: "one", sessionId: start.sessionId, id: "forward-one" } };
+  await openForwardActions(page);
+  await page.getByRole("menuitem", { name: "Stop", exact: true }).click();
+  await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
+  await expect(grid(page, "Port forwards")).toContainText("api-pod");
+  expect(await calls(page, "cluster_pod_forward_stop")).toEqual([stop]);
+  await controls(page, { stopFailure: "" });
+  await openForwardActions(page);
+  await page.getByRole("menuitem", { name: "Stop", exact: true }).click();
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await expect(grid(page, "Port forwards")).toContainText("No active port forwards were returned.");
+  expect(await calls(page, "cluster_pod_forward_stop")).toEqual([stop, stop]);
 });
 
 test("forward errors never impersonate empty lists and failed UID resolution cannot start a forward", async ({ page }) => {

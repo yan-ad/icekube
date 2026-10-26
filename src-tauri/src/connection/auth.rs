@@ -29,6 +29,14 @@ const V1: &str = "client.authentication.k8s.io/v1";
 const BETA: &str = "client.authentication.k8s.io/v1beta1";
 const EXEC_INFO: &str = "KUBERNETES_EXEC_INFO";
 
+pub(super) fn renewable(config: &Kubeconfig) -> bool {
+    config.auth_infos.iter().any(|user| {
+        user.auth_info.as_ref().is_some_and(|auth| {
+            auth.auth_provider.is_none() && (auth.exec.is_some() || auth.token_file.is_some())
+        })
+    })
+}
+
 /// Resolve only the selected user; no kube automatic exec/provider runner survives this boundary.
 #[cfg(test)]
 pub(super) async fn resolve(config: &mut Kubeconfig, base: &Path) -> Result<Option<Timestamp>> {
@@ -90,7 +98,32 @@ pub(super) async fn resolve_tracked(
             parse_response(&bytes, exec.api_version.as_deref().unwrap_or_default())?
         }
         (None, Some(provider)) => cached_provider(provider)?,
-        (None, None) => return Ok(None),
+        (None, None) => {
+            let Some(file) = auth.token_file.as_ref() else {
+                return Ok(None);
+            };
+            let path = base.join(file);
+            let bytes = tokio::task::spawn_blocking(move || {
+                let path = std::fs::canonicalize(path)
+                    .map_err(|_| crate::catalog::CatalogError::InputUnavailable)?;
+                crate::catalog::bounded_read(&path, TOKEN_LIMIT)
+            })
+            .await
+            .map_err(|_| ConnectionError::KubeconfigUnavailable)?
+            .map_err(super::map_catalog_error)?;
+            let token = std::str::from_utf8(&bytes)
+                .map_err(|_| ConnectionError::KubeconfigInvalid)?
+                .trim();
+            validate_token(token)?;
+            let token = token.to_owned();
+            let auth = config.auth_infos[index]
+                .auth_info
+                .as_mut()
+                .ok_or(ConnectionError::KubeconfigInvalid)?;
+            auth.token = Some(token.into());
+            auth.token_file = None;
+            return Ok(None);
+        }
     };
     let expiry = credentials.expiry;
     let auth = config.auth_infos[index]

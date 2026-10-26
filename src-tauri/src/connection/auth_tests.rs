@@ -602,3 +602,62 @@ Ped8HJOuRWI+Cuat87QeDoL4390vn5QzCt+4Ijfdt2nOJuCjifsU1E92LBIafijb
 0CJWSSMM++TqN3d4WvmJVko=
 -----END PRIVATE KEY-----
 "#;
+
+#[tokio::test]
+async fn selected_token_file_is_reread_without_exec_or_provider() {
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("rotating-token");
+    std::fs::write(&path, "fixture-first").unwrap();
+    let source = config(AuthInfo {
+        token_file: Some(path.to_string_lossy().into_owned()),
+        ..Default::default()
+    });
+    assert!(renewable(&source));
+    let mut first = source.clone();
+    resolve(&mut first, root.path()).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&first.auth_infos[0].auth_info).unwrap()["token"],
+        "fixture-first"
+    );
+    std::fs::write(&path, "fixture-second\n").unwrap();
+    let mut next = source;
+    resolve(&mut next, root.path()).await.unwrap();
+    assert_eq!(
+        serde_json::to_value(&next.auth_infos[0].auth_info).unwrap()["token"],
+        "fixture-second"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn renewal_reuses_only_selected_configured_exec_helper() {
+    use std::os::unix::fs::PermissionsExt;
+    let root = tempfile::tempdir().unwrap();
+    let helper = root.path().join("fixture-auth-helper");
+    let marker = root.path().join("calls");
+    std::fs::write(&helper, format!(
+        "#!/bin/sh\nprintf x >> '{}'\nprintf '%s' '{{\"apiVersion\":\"client.authentication.k8s.io/v1\",\"kind\":\"ExecCredential\",\"status\":{{\"token\":\"fixture-exec-token\",\"expirationTimestamp\":\"{}\"}}}}'\n",
+        marker.display(), future()
+    )).unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let mut selected_exec = exec();
+    selected_exec.command = Some(helper.to_string_lossy().into_owned());
+    let source = config(AuthInfo {
+        exec: Some(selected_exec),
+        ..Default::default()
+    });
+    assert!(renewable(&source));
+    for _ in 0..2 {
+        let mut selected = source.clone();
+        assert!(resolve(&mut selected, root.path()).await.unwrap().is_some());
+        assert!(
+            selected.auth_infos[0]
+                .auth_info
+                .as_ref()
+                .unwrap()
+                .exec
+                .is_none()
+        );
+    }
+    assert_eq!(std::fs::read(marker).unwrap(), b"xx");
+}

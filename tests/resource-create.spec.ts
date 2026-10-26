@@ -350,7 +350,7 @@ for (const width of [1440, 390]) test(`FAB remains visible and clickable at ${wi
   await page.getByRole("table", { name: "Pods", exact: true }).getByRole("button", { name: "api-pod", exact: true }).click();
   const details = page.getByRole("region", { name: "Resource details", exact: true });
   await details.getByRole("button", { name: "Logs", exact: true }).click();
-  await details.getByRole("button", { name: "Close inspector", exact: true }).click();
+  await expect(details).toHaveCount(0);
   await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible();
   await page.setViewportSize({ width, height: 900 });
   const fab = page.getByRole("button", { name: "Create Pod", exact: true });

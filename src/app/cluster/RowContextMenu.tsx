@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { DropdownMenu } from "@astryxdesign/core/DropdownMenu";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -18,8 +18,12 @@ type Options<T> = SessionRequest & { rows: T[]; scope: string; rowKey: (item: T)
 
 /** Row transforms preserve table semantics; the browser menu is anchored to the Actions cell. */
 export function useRowContextMenu<T extends Record<string, unknown>>(options: Options<T>): TablePlugin<T> {
-  const fingerprint = JSON.stringify([options.clusterId, options.sessionId, options.scope, options.rows,
-    options.rows.map(item => options.actions(item))]);
+  const rowsFingerprint = useMemo(() => JSON.stringify(options.rows), [options.rows]);
+  const actionFingerprint = useMemo(() => JSON.stringify(options.rows.map(item => options.actions(item))), [options.rows, options.actions]);
+  const fingerprint = useMemo(() => JSON.stringify([options.clusterId, options.sessionId, options.scope, rowsFingerprint,
+    actionFingerprint]), [options.clusterId, options.sessionId, options.scope, rowsFingerprint, actionFingerprint]);
+  const latest = useRef(options);
+  latest.current = options;
   const current = useRef(fingerprint);
   current.current = fingerprint;
   const active = useRef<AbortController | null>(null);
@@ -40,7 +44,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
     const run = (action: RowAction) => {
       if (controller.signal.aborted || current.current !== fingerprint || !actions.some(entry => entry.action === action && !entry.disabled)) return;
       close();
-      options.onAction(captured, action);
+      latest.current.onAction(captured, action);
     };
     void showNativeContextMenu({ clusterId: options.clusterId, sessionId: options.sessionId,
       target: options.target(captured), actions: actions.filter(entry => !entry.disabled).map(entry => entry.action) }, run, controller.signal)
@@ -79,15 +83,18 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
 
 export function useResourceRowMenu(options: SessionRequest & { rows: ResourceItem[]; scope: string; kind: ResourceKind; unavailable: boolean;
   openResource: (reference: ResourceReference) => void; openPod?: (item: ResourceItem, mode: PodMode) => void }) {
-  const identity = JSON.stringify([options.scope, options.unavailable, options.rows]);
+  const rowsFingerprint = useMemo(() => JSON.stringify(options.rows), [options.rows]);
+  const identity = useMemo(() => JSON.stringify([options.scope, options.unavailable, rowsFingerprint]), [options.scope, options.unavailable, rowsFingerprint]);
   const [deletion, setDeletion] = useState<{ identity: string; item: ResourceItem } | null>(null);
+  const hasPodActions = !!options.openPod;
+  const actions = useCallback((item: ResourceItem): RowMenuAction[] => [
+    { action: "details" },
+    ...(hasPodActions ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid })) : []),
+    { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) },
+  ], [hasPodActions, options.unavailable]);
   const plugin = useRowContextMenu({ ...options, scope: identity, rowKey: resourceRowKey, rowLabel: item => item.name,
     target: item => ({ type: "resource", reference: { kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid } }),
-    actions: item => [
-      { action: "details" },
-      ...(options.openPod ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid })) : []),
-      { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) },
-    ],
+    actions,
     onAction: (item, action) => {
       if (action === "delete") setDeletion({ identity, item });
       else if (options.openPod) options.openPod(item, action as PodMode);

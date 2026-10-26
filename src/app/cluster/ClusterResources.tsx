@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./useDebouncedSearch";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Table, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
@@ -44,7 +45,8 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const [tokens, setTokens] = useState<(string | null)[]>([null]);
   const [index, setIndex] = useState(0);
   const [now, setNow] = useState(Date.now);
-  const needle = query.trim();
+  const { committed, pending } = useDebouncedSearch(query);
+  const needle = committed.trim();
   const token = tokens[index];
   useRegisterWorkspaceRefresh({ clusterId, section: kind, enabled: true, refresh: () => {
     setTokens([null]); setIndex(0); setLoading(true); setRevision((value) => value + 1);
@@ -55,6 +57,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     return () => window.clearInterval(timer);
   }, [kind]);
   useEffect(() => {
+    if (pending) return;
     let disposed = false;
     let started = false;
     const request = { clusterId, sessionId, kind, readId: nextReadId(), continueToken: token,
@@ -66,18 +69,19 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
         if (!disposed) { setPage(next); setNow(Date.now()); }
       }).catch((reason) => { if (!disposed) setError(errorCode(reason)); })
         .finally(() => { if (!disposed) setLoading(false); });
-    }, kind === "nodes" ? 150 : 0);
+    }, 0);
     return () => {
       disposed = true;
       window.clearTimeout(timer);
       if (started) void cancelResources(request).catch(() => {});
     };
-  }, [clusterId, sessionId, kind, revision, query, needle, token, index]);
-  const items = page?.items ?? [];
+  }, [clusterId, sessionId, kind, revision, needle, token, index, pending]);
+  const items = useMemo(() => page?.items ?? [], [page]);
   const metricState = kind === "nodes" ? page?.metrics : null;
   const selectionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
-  const selection = useResourceSelection(items, selectionScope, !loading && !error);
-  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: selectionScope, kind, unavailable: loading || !!error, openResource });
+  const unavailable = pending || loading || !!error;
+  const selection = useResourceSelection(items, selectionScope, !unavailable);
+  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: selectionScope, kind, unavailable, openResource });
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? "Loading…" : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
@@ -85,24 +89,24 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
       }} placeholder="Search Nodes…"
         startIcon={IconSearch} hasClear size="sm" width="min(17rem, 100%)" />
       <IconButton label="Previous nodes page" tooltip="Previous page" icon={<Icon icon={IconChevronLeft} />} size="sm" variant="ghost"
-        isDisabled={loading || index === 0} onClick={() => { setLoading(true); setIndex((value) => value - 1); }} />
+        isDisabled={unavailable || index === 0} onClick={() => { setLoading(true); setIndex((value) => value - 1); }} />
       <IconButton label="Next nodes page" tooltip="Next page" icon={<Icon icon={IconChevronRight} />} size="sm" variant="ghost"
-        isDisabled={loading || !!error || !page?.continueToken} onClick={() => {
+        isDisabled={unavailable || !page?.continueToken} onClick={() => {
           if (!page?.continueToken) return;
           setLoading(true); setTokens((previous) => [...previous.slice(0, index + 1), page.continueToken]); setIndex((value) => value + 1);
         }} />
     </TableToolbar>}
     {loading && <Text role="status">Loading {kind}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && (loading || error) && <Text role="status">Previously fetched {kind} are shown and may be stale.</Text>}
+    {page && (pending || loading || error) && <Text role="status">Previously fetched {kind} are shown and may be stale.</Text>}
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={loading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
       <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
     {page && <Text type="supporting">Fetched {new Date(page.fetchedAt).toLocaleString()}</Text>}
-    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={loading || !!error} onAccepted={selection.remove} onRefresh={() => {
+    <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={unavailable} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
   </VStack>;

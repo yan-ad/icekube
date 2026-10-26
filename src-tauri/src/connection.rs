@@ -31,6 +31,7 @@ mod node_tests;
 pub(crate) mod pod_runtime;
 pub(crate) mod pod_sync;
 pub(crate) mod pods;
+mod renewal;
 #[cfg(test)]
 mod resource_tests;
 mod resources;
@@ -409,8 +410,20 @@ impl ConnectionEngine {
         Ok(current(&state, &request)?.snapshot.clone())
     }
     pub async fn connect(&self, request: SessionRequest) -> Result<ConnectionSnapshot> {
+        let cancel = {
+            let state = self
+                .session
+                .lock()
+                .map_err(|_| ConnectionError::StoreUnavailable)?;
+            current(&state, &request)?.cancel.child_token()
+        };
         self.connect_with(request, |target| {
-            config::build_client(target, self.file_workers.clone(), self.auth_tasks.clone())
+            config::build_client_owned(
+                target,
+                self.file_workers.clone(),
+                self.auth_tasks.clone(),
+                cancel,
+            )
         })
         .await
     }

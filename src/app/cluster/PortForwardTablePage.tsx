@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
@@ -41,6 +41,8 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
   const [createOpen, setCreateOpen] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const deferredQuery = useDeferredValue(query);
+  const pending = query !== deferredQuery;
   const [status, setStatus] = useState("");
   const [namespaceFilter, setNamespaceFilter] = useState("");
   const [namespace, setNamespace] = useState("");
@@ -87,12 +89,12 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
   const namespaces = useMemo(() => [...new Set((forwards ?? []).map((item) => item.namespace))].sort(), [forwards]);
   const statuses = useMemo(() => [...new Set((forwards ?? []).map((item) => item.status))].sort(), [forwards]);
   const items = useMemo(() => {
-    const needle = query.trim().toLocaleLowerCase();
+    const needle = deferredQuery.trim().toLocaleLowerCase();
     return (forwards ?? []).filter((item) => {
       const searchable = [item.id, item.namespace, item.name, item.remotePort, item.localPort, item.status].join(" ").toLocaleLowerCase();
       return (!needle || searchable.includes(needle)) && (!status || item.status === status) && (!namespaceFilter || item.namespace === namespaceFilter);
     });
-  }, [forwards, namespaceFilter, query, status]);
+  }, [forwards, namespaceFilter, deferredQuery, status]);
 
   const podValid = pod.length > 0 && pod.length <= 253 && podPattern.test(pod);
   const remote = portValue(remotePort, false);
@@ -154,7 +156,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
 
   const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope: JSON.stringify([query, status, namespaceFilter]),
     rowKey: item => item.id, rowLabel: item => item.id, target: item => ({ type: "forward", id: item.id }),
-    actions: item => [{ action: "details" }, { action: item.status === "stopped" || item.status === "error" ? "remove" : "stop", disabled: busy || !!error }],
+    actions: item => [{ action: "details" }, { action: item.status === "stopped" || item.status === "error" ? "remove" : "stop", disabled: pending || busy || !!error }],
     onAction: (item, action) => { if (action === "details") inspectForward(item); else void stop(item.id); },
   });
   const columns: TableColumn<PodForward>[] = [
@@ -176,8 +178,9 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
       </TableToolbar>
     {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
     {actionError && <Text role="alert">{actionError}</Text>}
+    {pending && <Text role="status">Updating search results…</Text>}
     {!forwards && !error && <Text role="status">Loading port forwards…</Text>}
-    {forwards && <Table aria-label="Port forwards" data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>(), rowContext: rowMenu }}
+    {forwards && <Table aria-label="Port forwards" aria-busy={pending} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<PodForward>(), rowContext: rowMenu }}
       emptyState={<VStack gap={2} padding={6}><Text>{query || status || namespaceFilter ? "No forwards match the current filters." : "No active port forwards were returned."}</Text><Text color="secondary">Choose Create port forward to enter a namespace, Pod, and ports.</Text></VStack>} />}
     <TableActionOverlay label="Port forward actions"><IconButton label="Create port forward" tooltip="Create port forward" icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
       style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }}

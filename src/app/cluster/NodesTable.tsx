@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Table, pixel, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
@@ -57,8 +58,8 @@ export function NodesTable({ items, loading, filtered, now, selection, rowContex
     const hiddenCount = conditions.length - adverse.length - (ready ? 1 : 0);
     return { visible, hiddenCount };
   };
-  const conditionsWidth = Math.max(250, ...items.map(item => 250 + (conditionSummary(item).visible.length - 1) * 200));
-  const columns: TableColumn<ResourceItem>[] = [
+  const conditionsWidth = useMemo(() => Math.max(250, ...items.map(item => 250 + (conditionSummary(item).visible.length - 1) * 200)), [items]);
+  const columns = useMemo<TableColumn<ResourceItem>[]>(() => [
     { key: "name", header: "Name", width: pixel(280), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openResource({ kind: "nodes", namespace: null, name: item.name, uid: item.uid })} /> },
     { key: "cpu", header: "CPU", width: pixel(150), renderCell: (item) => <UsageCell name={item.name} resource="CPU" usage={item.node?.cpu} /> },
     { key: "memory", header: "Memory", width: pixel(170), renderCell: (item) => <UsageCell name={item.name} resource="memory" usage={item.node?.memory} /> },
@@ -80,7 +81,7 @@ export function NodesTable({ items, loading, filtered, now, selection, rowContex
         </Tooltip>}
       </HStack>;
     } },
-  ];
+  ], [conditionsWidth, now, openResource]);
   return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate" style={{ minWidth: "100rem" }}
     aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}), ...(rowContext ? { rowContext } : {}) }}
     emptyState={<VStack padding={6} gap={2}>

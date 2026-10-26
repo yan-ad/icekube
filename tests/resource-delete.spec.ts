@@ -215,7 +215,8 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
     await page.getByRole("button", { name: "alpha", exact: true }).click();
     const details = page.getByRole("region", { name: "Resource details", exact: true });
     await details.getByRole("button", { name: "Logs", exact: true }).click();
-    await details.getByRole("button", { name: "Close inspector", exact: true }).click();
+    await expect(details).toHaveCount(0);
+    await expect.poll(() => page.locator(".resource-inspector").evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
     await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible();
   }
   const group = page.getByRole("group", { name: "Resource actions", exact: true });
@@ -223,7 +224,10 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
   await expect(group).toHaveCSS("background-image", /linear-gradient/);
   const create = group.getByRole("button").last();
   await expect(remove(page)).toBeInViewport(); await expect(create).toBeInViewport();
-  const del = (await remove(page).boundingBox())!, add = (await create.boundingBox())!;
+  const { del, add } = await group.evaluate(element => {
+    const buttons = element.querySelectorAll("button");
+    return { del: buttons[0].getBoundingClientRect().toJSON(), add: buttons[buttons.length - 1].getBoundingClientRect().toJSON() };
+  });
   expect(del.x + del.width).toBeLessThanOrEqual(add.x); expect(add.x - del.x - del.width).toBeLessThan(24);
   expect(Math.abs(del.y - add.y)).toBeLessThan(2); expect(add.x + add.width).toBeGreaterThan(width - 40);
   const parent = (await group.locator("..").boundingBox())!;

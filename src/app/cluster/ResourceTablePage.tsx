@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useDebouncedSearch } from "./useDebouncedSearch";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -108,28 +109,30 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const [page, setPage] = useState<ResourcePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ConnectionErrorCode | null>(null);
-  const { query, status, group } = filters;
+  const { committed: query, pending } = useDebouncedSearch(filters.query);
+  const { status, group } = filters;
   const [live, setLive] = useState(false);
   const [syncStatus, setSyncStatus] = useState<PodSyncStatus>("stopped");
-  const filtered = !!(query.trim() || status || group);
-  const syncing = live && view.kind === "pods" && token === null && !filtered;
+  const filtered = !!(filters.query.trim() || filters.status || filters.group);
+  const requestFiltered = !!(query.trim() || status || group);
+  const syncing = live && view.kind === "pods" && token === null && !filtered && !pending && !requestFiltered;
   useRegisterWorkspacePageActions({ clusterId, section: view.section,
-    previous: { enabled: index > 0 && !loading, run: previous },
-    next: { enabled: !syncing && !!page?.continueToken && !loading && !error, run: () => { if (page?.continueToken) next(page.continueToken); } },
-    live: view.kind === "pods" ? { enabled: token === null && !filtered, checked: live, run: () => setLive(value => !value) } : undefined,
+    previous: { enabled: index > 0 && !loading && !pending, run: previous },
+    next: { enabled: !pending && !syncing && !!page?.continueToken && !loading && !error, run: () => { if (page?.continueToken) next(page.continueToken); } },
+    live: view.kind === "pods" ? { enabled: token === null && !filtered && !pending, checked: live, run: () => setLive(value => !value) } : undefined,
   });
   useRegisterWorkspaceRefresh({ clusterId, section: view.section, enabled: true, refresh: () => setRevision((value) => value + 1) });
   useEffect(() => {
-    if (!view.kind || syncing) return;
+    if (!view.kind || syncing || pending) return;
     let disposed = false;
     const request = { clusterId, sessionId, kind: view.kind, readId: nextReadId(), namespace: namespace || null, continueToken: token,
-      ...(filtered ? { query: query.trim() || null, status: status || null, group: group || null } : {}) };
+      ...(requestFiltered ? { query: query.trim() || null, status: status || null, group: group || null } : {}) };
     setLoading(true); setError(null);
     void loadResources(request).then((result) => { if (!disposed) { setPage(result); } })
       .catch((reason) => { if (!disposed) setError(errorCode(reason)); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; void cancelResources(request).catch(() => {}); };
-  }, [clusterId, sessionId, view.kind, namespace, token, index, revision, syncing, query, status, group, filtered]);
+  }, [clusterId, sessionId, view.kind, namespace, token, index, revision, syncing, query, status, group, requestFiltered, pending]);
   useEffect(() => {
     if (!syncing) return;
     let disposed = false;
@@ -168,29 +171,30 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
     });
     return () => { disposed = true; clearTimeout(timer); if (syncId) close(syncId); };
   }, [syncing, clusterId, sessionId, namespace, index, revision]);
-  const rows = page?.items ?? [];
-  const statuses = [...new Set([...rows.map(item => item.status), ...(status ? [status] : [])])].sort();
-  const groups = [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(group ? [group] : [])])].sort();
-  const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, query, status, group, syncing]);
-  const inventoryUnavailable = loading || !!error || syncing && syncStatus !== "syncing";
+  const rows = useMemo(() => page?.items ?? [], [page]);
+  const statuses = useMemo(() => [...new Set([...rows.map(item => item.status), ...(filters.status ? [filters.status] : [])])].sort(), [rows, filters.status]);
+  const groups = useMemo(() => [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(filters.group ? [filters.group] : [])])].sort(), [rows, filters.group]);
+  const selectionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, filters, syncing]);
+  const inventoryUnavailable = pending || loading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
+  const tableColumns = useMemo(() => columns(view, Date.now(), openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : "Loading…"}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
-      <TextInput label={`Search ${view.label}`} isLabelHidden value={query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
+      <TextInput label={`Search ${view.label}`} isLabelHidden value={filters.query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
         startIcon={IconSearch} hasClear size="sm" width="min(18rem, 100%)" />
-      <Selector label="Status" isLabelHidden value={status} onChange={value => onFilter({ status: value })} size="sm" presentation="adaptive"
+      <Selector label="Status" isLabelHidden value={filters.status} onChange={value => onFilter({ status: value })} size="sm" presentation="adaptive"
         options={[{ value: "", label: "All statuses" }, ...statuses.map(value => ({ value, label: value }))]} />
-      {view.kind === "customResourceDefinitions" && <Selector label="Group" isLabelHidden value={group} onChange={value => onFilter({ group: value })} size="sm" presentation="adaptive" hasSearch
+      {view.kind === "customResourceDefinitions" && <Selector label="Group" isLabelHidden value={filters.group} onChange={value => onFilter({ group: value })} size="sm" presentation="adaptive" hasSearch
         options={[{ value: "", label: "All groups" }, ...groups.map(value => ({ value, label: value }))]} />}
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
     </TableToolbar>
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     {loading && <Text role="status">Loading {view.label.toLowerCase()}…</Text>}
     {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && (loading || error || syncing && syncStatus !== "syncing") && <Text role="status">Previously fetched {view.label.toLowerCase()} are shown and may be stale.</Text>}
-    {page && <Table aria-label={view.label} data={rows} columns={columns(view, Date.now(), openResource, openRelated, openPod)} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading}
+    {page && (pending || loading || error || syncing && syncStatus !== "syncing") && <Text role="status">Previously fetched {view.label.toLowerCase()} are shown and may be stale.</Text>}
+    {page && <Table aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={loading || pending}
       plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
     {view.kind && <ResourceActions key={selectionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}

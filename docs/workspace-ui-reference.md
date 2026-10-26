@@ -98,9 +98,17 @@ in [resource inspector reference](resource-inspector-reference.md) is separate.
 
 ## Verification status
 
-Source and exact test identifiers were inspected for this documentation update.
-Final build, browser tests, Rust tests/format/Clippy validation are pending for the
-current change set; no pass counts are asserted here. Synthetic browser IPC and
-fake-service tests do not prove native window controls, OS/webview editing,
-production-cluster outcomes or full upstream behavior. This documentation pass
-performed no native smoke test and read no real kubeconfig or credentials.
+The connected toolbar reserves macOS right clearance without adding another row.
+At compact widths the text badge is replaced by semantic color on the existing
+Cluster actions icon; its tooltip, accessible description and disabled status
+menu item retain the full connection label. At wider widths the badge cannot
+shrink into an unlabeled pill. `tests/connected-toolbar.spec.ts` checks the
+connected layout at 360–1440 CSS pixels and normal/enlarged root text sizes.
+
+Verification for this change set: `bun run build` passed (with Vite's large-chunk
+warning), the complete browser suite passed 619 tests, Rust passed 216 tests,
+and formatting plus strict all-target Clippy passed. Both staged and unstaged
+diff whitespace checks passed. Synthetic browser IPC and fake-service tests do
+not prove native window controls, OS/webview editing, production-cluster outcomes
+or full upstream behavior. No native smoke test was performed and no real
+kubeconfig or credentials were read.

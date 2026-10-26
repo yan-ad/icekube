@@ -100,20 +100,22 @@ export function PodDock() {
   </VStack>;
   return dock.outlet ? createPortal(panel, dock.outlet) : panel;
 }
-export function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
+export function PodTab({ tab, visible, embedded = false, refreshRevision = 0, onLoadingChange }: { tab: Tab; visible: boolean; embedded?: boolean; refreshRevision?: number; onLoadingChange?: (loading: boolean) => void }) {
   const { openPod, onMutation } = usePodDock();
   const [details, setDetails] = useState<PodDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [confirm, setConfirm] = useState<{ action: PodMutation; yaml?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => { onLoadingChange?.(loading || busy); }, [loading, busy, onLoadingChange]);
   const alive = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
-    let disposed = false; setError(null);
-    void podDetail(tab.pod).then(d => { if (!disposed) setDetails(d); }).catch(e => { if (!disposed) setError(podMessage(e)); });
+    let disposed = false; setError(null); setLoading(true);
+    void podDetail(tab.pod).then(d => { if (!disposed) setDetails(d); }).catch(e => { if (!disposed) setError(podMessage(e)); }).finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; };
-  }, [tab.pod, revision]);
+  }, [tab.pod, revision, refreshRevision]);
   async function mutate() {
     if (!details || !confirm || busy) return;
     setBusy(true); setError(null);
@@ -122,10 +124,10 @@ export function PodTab({ tab, visible }: { tab: Tab; visible: boolean }) {
   }
   const streaming = tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach";
   const reload = <IconButton label="Reload details" tooltip="Reload Pod details" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={busy} onClick={() => setRevision(r => r + 1)} />;
-  return <VStack gap={0} height="100%" style={{ minHeight: 0, overflow: "hidden" }}>
-    {(!streaming || !details) && <HStack gap={2} paddingInline={3} vAlign="center" style={{ flexShrink: 0, minWidth: 0 }}><Text as="p" maxLines={1} style={{ flex: 1, minWidth: 0 }}>{tab.pod.namespace}/{tab.pod.name}</Text>{reload}</HStack>}
+  return <VStack gap={0} height={embedded ? "auto" : "100%"} style={{ minHeight: 0, minWidth: 0, flexShrink: embedded ? 0 : undefined, overflow: embedded ? "visible" : "hidden" }}>
+    {!embedded && (!streaming || !details) && <HStack gap={2} paddingInline={3} vAlign="center" style={{ flexShrink: 0, minWidth: 0 }}><Text as="p" maxLines={1} style={{ flex: 1, minWidth: 0 }}>{tab.pod.namespace}/{tab.pod.name}</Text>{reload}</HStack>}
     {error && <Text role="alert">{details ? "Retained details may be stale. " : ""}{error}</Text>}
-    {!details ? <Text as="p">{error ? "Pod details unavailable." : "Loading Pod…"}</Text> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} reload={reload} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} onEdit={() => openPod(tab.pod, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
+    {!details ? <Text as="p">{error ? "Pod details unavailable." : "Loading Pod…"}</Text> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} reload={reload} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} embedded={embedded} onEdit={() => openPod({ ...tab.pod, uid: details.uid }, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
     <Dialog isOpen={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} purpose={busy ? "required" : "form"}><Layout header={<DialogHeader title={`${confirm?.action === "replace" ? "Save YAML for" : confirm?.action ?? "Update"} ${tab.pod.name}?`} />} content={<LayoutContent><VStack gap={3}><Text as="p">Cluster: {tab.pod.clusterId}. Namespace: {tab.pod.namespace}. Pod: {tab.pod.name}. UID: {details?.uid}. Resource version: {details?.resourceVersion}.</Text><Text as="p">{confirm?.action === "forceDelete" ? "Danger: force deletion removes the API record without waiting for the process to stop. The workload may continue running." : confirm?.action === "finalize" ? "Danger: removing finalizers bypasses cleanup and may leave resources behind. Only continue if you understand the finalizer's purpose." : confirm?.action === "replace" ? "This updates the live Pod. Protected server fields are preserved by the engine; immutable edits may be rejected." : "This deletes the live Pod. A workload controller may create a replacement."}</Text>{error && <Text role="alert">{error}</Text>}</VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2}><Button label="Cancel" variant="ghost" isDisabled={busy} onClick={() => setConfirm(null)} /><Button label={busy ? "Working…" : "Confirm mutation"} isDisabled={busy} onClick={() => void mutate()} /></HStack></LayoutFooter>} /></Dialog>
   </VStack>;
 }

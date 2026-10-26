@@ -1,6 +1,8 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { Theme } from "@astryxdesign/core/theme";
+import { brandTheme } from "../../themes/brand";
 import { getWindowLayout } from "../layouts/window-layout";
 import { defaultPreferences, loadPreferences, savePreferences as apiSavePreferences, type Preferences, type PreferencesSnapshot } from "./api";
 
@@ -107,7 +109,9 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         reset,
       }}
     >
-      {children}
+      <Theme theme={brandTheme} mode={snapshot.preferences.app.theme}>
+        {children}
+      </Theme>
     </PreferencesContext.Provider>
   );
 }

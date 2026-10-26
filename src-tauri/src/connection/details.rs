@@ -51,8 +51,27 @@ pub(super) struct DetailSlot {
 fn valid_uid(s: &str) -> bool {
     !s.is_empty() && s.len() <= 256 && s.bytes().all(|b| (0x21..=0x7e).contains(&b))
 }
+pub(super) fn valid_resource_name(kind: ResourceKind, name: &str) -> bool {
+    if matches!(
+        kind,
+        ResourceKind::Roles
+            | ResourceKind::RoleBindings
+            | ResourceKind::ClusterRoles
+            | ResourceKind::ClusterRoleBindings
+    ) {
+        // RBAC uses Kubernetes path-segment names, not DNS subdomains.
+        !name.is_empty()
+            && name.len() <= 253
+            && !matches!(name, "." | "..")
+            && name
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b':'))
+    } else {
+        super::resources::valid_name(name)
+    }
+}
 pub(super) fn validate_reference(r: &ResourceReference) -> Result<()> {
-    if !super::resources::valid_name(&r.name)
+    if !valid_resource_name(r.kind, &r.name)
         || r.uid.as_deref().is_some_and(|s| !valid_uid(s))
         || if super::resources::namespaced(r.kind) {
             !r.namespace
@@ -79,7 +98,8 @@ pub(super) fn named_path(r: &ResourceReference) -> Result<String> {
         .as_ref()
         .map(|n| format!("/namespaces/{n}"))
         .unwrap_or_default();
-    Ok(format!("{api}{scope}/{plural}/{}", r.name))
+    let name: String = url::form_urlencoded::byte_serialize(r.name.as_bytes()).collect();
+    Ok(format!("{api}{scope}/{plural}/{name}"))
 }
 impl ConnectionEngine {
     pub fn cancel_resource_detail(&self, r: DetailRequest) -> Result<()> {

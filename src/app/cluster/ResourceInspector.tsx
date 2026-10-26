@@ -3,16 +3,14 @@ import { useNavigate } from "@tanstack/react-router";
 import { Button } from "@astryxdesign/core/Button";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Icon } from "@astryxdesign/core/Icon";
-import { IconX, IconArrowsMaximize, IconArrowsMinimize, IconRefresh } from "@tabler/icons-react";
-import { Layout, LayoutContent } from "@astryxdesign/core/Layout";
+import { IconX, IconArrowsMaximize, IconArrowsMinimize, IconRefresh, IconList, IconTerminal2, IconPlug, IconLogin } from "@tabler/icons-react";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { Heading } from "@astryxdesign/core/Heading";
 import { Text } from "@astryxdesign/core/Text";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest, type ResourceKind } from "./api";
 import { cancelResourceDetail, loadResourceDetail, type ResourceDetail, type ResourceReference } from "./detailApi";
 import { resourceViews } from "./resourceViews";
-import { PodTab } from "./PodDock";
+import { PodTab, usePodDock } from "./PodDock";
 import { StatusBadge, NodeConditionBadge } from "./StatusBadge";
 import { clusterDestinations } from "./navigation";
 
@@ -77,6 +75,7 @@ export function ResourceRelationLink({ reference, children, navigate = true }: {
 }
 export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
   const { selection, isOpen, closeInspector } = useResourceInspector();
+  const { openPod } = usePodDock();
   const panel = useRef<HTMLElement | null>(null);
   const [width, setWidth] = useState(54);
   const [expanded, setExpanded] = useState(false);
@@ -123,7 +122,8 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
   }, [isOpen, closeInspector]);
   const boundedWidth = Math.max(minimum, Math.min(75, width));
   const resize = (next: number) => { setExpanded(false); setWidth(Math.max(minimum, Math.min(75, next))); };
-  const title = selection?.type === "summary" ? selection.summary.title : selection ? `${resourceKindLabel(selection.reference.kind)}: ${selection.reference.name}` : "Resource details";
+  const title = selection?.type === "summary" ? selection.summary.title : selection ? selection.reference.name : "Resource details";
+  const podReference = selection?.type === "resource" && selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ? selection.reference : null;
   return <VStack as="aside" role={isOpen ? "region" : undefined} aria-label={isOpen ? "Resource details" : undefined}
     aria-hidden={!isOpen} inert={!isOpen} ref={panel} tabIndex={isOpen ? -1 : undefined} gap={0}
     className="resource-inspector" data-open={isOpen} data-dragging={dragging} data-expanded={expanded}
@@ -146,21 +146,25 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
         const next = event.key === "Home" ? minimum : event.key === "End" ? 75 : event.key === "ArrowLeft" ? current - 2 : event.key === "ArrowRight" ? current + 2 : null;
         if (next !== null) { event.preventDefault(); resize(next); }
       }} />
-    <Layout height="fill" header={<HStack padding={3} gap={2} vAlign="center" hAlign="between" wrap="wrap">
-      <Heading level={2} wordBreak="break-all" style={{ minWidth: 0, flex: "1 1 8rem" }}>{title}</Heading>
-      <HStack gap={1}>
+    <HStack padding={2} gap={2} vAlign="center" hAlign="between" className="resource-inspector-header">
+      <Text role="heading" aria-level={2} size="sm" weight="semibold" maxLines={1} className="resource-inspector-title">{title}</Text>
+      <HStack gap={1} wrap="wrap" className="resource-inspector-actions">
+        {podReference && ([{ mode: "logs", label: "Logs", icon: IconList }, { mode: "shell", label: "Shell", icon: IconTerminal2 }, { mode: "attach", label: "Attach", icon: IconLogin }, { mode: "forward", label: "Port forward", icon: IconPlug }] as const).map(action =>
+          <IconButton key={action.mode} label={action.label} tooltip={action.label} icon={<Icon icon={action.icon} />} size="sm" variant="ghost" isDisabled={loading || !podReference.uid}
+            onClick={() => openPod({ namespace: podReference.namespace!, name: podReference.name, uid: podReference.uid ?? undefined }, action.mode)} />)}
         {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
         <IconButton label={expanded ? "Restore inspector width" : "Expand inspector"} tooltip={expanded ? "Restore inspector width" : "Expand inspector"} icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} />} size="sm" variant="ghost" onClick={() => { endDrag(); setExpanded(value => !value); }} />
         <IconButton label="Close inspector" tooltip="Close inspector" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={closeInspector} />
       </HStack>
-    </HStack>} content={<LayoutContent isScrollable padding={0}>
+    </HStack>
+    <VStack gap={0} className="resource-inspector-body">
       {selection && isOpen && (selection.type === "summary" ? <VStack padding={4} gap={3}>
         {selection.summary.status && <StatusBadge status={selection.summary.status} />}
         <MetadataList label={{ position: "top" }}>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</MetadataList>
       </VStack> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
-        <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.reference, revision])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} /> :
+        <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} revision={revision} onLoadingChange={onLoadingChange} /> :
         <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} />)}
-    </LayoutContent>} />
+    </VStack>
     </>}
   </VStack>;
 }
@@ -171,10 +175,10 @@ export function ResourceInspectorLayout({ clusterId, sessionId, children }: Sess
     <ResourceInspector clusterId={clusterId} sessionId={sessionId} />
   </HStack>;
 }
-function InspectedPod({ clusterId, sessionId, reference, edit }: SessionRequest & { reference: ResourceReference; edit: boolean }) {
+function InspectedPod({ clusterId, sessionId, reference, edit, revision, onLoadingChange }: SessionRequest & { reference: ResourceReference; edit: boolean; revision: number; onLoadingChange: (loading: boolean) => void }) {
   const pod = useMemo(() => ({ clusterId, sessionId, namespace: reference.namespace!, name: reference.name, ...(reference.uid ? { uid: reference.uid } : {}) }),
     [clusterId, sessionId, reference.namespace, reference.name, reference.uid]);
-  return <PodTab tab={{ id: "resource-inspector", mode: edit ? "edit" : "details", pod }} visible />;
+  return <PodTab tab={{ id: "resource-inspector", mode: edit ? "edit" : "details", pod }} visible embedded refreshRevision={revision} onLoadingChange={onLoadingChange} />;
 }
 function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingChange }: SessionRequest & { selection: Extract<Selection, { type: "resource" }>; revision: number; onLoadingChange: (loading: boolean) => void }) {
   const { navigateResource } = useResourceInspector();

@@ -18,6 +18,122 @@ fn request(kind: ResourceKind) -> DetailRequest {
         },
     }
 }
+
+#[test]
+fn rbac_names_are_validated_per_kind_and_encoded_as_one_path_segment() {
+    for kind in [
+        ResourceKind::Roles,
+        ResourceKind::RoleBindings,
+        ResourceKind::ClusterRoles,
+        ResourceKind::ClusterRoleBindings,
+    ] {
+        let mut r = request(kind);
+        r.reference.name = "system:Controller_reader".into();
+        assert!(validate(&r).is_ok());
+        assert!(
+            named_path(&r.reference)
+                .unwrap()
+                .ends_with("/system%3AController_reader")
+        );
+        for bad in [
+            ".",
+            "..",
+            "../escape",
+            "a/b",
+            "a%2fb",
+            "a?query",
+            "a#fragment",
+            "a\n",
+            "",
+        ] {
+            r.reference.name = bad.into();
+            assert_eq!(validate(&r), Err(ConnectionError::InvalidInput), "{bad}");
+        }
+    }
+    let mut r = request(ResourceKind::Pods);
+    r.reference.name = "system:reader".into();
+    assert_eq!(validate(&r), Err(ConnectionError::InvalidInput));
+}
+
+#[tokio::test]
+async fn detail_api_errors_are_typed_without_exposing_response_bodies() {
+    for (status, expected) in [
+        (401, ConnectionError::AuthFailed),
+        (403, ConnectionError::PermissionDenied),
+        (404, ConnectionError::ResourceUnavailable),
+        (500, ConnectionError::ConnectionFailed),
+    ] {
+        let (_root, _catalog, engine, id, _) = fixture();
+        let opened = connected(
+            &engine,
+            id,
+            fake(move |path| {
+                if path == "/version" {
+                    (
+                        200,
+                        serde_json::to_vec(&json!({"gitVersion":"v1.36.0"})).unwrap(),
+                    )
+                } else {
+                    (status, b"PRIVATE server credentials".to_vec())
+                }
+            }),
+        )
+        .await;
+        let mut r = request(ResourceKind::Deployments);
+        r.cluster_id = opened.cluster_id;
+        r.session_id = opened.session_id;
+        assert_eq!(engine.resource_detail(r).await, Err(expected));
+    }
+}
+
+#[test]
+fn export_frontend_detail_contract() {
+    let mut cases = Vec::new();
+    for &kind in EVENT_TARGETS {
+        let r = request(kind);
+        let mut v = object(&r);
+        v["metadata"]["creationTimestamp"] = json!("2026-01-01T00:00:00Z");
+        v["metadata"]["annotations"] = json!({"credential":"PRIVATE"});
+        v["spec"] = json!({
+            "replicas":3,"nodeName":"node-a","serviceAccountName":"runner",
+            "storageClassName":"fast","volumeName":"volume-a",
+            "claimRef":{"name":"claim-a","namespace":"default","uid":"claim-uid"},
+            "scaleTargetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"web"},
+            "targetRef":{"apiVersion":"apps/v1","kind":"Deployment","name":"web"},
+            "ingressClassName":"nginx","policyName":"policy-a",
+            "type":"ClusterIP","clusterIP":"10.0.0.1","clusterIPs":["10.0.0.1"],
+            "ipFamilies":["IPv4"],"ipFamilyPolicy":"SingleStack","externalTrafficPolicy":"Cluster",
+            "internalTrafficPolicy":"Cluster","sessionAffinity":"None","ports":[{"port":443,"protocol":"TCP"}],
+            "selector":{"app":"web"},"schedule":"*/5 * * * *","suspend":false,
+            "limits":[{"type":"Container","min":{"cpu":"100m","memory":"64Mi"},"max":{"cpu":"2","memory":"2Gi"},"default":{"cpu":"1","memory":"1Gi"},"defaultRequest":{"cpu":"100m","memory":"64Mi"}}]
+        });
+        v["status"] = json!({"phase":"Active","replicas":3,"readyReplicas":3,"availableReplicas":3,
+            "conditions":[{"type":"Ready","status":"True"}],
+            "hard":{"requests.cpu":"4","requests.memory":"4Gi","pods":"10","limits.cpu":"8","limits.memory":"8Gi","requests.storage":"10Gi"},
+            "used":{"requests.cpu":"1","requests.memory":"1Gi","pods":"2","limits.cpu":"2","limits.memory":"2Gi","requests.storage":"1Gi"}});
+        v["roleRef"] =
+            json!({"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"reader"});
+        v["involvedObject"] = json!({"apiVersion":"v1","kind":"Pod","name":"web","namespace":"default","uid":"pod-uid"});
+        if matches!(kind, ResourceKind::Secrets | ResourceKind::ConfigMaps) {
+            v = object(&r);
+            v["apiVersion"] = json!("meta.k8s.io/v1");
+            v["kind"] = json!("PartialObjectMetadata");
+            v["data"] = json!({"credential":"PRIVATE"});
+        }
+        let response = project(&r, v).unwrap();
+        assert!(
+            !serde_json::to_string(&response)
+                .unwrap()
+                .contains("PRIVATE")
+        );
+        cases.push(json!({"request":{"clusterId":r.cluster_id,"sessionId":r.session_id,"readId":r.read_id,"reference":r.reference},"response":response}));
+    }
+    assert_eq!(cases.len(), 41);
+    println!(
+        "DETAIL_CONTRACT_JSON:{}",
+        serde_json::to_string(&cases).unwrap()
+    );
+}
 fn object(r: &DetailRequest) -> Value {
     let (api, kind) = object_type(r.reference.kind);
     let mut value = json!({"apiVersion":api,"kind":kind,"metadata":{"name":"sample","uid":"uid-1","resourceVersion":"7"}});

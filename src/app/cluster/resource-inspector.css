@@ -11,6 +11,33 @@
   transition: flex-basis 180ms ease, opacity 140ms ease, visibility 0s linear 180ms;
 }
 
+.resource-inspector-header {
+  flex-shrink: 0;
+  min-width: 0;
+  border-block-end: var(--border-width) solid var(--color-border);
+}
+
+.resource-inspector-title {
+  flex: 1 1 var(--spacing-10);
+  min-width: 0;
+}
+
+.resource-inspector-actions {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.resource-inspector-body {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.resource-inspector-body > * {
+  flex-shrink: 0;
+}
+
 .resource-inspector[data-open="false"] {
   flex-basis: 0;
 }

@@ -20,14 +20,18 @@ function closed(v: Record<string, unknown>, keys: string[]) { return Object.keys
 function text(v: unknown, max: number): v is string {
   return typeof v === "string" && v.length > 0 && new TextEncoder().encode(v).length <= max && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(v);
 }
-function name(v: unknown): v is string {
+function name(v: unknown, kind: string): v is string {
+  if (["roles", "roleBindings", "clusterRoles", "clusterRoleBindings"].includes(kind)) {
+    return typeof v === "string" && v.length > 0 && v.length <= 253 && v !== "." && v !== ".."
+      && /^[A-Za-z0-9_.:-]+$/.test(v);
+  }
   return typeof v === "string" && v.length <= 253 && v.split(".").every((s) => /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(s));
 }
 function namespace(v: unknown): v is string {
   return typeof v === "string" && v.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/.test(v);
 }
 function reference(v: unknown): v is ResourceReference {
-  if (!record(v) || !closed(v, ["kind", "namespace", "name", "uid"]) || typeof v.kind !== "string" || !kinds.has(v.kind) || !name(v.name)
+  if (!record(v) || !closed(v, ["kind", "namespace", "name", "uid"]) || typeof v.kind !== "string" || !kinds.has(v.kind) || !name(v.name, v.kind)
     || !validResourceIdentity(v.uid)) return false;
   const scoped = resourceViews.find((view) => view.kind === v.kind)?.namespaced === true;
   return scoped ? namespace(v.namespace) : v.namespace === null;

@@ -15,6 +15,7 @@ const inspector = (page: Page) => page.getByRole("region", { name: "Resource det
 const workspace = (page: Page) => page.locator('[aria-label="Resource workspace"]');
 
 async function expectInsetInspector(page: Page, closedWidth: number) {
+  await expect.poll(async () => (await workspace(page).boundingBox())!.width).toBeLessThan(closedWidth - 1);
   const content = await inspector(page).evaluate(element => {
     const parent = element.parentElement!;
     const bounds = parent.getBoundingClientRect();
@@ -330,6 +331,7 @@ for (const width of [1440, 800, 390]) for (const colorScheme of ["light", "dark"
     const closedWidth = (await workspace(page).boundingBox())!.width;
     await grid(page, "Resource Quotas").getByRole("button", { name: "sample-a", exact: true }).click();
     await expect(inspector(page)).toContainText("detail-version-1");
+    await inspector(page).evaluate(async element => { await Promise.all(element.getAnimations().map(animation => animation.finished)); });
     const bounds = (await inspector(page).boundingBox())!;
     expect(bounds.x).toBeGreaterThanOrEqual(-1); expect(bounds.y).toBeGreaterThanOrEqual(-1);
     expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import { VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
@@ -44,10 +44,12 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; void cancelHelm({ clusterId, sessionId, view, readId }).catch(() => {}); };
   }, [clusterId, sessionId, view, selectedNamespace, scope, revision]);
-  const rows = scopedPage?.items ?? [];
-  const needle = query.trim().toLocaleLowerCase();
-  const items = rows.filter((item) => (!status || item.status === status) && (!needle || [item.name, item.namespace, item.version, item.appVersion, item.description, item.status].join(" ").toLocaleLowerCase().includes(needle)));
-  const statuses = [...new Set(rows.flatMap((item) => item.status ? [item.status] : []))].sort();
+  const rows = useMemo(() => scopedPage?.items ?? [], [scopedPage]);
+  const deferredQuery = useDeferredValue(query);
+  const pending = query !== deferredQuery;
+  const needle = deferredQuery.trim().toLocaleLowerCase();
+  const items = useMemo(() => rows.filter((item) => (!status || item.status === status) && (!needle || [item.name, item.namespace, item.version, item.appVersion, item.description, item.status].join(" ").toLocaleLowerCase().includes(needle))), [rows, status, needle]);
+  const statuses = useMemo(() => [...new Set(rows.flatMap((item) => item.status ? [item.status] : []))].sort(), [rows]);
   const inspect = (item: HelmItem) => openSummary({
       title: item.name,
       facts: [
@@ -62,11 +64,12 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       ],
       ...(item.status ? { status: item.status } : {}),
     });
-  const installIdentity = JSON.stringify([scope, rows, loading, error]);
+  const rowIdentity = useMemo(() => JSON.stringify(rows), [rows]);
+  const installIdentity = useMemo(() => JSON.stringify([scope, rowIdentity, loading, error, query, status]), [scope, rowIdentity, loading, error, query, status]);
   const contextChart = installTarget?.identity === installIdentity ? installTarget.item : null;
-  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope, rowKey: item => item.id, rowLabel: item => item.name,
+  const rowMenu = useRowContextMenu({ clusterId, sessionId, rows: items, scope: JSON.stringify([scope, query, status]), rowKey: item => item.id, rowLabel: item => item.name,
     target: item => view === "charts" ? { type: "helmChart", id: item.id, name: item.name } : { type: "helmRelease", name: item.name, namespace: item.namespace! },
-    actions: () => [{ action: "details" }, ...(view === "charts" ? [{ action: "install" as const, disabled: loading || !!error }] : [])],
+    actions: () => [{ action: "details" }, ...(view === "charts" ? [{ action: "install" as const, disabled: pending || loading || !!error }] : [])],
     onAction: (item, action) => { if (action === "details") inspect(item); else if (action === "install") setInstallTarget({ item, identity: installIdentity }); },
   });
   const columns: TableColumn<HelmItem>[] = [
@@ -87,11 +90,12 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
       {view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}
     </TableToolbar>
     {loading && <Text role="status">Loading Helm {view}…</Text>}
+    {pending && <Text role="status">Updating search results…</Text>}
     {error?.scope === scope && <Text role="alert">{error.message}</Text>}
     {scopedPage && (loading || error?.scope === scope) && <Text role="status">Showing the previous Helm inventory. It may be stale.</Text>}
     {scopedPage && <>
       {scopedPage.truncated && <Text role="status">This inventory may be partial. At most 500 rows are displayed; Helm may apply its own list limit. Filters apply only to loaded rows.</Text>}
-      <Table aria-label={`Helm ${label}`} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<HelmItem>(), rowContext: rowMenu }}
+      <Table aria-label={`Helm ${label}`} aria-busy={pending} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={{ viewport: tableViewport<HelmItem>(), rowContext: rowMenu }}
         emptyState={<VStack gap={2} padding={6}><Text>{query || status ? `No ${view} match your filters.` : `No ${view} were returned.`}</Text>
           <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>} />
     </>}

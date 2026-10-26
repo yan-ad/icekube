@@ -133,7 +133,7 @@ test("parent menus expose destination tables without resource fan-out", async ({
   await ready(page);
   const connects = await calls(page, "cluster_connect");
   const before = await calls(page);
-  for (const [section, label] of [["config", "Config"], ["network", "Network"], ["storage", "Storage"], ["helm", "Helm"], ["access-control", "Access Control"], ["custom-resources", "Custom Resources"], ["workloads-overview", "Overview"], ["overview", "Cluster"]]) {
+  for (const [section, label] of [["config", "Config"], ["network", "Network"], ["storage", "Storage"], ["helm", "Helm"], ["access-control", "Access Control"], ["custom-resources", "Custom Resources"], ["overview", "Cluster"]]) {
     await navigate(page, section);
     await expect(table(page, `${label} destinations`)).toBeVisible();
     expect(await calls(page)).toEqual(before);
@@ -266,10 +266,10 @@ test("all 43 registry views expose their direct route, columns and explicit crea
       const grid = table(page, helm ? `Helm ${view.label}` : forward ? "Port forwards" : view.label);
       await expect(grid).toBeVisible();
       await expect(grid.getByRole("columnheader")).toHaveText(helm ? (view.section === "helm-charts"
-        ? ["Name", "Version", "App version", "Description"]
-        : ["Name", "Namespace", "Chart", "App version", "Status", "Revision", "Updated"])
+        ? ["Name", "Version", "App version", "Description", "Actions"]
+        : ["Name", "Namespace", "Chart", "App version", "Status", "Revision", "Updated", "Actions"])
         : forward ? ["Name", "Namespace", "Pod", "Port", "Local Port", "Address", "Status", "Actions"]
-        : ["Select all rows", "Name", ...(view.namespaced ? ["Namespace"] : []), ...view.columns.map((column) => column.label), "Age", "Status", ...(view.kind === "pods" ? ["Actions"] : [])]);
+        : ["Select all rows", "Name", ...(view.kind === "pods" ? ["Health"] : []), ...(view.namespaced ? ["Namespace"] : []), ...view.columns.map((column) => column.label), "Age", "Status", "Actions"]);
       await expect(page.getByText(/service is not implemented|unavailable because|Live .* data is not implemented yet/)).toHaveCount(0);
       if (view.kind) {
         await expect(grid.getByRole("row")).toHaveCount(3);
@@ -509,7 +509,7 @@ for (const section of ["secrets", "config-maps"]) {
     const view = resourceViews.find((view) => view.section === section)!;
     await fixture(page, { section }); await ready(page, view.label);
     await expect(page.getByText("Metadata only. Data values and key names are not loaded.", { exact: true })).toHaveCount(0);
-    await expect(table(page, view.label).getByRole("columnheader")).toHaveText(["Select all rows", "Name", "Namespace", "Age", "Status"]);
+    await expect(table(page, view.label).getByRole("columnheader")).toHaveText(["Select all rows", "Name", "Namespace", "Age", "Status", "Actions"]);
     await expect(page.locator("body")).not.toContainText("PRIVATE_VALUE");
     await expect(page.locator("body")).not.toContainText("private-key-name");
     const parsed = await page.evaluate(async () => {
