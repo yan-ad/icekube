@@ -14,6 +14,10 @@ test.afterEach(async ({ page }) => {
 });
 
 async function fixture(page: Page, value = "apiVersion: v1\nkind: ConfigMap\n", readOnly = false) {
+  if (process.env.YAML_EDITOR_CPU_THROTTLE) {
+    const session = await page.context().newCDPSession(page);
+    await session.send("Emulation.setCPUThrottlingRate", { rate: Number(process.env.YAML_EDITOR_CPU_THROTTLE) });
+  }
   await page.route("**/yaml-editor-fixture", route => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html>
     <html><body><main id="fixture"></main><script type="module">
       import RefreshRuntime from '/@react-refresh';
@@ -81,6 +85,54 @@ test("real CodeJar highlights escaped source and exposes a named multiline edito
   await expect(editor(page).locator(".hljs-attr")).not.toHaveCount(0);
   await expect(editor(page).locator("img, script")).toHaveCount(0);
   expect(await changes(page)).toEqual([]);
+});
+
+for (const readOnly of [false, true]) {
+  test(`queued Tab keyup cannot redirect Shift+Tab (${readOnly ? "read-only" : "editable"})`, async ({ page }) => {
+    await fixture(page, "name: old\n", readOnly);
+    await page.clock.install();
+    await page.clock.pauseAt(new Date());
+    await page.getByRole("button", { name: "Before editor" }).focus();
+    await page.keyboard.press("Tab");
+    await expect(editor(page)).toBeFocused();
+    await page.keyboard.press("Tab");
+    await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+    await page.keyboard.down("Shift");
+    // Force the timer between Shift and Tab rather than depending on CI scheduling.
+    await page.clock.runFor(30);
+    await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+    await page.keyboard.press("Tab");
+    await page.keyboard.up("Shift");
+    await expect(editor(page)).toBeFocused();
+    await page.keyboard.press("Shift+Tab");
+    await page.clock.runFor(350);
+    await expect(page.getByRole("button", { name: "Before editor" })).toBeFocused();
+    expect(await changes(page)).toEqual([]);
+  });
+}
+
+test("queued edit highlighting and blurred value updates leave outside selection alone", async ({ page }) => {
+  await fixture(page, "name: old");
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.getByRole("button", { name: "Before editor" }).focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("End");
+  await page.keyboard.press("x");
+  await page.keyboard.press("Tab");
+  await page.clock.runFor(350);
+  await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+  await page.getByRole("button", { name: "After editor" }).evaluate(element => {
+    const range = document.createRange();
+    range.selectNodeContents(element);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+  });
+  await page.evaluate(() => (window as Fixture).yamlFixture.render({ value: "name: updated" }));
+  await expect(editor(page)).toHaveText("name: updated");
+  await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+  expect(await page.evaluate(() => window.getSelection()!.toString())).toBe("After editor");
+  expect(await changes(page)).toEqual([{ version: 1, value: "name: oldx" }]);
 });
 
 test("input-only edits publish exact text once, use the latest callback and retain the caret", async ({ page }) => {
@@ -199,6 +251,25 @@ test("composition is not highlighted or published mid-IME, and commits once", as
   await expect.poll(() => changes(page)).toEqual([{ version: 1, value: "name: 日本" }]);
   await editor(page).dispatchEvent("keyup", { key: "Enter" });
   expect(await changes(page)).toHaveLength(1);
+});
+
+test("composition ending after blur publishes without restoring editor focus", async ({ page }) => {
+  await fixture(page, "name: ");
+  await page.clock.install();
+  await page.clock.pauseAt(new Date());
+  await page.getByRole("button", { name: "Before editor" }).focus();
+  await page.keyboard.press("Tab");
+  await page.keyboard.press("End");
+  await editor(page).evaluate(element => {
+    element.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+    document.execCommand("insertText", false, "日本");
+  });
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+  await editor(page).dispatchEvent("compositionend", { data: "日本" });
+  await page.clock.runFor(350);
+  await expect(page.getByRole("button", { name: "After editor" })).toBeFocused();
+  expect(await changes(page)).toEqual([{ version: 1, value: "name: 日本" }]);
 });
 
 test("unmount removes handlers and pending callbacks cannot publish", async ({ page }) => {

@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { ProgressBar } from "@astryxdesign/core/ProgressBar";
 import { Table, pixel, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
@@ -46,7 +46,7 @@ function age(value: string | null, now: number): string {
   return `${Math.floor(seconds / 86400)}d`;
 }
 
-export function NodesTable({ items, loading, filtered, now, selection, rowContext }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem>; rowContext?: TablePlugin<ResourceItem> }) {
+export const NodesTable = memo(function NodesTable({ items, loading, filtered, now, selection, rowContext }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem>; rowContext?: TablePlugin<ResourceItem> }) {
   const { openResource } = useResourceInspector();
   const conditionSummary = (item: ResourceItem) => {
     const conditions = item.node?.conditions ?? [];
@@ -88,4 +88,4 @@ export function NodesTable({ items, loading, filtered, now, selection, rowContex
       <Text>{filtered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
       <Text color="secondary">{filtered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>
     </VStack>} />;
-}
+});

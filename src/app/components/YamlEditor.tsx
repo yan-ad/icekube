@@ -43,6 +43,11 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
 
     let disposed = false;
     let published = latest.current.value;
+    const ownsSelection = () => {
+      const selection = window.getSelection();
+      return document.activeElement === editor && selection?.anchorNode && selection.focusNode &&
+        editor.contains(selection.anchorNode) && editor.contains(selection.focusNode);
+    };
     // CodeJar observes keyup/paste/cut, but not input or compositionend.
     const readCode = () => editor.querySelector("br")
       ? editor.innerText.replace(/\n$/, "") : editor.textContent ?? "";
@@ -78,7 +83,7 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
       if (!disposed && !composing.current) {
         if (editor.querySelector("br")) {
           const selection = window.getSelection();
-          const range = selection?.rangeCount ? selection.getRangeAt(0) : null;
+          const range = ownsSelection() && selection?.rangeCount ? selection.getRangeAt(0) : null;
           const position = range ? range.cloneRange() : null;
           if (position) {
             position.selectNodeContents(editor);
@@ -87,7 +92,7 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
           const offset = position?.toString().length ?? 0;
           editor.textContent = readCode();
           highlightYaml(element);
-          jarRef.current?.restore({ start: offset, end: offset });
+          if (position) jarRef.current?.restore({ start: offset, end: offset });
         } else highlightYaml(element);
       }
     }, {
@@ -95,7 +100,11 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
       window: new Proxy(window, {
         get(target, key) {
           if (key === "setTimeout") return (callback: () => void, delay: number) =>
-            target.setTimeout(() => { if (!disposed) callback(); }, delay);
+            // CodeJar's debounce saves/restores selection outside the highlight callback.
+            // A Tab keyup can queue it before blur; restoring then steals focus back.
+            target.setTimeout(() => {
+              if (!disposed && !composing.current && ownsSelection()) callback();
+            }, delay);
           return Reflect.get(target, key);
         },
       }),
@@ -103,9 +112,9 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
     jarRef.current = jar;
     const endComposition = () => {
       composing.current = false;
-      const position = jar.save();
+      const position = ownsSelection() ? jar.save() : null;
       highlightYaml(editor);
-      jar.restore(position);
+      if (position) jar.restore(position);
       publish();
     };
     editor.style.removeProperty("outline");
@@ -131,7 +140,7 @@ export function YamlEditor({ label, value, onChange, isReadOnly = false, rows = 
     if (!editor || composing.current || editor.textContent === value) return;
     const jar = jarRef.current;
     const selection = window.getSelection();
-    const position = jar && selection?.anchorNode && selection.focusNode &&
+    const position = jar && document.activeElement === editor && selection?.anchorNode && selection.focusNode &&
       editor.contains(selection.anchorNode) && editor.contains(selection.focusNode) ? jar.save() : null;
     if (jar) {
       jar.updateCode(value, false);

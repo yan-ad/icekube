@@ -92,7 +92,9 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const visibleLoading = loading && !auto.background.current;
   const unavailable = pending || visibleLoading || !!error;
   const selection = useResourceSelection(items, selectionScope, !unavailable);
-  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: selectionScope, kind, unavailable, openResource });
+  // Retained rows have one read scope while draft edits keep mutations disabled.
+  const rowScope = JSON.stringify([clusterId, sessionId, kind, token, index, needle]);
+  const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows: items, scope: rowScope, kind, unavailable, openResource });
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? undefined : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
