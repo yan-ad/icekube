@@ -230,7 +230,7 @@ This documentation pass checked source, not native windows or real clusters.
 
 ## Prerelease and CI scope
 
-See [release and installation instructions](releases.md) for `0.0.1-pre.1`.
+See [release and installation instructions](releases.md) for `0.0.1-pre.2`.
 The unsigned route builds only an Apple Silicon DMG, using ad-hoc signing rather
 than Developer ID or notarization. Updater public key/endpoints are empty; no
 updater manifest, archive or signature is published. Foreground inventory polling

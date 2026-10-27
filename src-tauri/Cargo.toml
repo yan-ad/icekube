@@ -1,6 +1,6 @@
 [package]
 name = "icekube"
-version = "0.0.1-pre.1"
+version = "0.0.1-pre.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2024"

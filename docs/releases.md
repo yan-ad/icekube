@@ -1,6 +1,6 @@
 # Unsigned prereleases
 
-The first prerelease is `0.0.1-pre.1`, without a `v` prefix. The repository is
+The first prerelease is `0.0.1-pre.2`, without a `v` prefix. The repository is
 [yan-ad/icekube](https://github.com/yan-ad/icekube). This route does not require
 Apple Developer credentials or Tauri updater signing secrets.
 
@@ -27,7 +27,7 @@ shards currently contain 166, 166, 166 and 165 tests, without omissions or dupli
 `.github/workflows/prerelease-unsigned.yml` runs on tag pushes matching
 `*-pre.*`. It reuses the full CI workflow, then requires canonical
 `X.Y.Z-pre.N` tags, matching application manifest/lock versions, and an exact
-checked-out tag commit. `0.0.1-pre.1` is accepted; `v0.0.1-pre.1` is not.
+checked-out tag commit. `0.0.1-pre.2` is accepted; `v0.0.1-pre.2` is not.
 
 After those checks, an ARM64 `macos-15` runner builds an Apple Silicon DMG with
 Cargo `--locked` and frozen Bun dependencies. `.github/release-unsigned.json`
@@ -53,7 +53,7 @@ Source changes after publication require a new version and tag.
 ## Install on an Apple Silicon Mac
 
 1. Download the DMG and `SHASUMS256.txt` from the
-   [exact prerelease](https://github.com/yan-ad/icekube/releases/tag/0.0.1-pre.1).
+   [exact prerelease](https://github.com/yan-ad/icekube/releases/tag/0.0.1-pre.2).
    In their download directory, run:
 
    ```sh

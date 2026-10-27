@@ -14,7 +14,7 @@ Say goodbye to clunky kube managed experience and don't loose all of your RAM us
 
 ## Install the prerelease (Apple Silicon Macs only)
 
-Version **`0.0.1-pre.1`** uses macOS ad-hoc signing, not Developer ID signing
+Version **`0.0.1-pre.2`** uses macOS ad-hoc signing, not Developer ID signing
 or Apple notarization. See [release and installation instructions](docs/releases.md)
 for the exact download, checksum verification and publication checks. This workflow
 does not publish Intel, Universal, Linux or Windows installers.
