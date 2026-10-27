@@ -11,8 +11,11 @@ const TRAY_ID: &str = "iceon-navigation";
 #[serde(rename_all = "camelCase")]
 pub enum Action {
     AllCategories,
+    #[cfg(target_os = "macos")]
     OpenSearch,
+    #[cfg(target_os = "macos")]
     OpenPreferences,
+    #[cfg(target_os = "macos")]
     CheckUpdates,
 }
 
@@ -131,4 +134,29 @@ pub fn sync_tray(app: &AppHandle) -> tauri::Result<()> {
         tray.set_visible(enabled)?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Action;
+
+    #[test]
+    fn tray_navigation_preserves_its_cross_platform_event_value() {
+        assert_eq!(
+            serde_json::to_value(Action::AllCategories).unwrap(),
+            "allCategories"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_menu_actions_preserve_their_event_values() {
+        for (action, expected) in [
+            (Action::OpenSearch, "openSearch"),
+            (Action::OpenPreferences, "openPreferences"),
+            (Action::CheckUpdates, "checkUpdates"),
+        ] {
+            assert_eq!(serde_json::to_value(action).unwrap(), expected);
+        }
+    }
 }
