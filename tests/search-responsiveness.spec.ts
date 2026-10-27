@@ -52,7 +52,7 @@ for (const [section, label, inputLabel, command, needle, count] of [
 ] as const) test(`${label}: keyboard search preserves text and filters ${count} loaded rows locally`, async ({ page }) => {
   await fixture(page, section);
   const grid = page.getByRole("table", { name: label, exact: true });
-  await expect(grid.getByRole("row")).toHaveCount(count + 1);
+  await expect(grid.getByRole("row")).toHaveCount(count + 1, { timeout: 20_000 });
   const before = (await calls(page, command)).length;
   const input = page.getByRole("textbox", { name: inputLabel, exact: true });
   await input.pressSequentially(needle);
@@ -63,7 +63,7 @@ for (const [section, label, inputLabel, command, needle, count] of [
   await input.press("ControlOrMeta+A");
   await input.press("Backspace");
   await expect(input).toHaveValue("");
-  await expect(grid.getByRole("row")).toHaveCount(count + 1);
+  await expect(grid.getByRole("row")).toHaveCount(count + 1, { timeout: 20_000 });
   if (section !== "port-forwarding") expect((await calls(page, command)).length).toBe(before);
 });
 

@@ -88,10 +88,22 @@ jobs:
           unset APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_SIGNING_IDENTITY \
             APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID APPLE_API_ISSUER APPLE_API_KEY \
             APPLE_API_KEY_PATH TAURI_SIGNING_PRIVATE_KEY TAURI_SIGNING_PRIVATE_KEY_PASSWORD
-          bun run tauri build --target aarch64-apple-darwin --bundles dmg \
+          bun run tauri build --target aarch64-apple-darwin --bundles app \
             --config .github/release-unsigned.json -- --locked
           git diff --exit-code
           git diff --cached --exit-code
+      - name: Create headless DMG without Finder or AppleScript
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
+          staging=$(mktemp -d)
+          trap 'rm -rf "$staging"' EXIT
+          ditto "$bundle/macos/IceKube.app" "$staging/IceKube.app"
+          ln -s /Applications "$staging/Applications"
+          mkdir -p "$bundle/dmg"
+          hdiutil create -volname IceKube -srcfolder "$staging" -ov -format UDZO \
+            "$bundle/dmg/IceKube_${RELEASE_TAG}_aarch64.dmg"
       - name: Verify bundle and prepare checksums
         run: |
           bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
