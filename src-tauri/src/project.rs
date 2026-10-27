@@ -1,6 +1,21 @@
 use serde::Serialize;
 
 const REPOSITORY_URL: &str = "https://github.com/yan-ad/icekube";
+const HOMEPAGE_URL: &str = "https://icekube.yan.ad";
+
+#[tauri::command]
+pub async fn project_open_homepage(app: tauri::AppHandle) -> Result<(), ProjectError> {
+    use tauri_plugin_opener::OpenerExt;
+    tauri::async_runtime::spawn_blocking(move || {
+        open_homepage_with(|url| app.opener().open_url(url, None::<&str>))
+    })
+    .await
+    .map_err(|_| ProjectError::OpenFailed)?
+}
+
+pub fn open_homepage_with<E>(open: impl FnOnce(&str) -> Result<(), E>) -> Result<(), ProjectError> {
+    open(HOMEPAGE_URL).map_err(|_| ProjectError::OpenFailed)
+}
 
 #[derive(Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -17,6 +32,21 @@ pub fn open_repository_with<E>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn homepage_has_no_caller_supplied_destination() {
+        let mut calls = Vec::new();
+        open_homepage_with(|url| {
+            calls.push(url.to_owned());
+            Ok::<_, ()>(())
+        })
+        .unwrap();
+        assert_eq!(calls, ["https://icekube.yan.ad"]);
+        assert_eq!(
+            open_homepage_with(|_| Err("private diagnostic")),
+            Err(ProjectError::OpenFailed)
+        );
+    }
 
     #[test]
     fn opens_only_the_fixed_https_repository() {

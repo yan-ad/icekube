@@ -2,9 +2,11 @@ mod catalog;
 mod catalog_picker;
 mod connection;
 mod context_menu;
+mod native_navigation;
 #[cfg(target_os = "macos")]
 mod menu;
 mod preferences;
+mod route_history;
 mod project;
 mod updates;
 mod window;
@@ -31,6 +33,24 @@ async fn catalog_operation(
     })
     .await
     .map_err(|_| CatalogError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn route_history_get(engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>) -> Result<Option<route_history::SavedRoute>, preferences::PreferencesError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.route_history_get()).await.map_err(|_| preferences::PreferencesError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn route_history_save(engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>, route: route_history::SavedRoute) -> Result<(), preferences::PreferencesError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.route_history_save(route)).await.map_err(|_| preferences::PreferencesError::StoreUnavailable)?
+}
+
+#[tauri::command]
+async fn route_history_clear(engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>) -> Result<(), preferences::PreferencesError> {
+    let engine = engine.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || engine.route_history_clear()).await.map_err(|_| preferences::PreferencesError::StoreUnavailable)?
 }
 #[tauri::command]
 async fn cluster_custom_resource_definitions(
@@ -408,13 +428,16 @@ async fn preferences_get(
 
 #[tauri::command]
 async fn preferences_save(
+    app: tauri::AppHandle,
     engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>,
     request: preferences::SavePreferencesRequest,
 ) -> Result<preferences::PreferencesSnapshot, preferences::PreferencesError> {
     let engine = engine.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || engine.save(request))
+    let snapshot = tauri::async_runtime::spawn_blocking(move || engine.save(request))
         .await
-        .map_err(|_| preferences::PreferencesError::StoreUnavailable)?
+        .map_err(|_| preferences::PreferencesError::StoreUnavailable)??;
+    native_navigation::sync_tray(&app).map_err(|_| preferences::PreferencesError::StoreUnavailable)?;
+    Ok(snapshot)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -446,7 +469,9 @@ pub fn run() {
             let updater = updates::UpdateEngine::start_with_proxy(app.handle().clone(), proxy.as_deref());
             app.manage(updater);
 
+            app.manage(native_navigation::Navigation::default());
             window::create_main_window(app)?;
+            native_navigation::install(app)?;
             context_menu::install(app);
             #[cfg(target_os = "macos")]
             menu::install(app)?;
@@ -464,6 +489,8 @@ pub fn run() {
             catalog_remove,
             catalog_open_web_link,
             project_open_repository,
+            project::project_open_homepage,
+            native_navigation::native_navigation_ready,
             cluster_session_open,
             cluster_connect,
             cluster_disconnect,
@@ -501,14 +528,29 @@ pub fn run() {
 
             preferences_get,
             preferences_save,
+            route_history_get,
+            route_history_save,
+            route_history_clear,
             updates::update_state,
+            updates::update_check,
             updates::update_restart
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app, event| {
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = &event {
+                api.prevent_exit();
+                return;
+            }
+            #[cfg(target_os = "macos")]
+            if matches!(event, tauri::RunEvent::Reopen { .. }) {
+                let _ = native_navigation::focused_or_create(app);
+            }
+            if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } = &event {
+                native_navigation::forget_window(app, label);
+            }
             if matches!(event, tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. })
-                || matches!(event, tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } if label == "main")
             {
                 app.state::<Arc<context_menu::ContextMenus>>().clear();
                 let engine = app.state::<Arc<connection::ConnectionEngine>>();

@@ -1,6 +1,6 @@
 // Copyright (c) Meta Platforms, Inc. and affiliates.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Outlet, useParams, useRouterState } from "@tanstack/react-router";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { MobileNav } from "@astryxdesign/core/MobileNav";
@@ -12,6 +12,7 @@ import { getWindowLayout } from "./window-layout";
 import { HStack } from "@astryxdesign/core/Stack";
 import { Divider } from "@astryxdesign/core/Divider";
 import { ClusterSidebar } from "../cluster/ClusterSidebar";
+import { NativeNavigation } from "./NativeNavigation";
 
 export default function MainLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -24,6 +25,7 @@ export default function MainLayout() {
     return () => window.clearTimeout(timeout);
   }, [clusterId]);
   const [isSearchOpen, setSearchOpen] = useState(false);
+  const openSearch = useCallback(() => setSearchOpen(true), []);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => {
     try { return localStorage.getItem("icekube.sidebar-collapsed.v1") === "true"; }
@@ -57,6 +59,7 @@ export default function MainLayout() {
 
   return (
     <>
+      <NativeNavigation onSearch={openSearch} />
       <WindowFrame {...getWindowLayout()}>
       <AppShell
         style={{ height: "100%", minHeight: 0 }}

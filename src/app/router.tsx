@@ -8,9 +8,10 @@ import { clusterDestinations, type ClusterSectionId } from "./cluster/navigation
 import { WorkspaceRefreshProvider } from "./cluster/WorkspaceRefresh";
 import { CustomResourcesProvider } from "./cluster/CustomResourcesProvider";
 import { validDefinitionName } from "./cluster/customResourcesApi";
+import { RouteRestoration } from "./RouteRestoration";
 
 const rootRoute = createRootRoute({
-  component: () => <CatalogProvider><WorkspaceRefreshProvider><CustomResourcesProvider><MainLayout /></CustomResourcesProvider></WorkspaceRefreshProvider></CatalogProvider>,
+  component: () => <CatalogProvider><RouteRestoration /><WorkspaceRefreshProvider><CustomResourcesProvider><MainLayout /></CustomResourcesProvider></WorkspaceRefreshProvider></CatalogProvider>,
   notFoundComponent: NotFoundPage,
 });
 const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/catalog", replace: true }); } });

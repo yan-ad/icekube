@@ -153,6 +153,12 @@ export function PreferencesDialog() {
                 onChange={(value) => setDraft((d) => ({ ...d, app: { ...d.app, timezone: value } }))}
               />
               <Switch
+                label="Restore last page"
+                description="Open the last catalog or cluster page when Icekube starts"
+                value={draft.app.restoreLastPage}
+                onChange={(checked) => setDraft((d) => ({ ...d, app: { ...d.app, restoreLastPage: checked } }))}
+              />
+              <Switch
                 label="Persistent search"
                 description="Keep search terms when navigating across resources"
                 value={draft.app.persistentSearch}

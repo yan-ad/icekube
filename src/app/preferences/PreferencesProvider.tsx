@@ -14,6 +14,7 @@ type PreferencesContextType = {
   closePreferences: () => void;
   save: (next: Preferences) => Promise<void>;
   reset: () => Promise<void>;
+  preferencesReady: boolean;
 };
 
 const PreferencesContext = createContext<PreferencesContextType | null>(null);
@@ -24,6 +25,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     preferences: defaultPreferences,
   });
   const [isOpen, setIsOpen] = useState(false);
+  const [preferencesReady, setPreferencesReady] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -33,6 +35,8 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
       }
     } catch {
       // Keep existing snapshot on error
+    } finally {
+      setPreferencesReady(true);
     }
   }, []);
 
@@ -107,6 +111,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
         closePreferences: () => setIsOpen(false),
         save,
         reset,
+        preferencesReady,
       }}
     >
       <Theme theme={brandTheme} mode={snapshot.preferences.app.theme}>

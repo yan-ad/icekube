@@ -5,6 +5,36 @@ struct Fake {
     delay: Duration,
     ready: bool,
 }
+
+#[test]
+fn explicit_checks_preserve_disabled_unsigned_state() {
+    let engine = UpdateEngine::new(Phase::Disabled, Some(UpdateError::TrustNotConfigured));
+    let snapshot = engine.request_check();
+    assert_eq!(snapshot.phase, Phase::Disabled);
+    assert_eq!(snapshot.error, Some(UpdateError::TrustNotConfigured));
+    engine.shutdown();
+    assert_eq!(engine.request_check().phase, Phase::Stopped);
+}
+
+#[tokio::test(start_paused = true)]
+async fn explicit_check_retries_before_background_interval() {
+    let engine = UpdateEngine::new(Phase::Idle, None);
+    let fake = Arc::new(Fake {
+        calls: AtomicUsize::new(0),
+        delay: Duration::from_secs(1),
+        ready: false,
+    });
+    engine.launch(fake.clone(), &tokio::runtime::Handle::current());
+    settle().await;
+    tokio::time::advance(Duration::from_secs(1)).await;
+    settle().await;
+    assert_eq!(engine.snapshot().phase, Phase::Error);
+    engine.request_check();
+    settle().await;
+    assert_eq!(fake.calls.load(Ordering::SeqCst), 2);
+    engine.shutdown();
+    engine.drain().await;
+}
 struct FakePackage;
 impl Package for FakePackage {
     fn install(self: Box<Self>) -> Result<(), UpdateError> {

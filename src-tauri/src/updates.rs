@@ -35,6 +35,10 @@ pub enum UpdateError {
     Busy,
     Stopped,
 }
+#[tauri::command]
+pub fn update_check(engine: tauri::State<'_, Arc<UpdateEngine>>) -> UpdateSnapshot {
+    engine.request_check()
+}
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum Phase {
@@ -73,6 +77,7 @@ pub struct UpdateEngine {
     inner: Arc<Mutex<Inner>>,
     cancel: CancellationToken,
     tasks: TaskTracker,
+    check_requested: tokio::sync::Notify,
 }
 
 impl UpdateEngine {
@@ -80,6 +85,13 @@ impl UpdateEngine {
     #[allow(dead_code)]
     pub fn start(app: AppHandle) -> Arc<Self> {
         Self::start_with_proxy(app, None)
+    }
+    pub fn request_check(&self) -> UpdateSnapshot {
+        let snapshot = self.snapshot();
+        if matches!(snapshot.phase, Phase::Idle | Phase::Error) && !self.cancel.is_cancelled() {
+            self.check_requested.notify_one();
+        }
+        snapshot
     }
     pub fn start_with_proxy(app: AppHandle, proxy: Option<&str>) -> Arc<Self> {
         let proxy = proxy.map(validate_proxy).transpose();
@@ -135,6 +147,7 @@ impl UpdateEngine {
             })),
             cancel: CancellationToken::new(),
             tasks: TaskTracker::new(),
+            check_requested: tokio::sync::Notify::new(),
         })
     }
     fn launch(self: &Arc<Self>, provider: Arc<dyn Provider>, runtime: &tokio::runtime::Handle) {
@@ -146,7 +159,7 @@ impl UpdateEngine {
         let mut ticks = tokio::time::interval(INTERVAL);
         ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
-            tokio::select! { biased; _ = self.cancel.cancelled() => break, _ = ticks.tick() => {} }
+            tokio::select! { biased; _ = self.cancel.cancelled() => break, _ = ticks.tick() => {}, _ = self.check_requested.notified() => {} }
             {
                 let mut state = self.inner.lock().unwrap();
                 if matches!(state.snapshot.phase, Phase::Ready | Phase::Restarting) {

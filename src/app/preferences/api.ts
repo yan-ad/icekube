@@ -12,6 +12,7 @@ export type AppPreferences = {
   persistentSearch: boolean;
   openAtLogin: boolean;
   showTrayIcon: boolean;
+  restoreLastPage: boolean;
 };
 
 export type ProxyPreferences = {
@@ -67,6 +68,7 @@ export const defaultPreferences: Preferences = {
     persistentSearch: false,
     openAtLogin: false,
     showTrayIcon: false,
+    restoreLastPage: false,
   },
   proxy: {
     httpsProxy: "",
@@ -103,6 +105,15 @@ export function hasPreferencesEngine(): boolean {
   return true;
 }
 
+export type SavedRoute = { path: string; section?: string | null; definition?: string | null };
+export async function loadRouteHistory(): Promise<SavedRoute | null> {
+  if (!hasPreferencesEngine()) return null;
+  return invoke<SavedRoute | null>("route_history_get");
+}
+export async function saveRouteHistory(route: SavedRoute): Promise<void> {
+  if (hasPreferencesEngine()) await invoke("route_history_save", { route });
+}
+
 export async function loadPreferences(): Promise<PreferencesSnapshot> {
   if (!hasPreferencesEngine()) {
     return { revision: 1, preferences: defaultPreferences };
@@ -112,7 +123,7 @@ export async function loadPreferences(): Promise<PreferencesSnapshot> {
     if (!snap || typeof snap !== "object" || !snap.preferences) {
       return { revision: 1, preferences: defaultPreferences };
     }
-    return snap;
+    return { ...snap, preferences: { ...snap.preferences, app: { ...defaultPreferences.app, ...snap.preferences.app } } };
   } catch {
     return { revision: 1, preferences: defaultPreferences };
   }

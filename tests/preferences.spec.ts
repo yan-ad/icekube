@@ -3,7 +3,7 @@ import { defaultPreferences, type Preferences, type PreferencesSnapshot } from "
 
 type Call = { command: string; request?: unknown };
 
-async function fixture(page: Page, options: { initial?: Preferences; saveFail?: string; nativeMenu?: boolean } = {}) {
+async function fixture(page: Page, options: { initial?: Preferences; saveFail?: string; nativeMenu?: boolean; browser?: boolean } = {}) {
   await page.addInitScript(({ options, defaultPreferences }) => {
     const calls: Call[] = [];
     const callbacks = new Map<number, (event: unknown) => void>();
@@ -14,7 +14,7 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
       preferences: options.initial ?? defaultPreferences,
     };
     Object.assign(window, {
-      isTauri: true,
+      isTauri: !options.browser,
       __prefCalls: calls,
       ...(options.nativeMenu ? {
         __ICEKUBE_WINDOW_LAYOUT__: { seamless: true, platform: "macos" },
@@ -28,6 +28,7 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
         unregisterListener: (_event: string, id: number) => listeners.delete(id),
       },
       __TAURI_INTERNALS__: {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
         transformCallback: (callback: (event: unknown) => void) => {
           const id = ++nextId;
           callbacks.set(id, callback);
@@ -36,7 +37,7 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
         invoke: async (command: string, args?: { request?: unknown; event?: string; handler?: number; eventId?: number }) => {
           calls.push({ command, request: args?.request });
           if (command === "plugin:event|listen") {
-            if (args?.event !== "icekube://open-preferences" || typeof args.handler !== "number") {
+            if (!["icekube://open-preferences", "icekube://native-navigation"].includes(args?.event ?? "") || typeof args?.handler !== "number") {
               throw new Error("Unexpected native event subscription");
             }
             const id = ++nextId;
@@ -200,7 +201,7 @@ test("native macOS Preferences menu event opens and reopens the existing dialog"
 });
 
 test("browser preview does not subscribe to native menu events", async ({ page }) => {
-  await fixture(page);
+  await fixture(page, { browser: true });
   await page.goto("/");
   await page.getByRole("button", { name: "Preferences", exact: true }).click();
   const calls = await page.evaluate(() => (window as unknown as { __prefCalls: Call[] }).__prefCalls);

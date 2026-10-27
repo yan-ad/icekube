@@ -38,6 +38,8 @@ pub struct AppPreferences {
     pub persistent_search: bool,
     pub open_at_login: bool,
     pub show_tray_icon: bool,
+    #[serde(default)]
+    pub restore_last_page: bool,
 }
 
 impl Default for AppPreferences {
@@ -48,7 +50,18 @@ impl Default for AppPreferences {
             persistent_search: false,
             open_at_login: false,
             show_tray_icon: false,
+            restore_last_page: false,
         }
+
+    pub fn route_history_get(&self) -> Result<Option<crate::route_history::SavedRoute>> {
+        crate::route_history::get(&self.connection)
+    }
+    pub fn route_history_save(&self, route: crate::route_history::SavedRoute) -> Result<()> {
+        crate::route_history::save(&self.connection, route)
+    }
+    pub fn route_history_clear(&self) -> Result<()> {
+        crate::route_history::clear(&self.connection)
+    }
     }
 }
 
@@ -233,7 +246,7 @@ fn check_symlink(path: &Path, directory: bool) -> Result<()> {
 
 pub struct PreferencesEngine {
     _dir: PathBuf,
-    connection: Mutex<Connection>,
+    pub(crate) connection: Mutex<Connection>,
 }
 
 impl PreferencesEngine {
@@ -265,6 +278,11 @@ impl PreferencesEngine {
         )
         .map_err(|_| PreferencesError::StoreUnavailable)?;
 
+        if !request.preferences.app.restore_last_page {
+            tx.execute("DELETE FROM route_history", [])
+                .map_err(|_| PreferencesError::StoreUnavailable)?;
+        }
+
         connection
             .pragma_update(None, "journal_mode", "DELETE")
             .map_err(|_| PreferencesError::StoreUnavailable)?;
@@ -278,6 +296,10 @@ impl PreferencesEngine {
                     singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
                     schema_version INTEGER NOT NULL CHECK(schema_version = 1),
                     revision INTEGER NOT NULL,
+                    payload TEXT NOT NULL
+                ) STRICT;
+                CREATE TABLE IF NOT EXISTS route_history (
+                    singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
                     payload TEXT NOT NULL
                 ) STRICT;",
             )

@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
-  "windows": ["main"],
+  "description": "Local Icekube workspace windows",
+  "windows": ["main", "icekube-1", "icekube-2", "icekube-3", "icekube-4", "icekube-5", "icekube-6", "icekube-7"],
   "permissions": [
     "core:default",
     "core:window:allow-close",

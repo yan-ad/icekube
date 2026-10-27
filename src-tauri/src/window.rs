@@ -1,5 +1,5 @@
 use serde::Serialize;
-use tauri::{App, WebviewWindowBuilder};
+use tauri::{App, AppHandle, Manager, WebviewWindow, WebviewWindowBuilder};
 
 const SEAMLESS: bool = true;
 
@@ -7,6 +7,10 @@ const SEAMLESS: bool = true;
 struct WindowLayout {
     seamless: bool,
     platform: &'static str,
+}
+
+pub fn create_main_window_handle(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    create_window(app, "main")
 }
 
 fn layout_script(seamless: bool, platform: &'static str) -> serde_json::Result<String> {
@@ -17,6 +21,19 @@ fn layout_script(seamless: bool, platform: &'static str) -> serde_json::Result<S
 }
 
 pub fn create_main_window(app: &App) -> tauri::Result<()> {
+    create_window(app.handle(), "main")?;
+    Ok(())
+}
+
+pub fn new_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let label = (1..8)
+        .map(|index| format!("icekube-{index}"))
+        .find(|label| app.get_webview_window(label).is_none())
+        .ok_or_else(|| std::io::Error::other("The eight-window limit has been reached."))?;
+    create_window(app, &label)
+}
+
+fn create_window(app: &AppHandle, label: &str) -> tauri::Result<WebviewWindow> {
     let config = app
         .config()
         .app
@@ -24,7 +41,9 @@ pub fn create_main_window(app: &App) -> tauri::Result<()> {
         .iter()
         .find(|window| window.label == "main")
         .expect("main window configuration is required");
-    let builder = WebviewWindowBuilder::from_config(app, config)?
+    let mut config = config.clone();
+    config.label = label.to_owned();
+    let builder = WebviewWindowBuilder::from_config(app, &config)?
         .initialization_script(layout_script(SEAMLESS, std::env::consts::OS)?);
 
     #[cfg(target_os = "macos")]
@@ -39,8 +58,12 @@ pub fn create_main_window(app: &App) -> tauri::Result<()> {
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(!SEAMLESS);
 
-    builder.build()?;
-    Ok(())
+    crate::native_navigation::register_window(app, label);
+    let result = builder.build();
+    if result.is_err() {
+        crate::native_navigation::forget_window(app, label);
+    }
+    result
 }
 
 #[cfg(test)]
