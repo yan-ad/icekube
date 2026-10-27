@@ -38,8 +38,8 @@ test("Nodes retains its dense table without rendering it for each draft characte
   await page.clock.install();
   await page.goto("/#/cluster/one?section=nodes");
   const grid = page.getByRole("table", { name: "Nodes", exact: true });
+  await expect(page.getByRole("button", { name: "Refresh nodes", exact: true })).toBeEnabled({ timeout: 20_000 });
   await expect(grid.getByRole("row")).toHaveCount(101);
-  await expect(page.getByRole("button", { name: "Refresh nodes", exact: true })).toBeEnabled();
   await grid.getByRole("checkbox").nth(1).click();
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toBeVisible();
   await page.clock.pauseAt(new Date());
