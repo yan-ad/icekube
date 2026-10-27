@@ -108,3 +108,16 @@ test("narrow inset inspector wraps actions without clipping and respects reduced
   await panel.locator(".resource-inspector-body").evaluate(element => { element.scrollTop = element.scrollHeight; });
   await expect(panel.getByRole("button", { name: "Edit YAML", exact: true })).toBeInViewport();
 });
+
+for (const shortcut of ["Meta+r", "Control+r"]) test(`focused inspector ${shortcut} refreshes details, not the resource list`, async ({ page }) => {
+  await fixture(page);
+  const panel = inspector(page);
+  await expect(panel.getByRole("button", { name: "Refresh details", exact: true })).toBeEnabled();
+  const detailReads = (await calls(page, "cluster_pod_detail")).length;
+  const listReads = (await calls(page, "cluster_resources")).length;
+  await panel.focus();
+  await page.keyboard.press(shortcut);
+  await expect.poll(async () => (await calls(page, "cluster_pod_detail")).length).toBe(detailReads + 1);
+  await expect(panel.getByRole("button", { name: "Refresh details", exact: true })).toBeEnabled();
+  expect((await calls(page, "cluster_resources")).length).toBe(listReads);
+});

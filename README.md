@@ -94,6 +94,14 @@ by confirmation. Opening a dialog alone does not submit a mutation.
   follows Go forward in the top toolbar; cluster routes place Switch cluster next.
   Preferences and Search are named icons that move into overflow on narrow windows.
   The sidebar no longer repeats the cluster name.
+- Add config includes Choose file, a Rust-owned native dialog returning only a
+  path. Manual path entry remains available; selecting does not import or connect.
+  Existing Rust import validation, including its 1 MiB limit, is unchanged.
+- Fixed parent pages show descriptive destination card grids. Actual resource
+  inventories remain tables; cards do not imply counts or extra cluster requests.
+- Cmd/Ctrl+R refreshes the active Catalog or workspace view, including Cluster
+  Overview and custom-resource rows. When focus is in the resource inspector,
+  its capture handler refreshes details without refreshing the table behind it.
 - Search drafts stay controlled while server search waits for 160 ms of quiet
   input. Obsolete reads cancel, retained rows are marked stale and affected actions
   disable. Cached local filtering uses deferred/memoized work, not a request per key.
@@ -102,6 +110,9 @@ by confirmation. Opening a dialog alone does not submit a mutation.
   uses a nonblocking bar below filters, with reduced-motion support; refresh errors
   remain visible. Light, Dark and System apply from saved Preferences, not live
   drafts. Asynchronous initial preferences loading has no no-flash guarantee.
+- Blocking first-load errors are centered below search/filter controls, not
+  disguised as empty tables. Failed updates with retained data use a compact
+  error/stale notice. Retry hints appear only for working retry actions.
 - Known positive statuses use Astryx success colors; warning/error states retain
   their meanings. Unknown states and generic booleans stay neutral. The Azure
   accent is generated through Astryx CLI from `#0074e2` and mapped to theme roles;
@@ -132,10 +143,22 @@ by confirmation. Opening a dialog alone does not submit a mutation.
   loading, partial, stale, empty and failed results, not live cluster totals.
   Latest events shows ten entries from loaded pages, including bounded message,
   source, count and occurrence times. Projected text is not guaranteed secret-free.
+- Cluster Overview separately shows actual Nodes/Metrics Server CPU and memory
+  snapshots and Warning Events with scoped details. Reads are bounded to one page
+  of 100 nodes and 100 events. Missing/incomplete metrics remain unavailable;
+  loaded counts are not cluster totals. No Prometheus integration is configured,
+  so historical charts are unavailable rather than populated with sample data.
 - CRD inventory starts at limit 10 and retries an oversized page at limit 1 with
   the same token. Only CRD single-object reads get a 16 MiB body allowance;
   projected CRD items remain bounded to 64 KiB. Ordinary response caps are unchanged.
-  Dynamic custom-resource instance/schema browsing is not implemented.
+  Custom Resources preserves Definitions and adds lazy group/kind navigation to
+  read-only metadata lists. Discovery batches at most 10 requests in 5 seconds,
+  caps retained definitions at 1,000 and offers Load more for continuation. Existing
+  CRD pages hold only 10 definitions (or 1 on oversized retries), so discovery does
+  not guarantee all definitions in one batch. Rust verifies the actual CRD UID,
+  establishment, scope and served/storage version before instance reads. No
+  custom-object detail/edit/delete controls or arbitrary URL requests are exposed.
+  See [custom resources](docs/custom-resources.md).
 - Generic detail and cancel commands now extract the registered shared
   `Arc<ConnectionEngine>` Tauri state. RBAC names such as `system:Reader` use
   kind-aware shared validation/projection and percent-encoded path segments.
@@ -147,12 +170,17 @@ by confirmation. Opening a dialog alone does not submit a mutation.
 
 See [workspace UI reference](docs/workspace-ui-reference.md) and
 [resource inspector reference](docs/resource-inspector-reference.md) for source,
-ownership and exact acceptance-test mappings. These are behavior references, not
-full Freelens parity. Local validation passed 663 browser tests, 233 backend Rust
-tests and 9 release-tool tests, plus build, formatting, strict Clippy and workflow
-lint. The ARM64 ad-hoc app bundle also built and passed static signature/version
-checks without launching. Browser fixtures and bundle inspection are not
-native-window, Gatekeeper-installation or real-cluster smoke tests.
+ownership and acceptance-test mappings. These are behavior references, not
+full Freelens parity. Final validation of this revision is pending; previous
+suite totals are not current results. The native file picker and actual-cluster
+smoke tests have not been performed. Browser fixtures and static bundle checks
+do not prove native-window, Gatekeeper-installation or real-cluster behavior.
+
+The manual [release dry run](docs/release-dry-run.md) runs full CI before an ARM64
+ad-hoc app/headless DMG build and static verification, including the app inside a
+read-only mounted image. It does not bump `0.0.1-pre.2`, create a tag or Release,
+use signing secrets, or publish updater artifacts. Its Actions artifacts expire
+after seven days and are not confidential on a public repository.
 
 ## Standalone React DevTools (development only)
 

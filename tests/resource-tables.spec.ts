@@ -11,6 +11,27 @@ type MockWindow = Window & {
 const route = (section: string) => `/#/cluster/one?section=${section}`;
 const table = (page: Page, name = "Pods") => page.getByRole("table", { name, exact: true });
 
+test("Cluster overview reads Nodes then warning Events in its existing lease", async ({ page }) => {
+  await fixture(page, { section: "overview" });
+  await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
+  await expect(page.getByText("Nodes loaded: 1", { exact: true })).toBeVisible();
+  await expect(page.getByText("No warning events returned.", { exact: true })).toBeVisible();
+  const reads = await calls(page);
+  expect(reads.map(call => call.request.kind).filter((kind, index, all) => index === 0 || kind !== all[index - 1])).toEqual(["nodes", "events"]);
+  const nodeRead = reads.find(call => call.request.kind === "nodes")!;
+  const eventRead = reads.find(call => call.request.kind === "events")!;
+  expect(nodeRead.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), kind: "nodes", readId: expect.any(Number) });
+  expect(eventRead.request).toEqual({ clusterId: "one", sessionId: nodeRead.request.sessionId, kind: "events", readId: expect.any(Number), status: "Warning" });
+  expect(reads.filter(call => call.request.kind === "nodes").length).toBeGreaterThanOrEqual(1);
+  const cancelled = await calls(page, "cluster_resources_cancel");
+  for (const read of reads.filter(call => call.request.kind === "nodes").slice(0, -1)) expect(cancelled).toContainEqual({ command: "cluster_resources_cancel", request: read.request });
+  const connects = await calls(page, "cluster_connect");
+  expect(connects).toHaveLength(1);
+  expect(await calls(page, "cluster_custom_resource_definitions")).toEqual([]);
+  await navigate(page, "pods"); await ready(page);
+  expect(await calls(page, "cluster_connect")).toEqual(connects);
+});
+
 test("table headers stay below the fixed filter toolbar while rows scroll", async ({ page }) => {
   await fixture(page, { section: "resource-quotas", manyRows: true });
   const grid = table(page, "Resource Quotas");
@@ -129,20 +150,45 @@ async function controls(page: Page, value: Controls) {
   await page.evaluate((value) => Object.assign((window as MockWindow).__resourceControls, value), value);
 }
 
-test("parent menus expose destination tables without resource fan-out", async ({ page }) => {
+test("parent menus expose complete destination cards without resource fan-out", async ({ page }) => {
   await fixture(page, { section: "workloads" });
-  await expect(table(page, "Workloads destinations")).toBeVisible();
+  const workloads = page.getByRole("navigation", { name: "Workloads destinations", exact: true });
+  await expect(workloads).toBeVisible();
+  await expect(workloads.getByRole("link")).toHaveCount(8);
+  expect(await workloads.getByRole("link").evaluateAll(links => links.map(link => link.getAttribute("href")))).toEqual(
+    ["pods", "deployments", "daemon-sets", "stateful-sets", "replica-sets", "replication-controllers", "jobs", "cron-jobs"].map(id => `#/cluster/one?section=${id}`),
+  );
   expect(await calls(page)).toHaveLength(0);
-  await table(page, "Workloads destinations").getByRole("link", { name: "Pods", exact: true }).click();
+  await workloads.getByRole("link", { name: "Pods", exact: true }).click();
   await ready(page);
   const connects = await calls(page, "cluster_connect");
   const before = await calls(page);
-  for (const [section, label] of [["config", "Config"], ["network", "Network"], ["storage", "Storage"], ["helm", "Helm"], ["access-control", "Access Control"], ["custom-resources", "Custom Resources"], ["overview", "Cluster"]]) {
+  for (const [section, label, ids] of [
+    ["config", "Config", ["config-maps", "secrets", "resource-quotas", "limit-ranges", "horizontal-pod-autoscalers", "vertical-pod-autoscalers", "pod-disruption-budgets", "priority-classes", "runtime-classes", "leases", "mutating-webhook-configs", "validating-webhook-configs", "validating-admission-policies", "validating-admission-policy-bindings"]],
+    ["network", "Network", ["services", "endpoint-slices", "endpoints", "ingresses", "ingress-classes", "network-policies", "port-forwarding"]],
+    ["storage", "Storage", ["persistent-volume-claims", "persistent-volumes", "storage-classes"]],
+    ["helm", "Helm", ["helm-charts", "helm-releases"]],
+    ["access-control", "Access Control", ["service-accounts", "cluster-roles", "roles", "cluster-role-bindings", "role-bindings", "pod-security-policies"]],
+    ["custom-resources", "Custom Resources", ["custom-resource-definitions"]],
+  ] as const) {
     await navigate(page, section);
-    await expect(table(page, `${label} destinations`)).toBeVisible();
+    const destinations = page.getByRole("navigation", { name: `${label} destinations`, exact: true });
+    await expect(destinations).toBeVisible();
+    await expect(destinations.getByRole("link")).toHaveCount(ids.length);
+    expect(await destinations.getByRole("link").evaluateAll(links => links.map(link => link.getAttribute("href")))).toEqual(ids.map(id => `#/cluster/one?section=${id}`));
     expect(await calls(page)).toEqual(before);
+    if (section === "custom-resources") {
+      await expect.poll(async () => (await calls(page, "cluster_custom_resource_definitions")).length).toBeGreaterThan(0);
+      const discoveries = await calls(page, "cluster_custom_resource_definitions");
+      for (const { request } of discoveries) expect(request).toEqual({ clusterId: "one", sessionId: connects.at(-1)!.request.sessionId,
+        readId: expect.any(Number), continueToken: null });
+    } else expect(await calls(page, "cluster_custom_resource_definitions")).toEqual([]);
   }
   expect(await calls(page, "cluster_connect")).toEqual(connects);
+  const discoveries = await calls(page, "cluster_custom_resource_definitions");
+  await navigate(page, "storage");
+  await expect(page.getByRole("navigation", { name: "Storage destinations", exact: true })).toBeVisible();
+  await expect.poll(async () => (await calls(page, "cluster_custom_resource_definitions_cancel")).map(call => call.request)).toEqual(discoveries.map(call => call.request));
 });
 
 test("Nodes retains its own table and lease across resource navigation", async ({ page }) => {
@@ -181,7 +227,10 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
             status: command === "cluster_connect" ? "connected" : "disconnected",
             apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null,
           };
-          if (command === "cluster_disconnect" || command === "cluster_resources_cancel" || command === "helm_cancel") return;
+          if (command === "cluster_disconnect" || command === "cluster_resources_cancel" || command === "helm_cancel" || command === "cluster_custom_resource_definitions_cancel") return null;
+          if (command === "cluster_custom_resource_definitions") return { ...request, kind: "customResourceDefinitions", namespace: null,
+            items: [],
+            continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
           if (command === "helm_table") return { clusterId: request.clusterId, sessionId: request.sessionId,
             view: request.view, namespace: request.namespace ?? null, readId: request.readId, truncated: false, items: [{ id: "helm-row", name: "sample-chart", namespace: request.view === "releases" ? String(request.namespace ?? "team-a") : null,
               version: "1.2.3", appVersion: "4.5.6", description: request.view === "releases" ? null : "Cached chart", status: request.view === "releases" ? "deployed" : null,
@@ -258,11 +307,9 @@ async function ready(page: Page, name = "Pods") {
   await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
 }
 
-test("all 43 registry views expose their direct route, columns and explicit creation contract", async ({ page }) => {
-  test.setTimeout(120_000);
+for (const view of resourceViews) test(`registry ${view.section}: direct route, columns and explicit creation contract`, async ({ page }) => {
   expect(resourceViews).toHaveLength(43);
-  await fixture(page);
-  for (const view of resourceViews) {
+  await fixture(page, { section: view.section });
     await test.step(view.section, async () => {
       await navigate(page, view.section);
       const helm = view.section === "helm-charts" || view.section === "helm-releases";
@@ -325,11 +372,10 @@ test("all 43 registry views expose their direct route, columns and explicit crea
         expect(await calls(page, "cluster_resource_create")).toHaveLength(0);
         expect(await calls(page, "cluster_connect")).toEqual(beforeAction);
         expect((await page.evaluate(() => (window as MockWindow).__resourceCalls)).every(
-          (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list"].includes(call.command),
+          (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "cluster_custom_resource_definitions", "cluster_custom_resource_definitions_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list"].includes(call.command),
         )).toBe(true);
       }
     });
-  }
 });
 
 test("namespace selector loads known namespaces and applies immediately", async ({ page }) => {

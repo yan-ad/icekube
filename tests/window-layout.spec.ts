@@ -165,7 +165,8 @@ test("categories cannot be pinned and there is only one sidebar", async ({ page 
     await expect(page.getByRole("heading", { level: 1, name: category, exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: /\b(?:Pin|Unpin)\b/ })).toHaveCount(0);
   }
-  await expect(page.getByRole("table", { name: "Web links", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Web links", exact: true })).toHaveCount(0);
   await page.reload();
   await expect(sidebar.getByRole("link")).toHaveCount(3);
   await page.keyboard.press("Control+k");
@@ -189,7 +190,8 @@ test("toolbar toggle collapses one sidebar and persists the desktop preference",
   await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeLessThan(expanded!.width);
   await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
   await sidebar.getByRole("link", { name: "Clusters", exact: true }).click();
-  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toHaveCount(0);
   await page.reload();
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("sidebar-collapsed.png") });
@@ -210,7 +212,8 @@ test("narrow sidebar drawer ignores desktop collapse and closes after navigation
   await expect(drawer.getByRole("link", { name: "Web Links", exact: true })).toBeVisible();
   await drawer.getByRole("link", { name: "Web Links", exact: true }).click();
   await expect(drawer).toBeHidden();
-  await expect(page.getByRole("table", { name: "Web links", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Web links", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 1100, height: 700 });
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
 });

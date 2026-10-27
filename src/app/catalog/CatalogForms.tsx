@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { IconPlus, IconRefresh, IconLink } from "@tabler/icons-react";
+import { IconPlus, IconRefresh, IconLink, IconFolder } from "@tabler/icons-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -9,6 +9,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useCatalog } from "./CatalogProvider";
 import { IconButton } from "@astryxdesign/core/IconButton";
+import { chooseKubeconfig, filePickerError } from "./filePicker";
 
 export function CatalogRefreshButton() {
   const { run, busy, available } = useCatalog();
@@ -30,8 +31,42 @@ export function CatalogForms() {
   const [path, setPath] = useState("");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
+  const [picking, setPicking] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const pickerSession = useRef(0);
+  const pickerPending = useRef(false);
+  useEffect(() => () => { pickerSession.current += 1; }, []);
+  function invalidatePicker() {
+    pickerSession.current += 1;
+    pickerPending.current = false;
+    setPicking(false);
+    setPickerError(null);
+  }
+  function open(mode: "import" | "link") {
+    invalidatePicker();
+    setMode(mode);
+  }
+  async function chooseFile() {
+    if (pickerPending.current || busy || !available || mode !== "import") return;
+    pickerPending.current = true;
+    setPicking(true);
+    setPickerError(null);
+    const session = pickerSession.current;
+    try {
+      const selected = await chooseKubeconfig();
+      if (session === pickerSession.current && selected !== null) setPath(selected);
+    } catch {
+      if (session === pickerSession.current) setPickerError(filePickerError);
+    } finally {
+      if (session === pickerSession.current) {
+        pickerPending.current = false;
+        setPicking(false);
+      }
+    }
+  }
   function close() {
     if (!busy) {
+      invalidatePicker();
       setMode(null);
       setPath("");
       setName("");
@@ -39,6 +74,7 @@ export function CatalogForms() {
     }
   }
   async function submit() {
+    if (pickerPending.current) return;
     const saved =
       mode === "import"
         ? await run("catalog_import_kubeconfig", { path })
@@ -63,7 +99,7 @@ export function CatalogForms() {
             elevation="med"
             style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
             isDisabled={disabled}
-            onClick={() => setMode("import")}
+            onClick={() => open("import")}
           />
           <IconButton
             label="Add web link"
@@ -74,7 +110,7 @@ export function CatalogForms() {
             elevation="med"
             style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
             isDisabled={disabled}
-            onClick={() => setMode("link")}
+            onClick={() => open("link")}
           />
       </HStack>
       <Dialog
@@ -97,7 +133,7 @@ export function CatalogForms() {
                 {mode === "import" ? (
                   <>
                     <Text as="p">
-                      Import context names from an explicit file, up to 1 MiB.
+                      Import context metadata.
                       Credentials stay out of the catalog. No connections or
                       authentication commands will run.
                     </Text>
@@ -106,10 +142,17 @@ export function CatalogForms() {
                       value={path}
                       onChange={setPath}
                       isRequired
-                      isDisabled={busy}
+                      isDisabled={busy || picking}
                       autoComplete="off"
-                      description="Absolute path to a kubeconfig file or symbolic link. The resolved target must be a readable regular file, up to 1 MiB."
                     />
+                    <Button
+                      label="Choose File"
+                      icon={<Icon icon={IconFolder} />}
+                      isDisabled={busy || picking || !available}
+                      isLoading={picking}
+                      onClick={() => void chooseFile()}
+                    />
+                    {pickerError && <Text role="alert">{pickerError}</Text>}
                   </>
                 ) : (
                   <>
@@ -155,6 +198,7 @@ export function CatalogForms() {
                   }
                   isDisabled={
                     busy ||
+                    picking ||
                     (mode === "import"
                       ? !path.trim()
                       : !name.trim() || !url.trim())

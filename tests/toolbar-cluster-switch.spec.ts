@@ -42,8 +42,12 @@ test("refresh follows forward; searchable cluster switch preserves section and s
   const names = await toolbar.locator("button").evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label")));
   expect(names.indexOf("Refresh cluster")).toBe(names.indexOf("Go forward") + 1);
   expect(names.indexOf("Switch cluster")).toBe(names.indexOf("Refresh cluster") + 1);
+  await toolbar.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
+  await expect(page.getByRole("alert", { name: "Cluster disconnected", exact: true })).toBeVisible();
   await page.evaluate(() => { (window as Window & { toolbarControl: { holdConnect: boolean } }).toolbarControl.holdConnect = true; });
-  await refresh.click();
+  await toolbar.getByRole("button", { name: "Cluster actions", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Connect to cluster", exact: true }).click();
   await expect(refresh).toBeDisabled();
   await page.evaluate(() => (window as Window & { releaseToolbarConnect: () => void }).releaseToolbarConnect());
   await expect(refresh).toBeEnabled();

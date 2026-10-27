@@ -21,6 +21,7 @@ import {
 } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { catalogError } from "../catalog/api";
@@ -247,16 +248,11 @@ export default function CatalogPage() {
               <TableActionOverlay label="Catalog actions"><CatalogForms /></TableActionOverlay>
               </TableToolbar>
               <ContentLoading label="Loading catalog…" refreshing active={!!snapshot && (loading || busy)} />
-              {error && (
-                <Text role="alert">
-                  {error}
-                  {snapshot
-                    ? " Previously loaded records are still shown."
-                    : ""}
-                </Text>
-              )}
+              {error && <ContentError title={available ? "Catalog unavailable" : "Desktop engine required"} message={`${error}${snapshot ? " Previously loaded records are still shown." : ""}`}
+                retained={!!snapshot} disabled={busy || loading} onRetry={available ? () => void run("catalog_list") : undefined} />}
               {loading && !snapshot && <ContentLoading label="Loading catalog…" />}
-              {snapshot?.discoveryError && <Text role="alert">Could not refresh file=~/.kube/config. {catalogError(snapshot.discoveryError)} Previously saved records are kept. Use Refresh to retry.</Text>}
+              {snapshot?.discoveryError && <ContentError title="Could not refresh file=~/.kube/config" message={`${catalogError(snapshot.discoveryError)} (${snapshot.discoveryError}) Previously saved records are kept. Use Refresh to retry.`} retained
+                disabled={busy || loading} onRetry={available ? () => void run("catalog_list") : undefined} />}
               {selectedItem && (
                 <HStack gap={2} vAlign="center" wrap="wrap">
                   <Text type="supporting">
@@ -269,7 +265,7 @@ export default function CatalogPage() {
                   />
                 </HStack>
               )}
-              {!(loading && !snapshot) && <CatalogTable
+              {!(loading && !snapshot) && !(error && !snapshot) && <CatalogTable
                 data={filtered}
                 columns={columns}
                 idKey="id"

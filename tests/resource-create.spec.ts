@@ -108,6 +108,9 @@ async function fixture(page: Page, section = "config-maps") {
         ] };
         if (command === "update_state") return { phase: "idle", version: null, error: null };
         if (command === "preferences_get") return null;
+        if (command === "cluster_custom_resource_definitions_cancel") return null;
+        if (command === "cluster_custom_resource_definitions") return { ...r, kind: "customResourceDefinitions", namespace: null,
+          items: [], continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? `lease-${++session}`, contextName: "dev",
           status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
         if (["cluster_disconnect", "cluster_resources_cancel", "cluster_resource_create_cancel", "cluster_pod_detail_cancel"].includes(command)) return null;

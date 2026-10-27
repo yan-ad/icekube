@@ -8,6 +8,7 @@ import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList"
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest, type ResourceKind } from "./api";
 import { cancelResourceDetail, loadResourceDetail, type ResourceDetail, type ResourceReference } from "./detailApi";
 import { resourceViews } from "./resourceViews";
@@ -121,6 +122,18 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
     window.addEventListener("keydown", onKeyDown);
     return () => { cancelAnimationFrame(timer); window.removeEventListener("keydown", onKeyDown); };
   }, [isOpen, closeInspector]);
+  useEffect(() => {
+    if (!isOpen || selection?.type !== "resource") return;
+    const onRefresh = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.metaKey === event.ctrlKey || event.altKey || event.shiftKey
+        || event.isComposing || event.key.toLowerCase() !== "r" || !panel.current?.contains(document.activeElement)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (!event.repeat && !loading) setRevision(value => value + 1);
+    };
+    window.addEventListener("keydown", onRefresh, true);
+    return () => window.removeEventListener("keydown", onRefresh, true);
+  }, [isOpen, selection?.type, loading]);
   const boundedWidth = Math.max(minimum, Math.min(75, width));
   const resize = (next: number) => { setExpanded(false); setWidth(Math.max(minimum, Math.min(75, next))); };
   const title = selection?.type === "summary" ? selection.summary.title : selection ? selection.reference.name : "Resource details";
@@ -153,7 +166,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
         {podReference && ([{ mode: "logs", label: "Logs", icon: IconList }, { mode: "shell", label: "Shell", icon: IconTerminal2 }, { mode: "attach", label: "Attach", icon: IconLogin }, { mode: "forward", label: "Port forward", icon: IconPlug }] as const).map(action =>
           <IconButton key={action.mode} label={action.label} tooltip={action.label} icon={<Icon icon={action.icon} />} size="sm" variant="ghost" isDisabled={loading || !podReference.uid}
             onClick={() => openPod({ namespace: podReference.namespace!, name: podReference.name, uid: podReference.uid ?? undefined }, action.mode)} />)}
-        {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
+        {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details (Cmd/Ctrl+R)" aria-keyshortcuts="Meta+r Control+r" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
         <IconButton label={expanded ? "Restore inspector width" : "Expand inspector"} tooltip={expanded ? "Restore inspector width" : "Expand inspector"} icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} />} size="sm" variant="ghost" onClick={() => { endDrag(); setExpanded(value => !value); }} />
         <IconButton label="Close inspector" tooltip="Close inspector" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={closeInspector} />
       </HStack>
@@ -204,9 +217,9 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
   }, [clusterId, sessionId, selection, revision, navigateResource, onLoadingChange]);
   const view = resourceViews.find(view => view.kind === selection.reference.kind);
   const labels = new Map(view?.columns.map(column => [column.key, column.label]) ?? []);
-  return <VStack padding={4} gap={4} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+  return <VStack padding={4} gap={4} style={{ flex: "1 1 auto", minHeight: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
     {loading && <ContentLoading label="Loading resource details…" refreshing={!!detail} />}
-    {error && <Text role="alert">{detail ? "Retained details may be stale. " : ""}{error}</Text>}
+    {error && <ContentError title="Resource details unavailable" message={`${detail ? "Retained details may be stale. " : ""}${error}`} retained={!!detail} />}
     {detail && <>
       <StatusBadge status={detail.item.status} />
       <MetadataList label={{ position: "top" }}>

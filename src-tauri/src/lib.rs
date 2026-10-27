@@ -1,4 +1,5 @@
 mod catalog;
+mod catalog_picker;
 mod connection;
 mod context_menu;
 #[cfg(target_os = "macos")]
@@ -30,6 +31,34 @@ async fn catalog_operation(
     })
     .await
     .map_err(|_| CatalogError::StoreUnavailable)?
+}
+#[tauri::command]
+async fn cluster_custom_resource_definitions(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::custom_resources::CustomDefinitionRequest,
+) -> Result<connection::ResourcePage, connection::ConnectionError> {
+    engine.custom_resource_definitions(request).await
+}
+#[tauri::command]
+fn cluster_custom_resource_definitions_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::custom_resources::CustomDefinitionRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_custom_resource_definitions(request)
+}
+#[tauri::command]
+async fn cluster_custom_resources(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::custom_resources::CustomResourceRequest,
+) -> Result<connection::custom_resources::CustomResourcePage, connection::ConnectionError> {
+    engine.custom_resources(request).await
+}
+#[tauri::command]
+fn cluster_custom_resources_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::custom_resources::CustomResourceRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_custom_resources(request)
 }
 
 #[tauri::command]
@@ -392,6 +421,7 @@ async fn preferences_save(
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .setup(|app| {
             let app_data = app.path().app_data_dir()?;
@@ -426,6 +456,7 @@ pub fn run() {
             context_menu::row_context_menu_show,
             context_menu::row_context_menu_cancel,
             catalog_list,
+            catalog_picker::catalog_choose_kubeconfig,
             catalog_connection_states,
             catalog_import_kubeconfig,
             catalog_add_web_link,
@@ -440,6 +471,10 @@ pub fn run() {
             cluster_resources,
             cluster_resources_cancel,
             cluster_resource_detail,
+            cluster_custom_resources,
+            cluster_custom_resources_cancel,
+            cluster_custom_resource_definitions,
+            cluster_custom_resource_definitions_cancel,
             cluster_resource_detail_cancel,
             cluster_resource_create,
             cluster_resource_create_cancel,

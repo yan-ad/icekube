@@ -536,7 +536,8 @@ test("shell and attach use xterm write/resize and dispose on disconnect", async 
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name: "Disconnect", exact: true }).click();
   await expect(dock(page)).toHaveCount(0); await allStreamsClosed(page);
-  await expect(page.getByText("Pods unavailable while disconnected.", { exact: false })).toBeVisible();
+   await expect(page.getByRole("heading", { name: "Cluster disconnected", exact: true })).toBeVisible();
+   await expect(page.getByRole("alert")).toContainText("Live resources are unavailable while disconnected. Refresh to reconnect.");
 });
 
 for (const [label, actionName, warning] of [

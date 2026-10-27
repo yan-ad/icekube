@@ -152,9 +152,12 @@ sessions, Helm inventory, and loopback port-forward sessions are also Rust-owned
 workflows described below. Show saved metadata in Cluster actions opens a named
 Astryx dialog with saved cluster/context/source/labels, Escape dismissal and focus
 return, not an inline workspace panel. These saved fields do not prove connectivity.
-The global toolbar owns Refresh and Cluster actions.
-⌘R/Ctrl+R refreshes only the active cluster
-view. No fabricated metrics, events, counts, or terminal output.
+The global toolbar owns Refresh and Cluster actions. Cmd/Ctrl+R refreshes the
+active Catalog category or registered workspace view, including overview,
+resource tables and custom-resource rows. A focused resource inspector captures
+the shortcut for its own read and stops propagation, not the table behind it.
+Modified, composing and repeated keys must not start duplicate reads. No
+fabricated metrics, events, counts, or terminal output.
 
 Section identity is scoped to the cluster route through the validated `section`
 search field. History back/forward and direct links retain cluster/section scope.
@@ -188,6 +191,12 @@ keystroke. This describes scheduling and invalidation, not measured FPS.
 initial load, leaving filters editable. Retained content uses a nonblocking progress
 bar below filters; reduced motion stops animation. Failed refreshes remove progress
 without hiding errors or retained stale rows.
+
+`ContentError.tsx` centers blocking first-load failures below the top search/filter
+controls instead of showing an empty table. Retained data gets a compact error
+and stale notice, not a blocking replacement. Offer retry and its shortcut only
+when there is a working action. This keeps failure distinct from a successful empty
+result; errors wrap at narrow widths in both themes.
 
 The compact details header shows the plain resource name and named icon controls:
 Pod Logs, Shell, Attach and port forward where applicable, one Refresh, Expand/Restore
@@ -281,6 +290,13 @@ and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afte
 
 - `catalog_list` returns a revision, metadata-only clusters/web links, and a safe
   nullable `discoveryError` code if the built-in default-file scan failed.
+- Add config offers **Choose file** through Rust `catalog_choose_kubeconfig` in
+  `catalog_picker.rs`, using a native dialog parented to the main window. It returns
+  only a selected absolute path or cancellation; it does not read/import/connect.
+  The editable path remains available. Cancel leaves it unchanged, and late dialog
+  results cannot update a closed/reopened form. `catalog_import_kubeconfig` remains
+  the validator, including the 1 MiB limit; do not repeat that limit as routine form
+  copy. Native dialog behavior has not been smoke-tested.
 - `catalog_import_kubeconfig` accepts an explicit absolute regular-file path.
   Default-file discovery is separate from explicit imports; there is no `KUBECONFIG`
   environment or directory scan. Files are capped at
@@ -435,7 +451,7 @@ continuation). These fixture obligations are not a current passing-suite claim.
 
 ### Prerelease distribution
 
-The `0.0.1-pre.1` distribution is Apple Silicon only, ad-hoc signed, not Developer
+The `0.0.1-pre.2` distribution is Apple Silicon only, ad-hoc signed, not Developer
 ID signed or notarized. Its updater key/endpoints are empty and no updater manifest
 or signing artifacts are published; automatic inventory reads do not imply automatic
 application updates. See [release instructions](docs/releases.md) for trusted-app
@@ -446,8 +462,10 @@ Workflow configuration is not evidence of a completed release or native smoke te
 ### Resource tables and namespace scope
 
 Resource tables are normal workspace destinations and load when their section is
-entered. There is no Resource tables toggle or stored preference. Parent categories show destination rows,
-not invented aggregate counts or fan-out requests. Nodes retains its independent
+entered. There is no Resource tables toggle or stored preference. Fixed parent
+pages use `DestinationGrid.tsx`: descriptive, keyboard-operable card anchors to
+existing destinations, not a resource table with a View column, invented aggregate
+counts or fan-out requests. Resource inventories stay compact tables. Nodes retains its independent
 table behavior.
 
 `src/app/cluster/NamespaceScope.tsx` is the shared selector for every connected-lease
@@ -721,8 +739,23 @@ UTF-8 bytes with control/bidi filtering), not raw objects or universally
 secret-free text. CRD inventory uses limit 10, same-token limit-1 retry on an
 oversized response, a CRD-only 16 MiB single-object body bound, and a 64 KiB
 projected-item budget. The ordinary 2 MiB response cap is unchanged. Custom
-instances and dynamic schema browsing are not implemented. Final validation of
-these changes is pending; no native smoke result is implied.
+instances now have a separate metadata-only read path; schemas, custom-object
+details and mutations are not exposed. See [custom resources](docs/custom-resources.md)
+for discovery limits, verified CRD identity and separate cancellation slots.
+
+Cluster Overview is distinct from Workloads overview. `ClusterOverview.tsx` reads
+actual Nodes and Warning Events, bounded to one page of up to 100 items each,
+through Rust. CPU/memory utilization comes from Metrics Server snapshots, using
+valid allocatable values or capacity; incomplete pages/metrics do not become an
+invented aggregate. A ten-row Warning Events table from the loaded snapshot uses
+validated Event identities to resolve related-object/namespace details through
+Rust. Loading, missing metrics, partial, stale and independent
+failures remain visible. No Prometheus integration is configured: there are no
+historical charts or fabricated time series. Final validation is pending; native
+file-picker and actual-cluster smoke tests have not been performed.
+
+[Release dry run](docs/release-dry-run.md) documents the manual, CI-gated ARM64
+ad-hoc packaging check without a version bump, tag, Release or updater artifacts.
 
 - Data views distinguish not connected, loading, empty, filtered-empty, stale,
   permission denied, and failed requests. Preserve useful data during reconnects

@@ -10,7 +10,7 @@ The inventory below is verified against Icekube source, not against Freelens. Ic
 
 - `src-tauri/src/connection/detail_facts.rs`: explicit kind-specific scalar/array projection into section titles and label/value facts. No raw JSON serialization fallback.
 - `src-tauri/src/connection/details.rs`: validated named-object GET identity, UID conflict checks, session/read ownership, cancellation, related-resource references, and composition with the existing inventory item.
-- `src-tauri/src/connection/transport.rs`: fixed allowlisted resource paths; an ordinary 2 MiB response-body bound; Secret/ConfigMap `PartialObjectMetadata` Accept negotiation without a full-object fallback. CRD inventory alone starts at limit 10 and retries `LimitExceeded` at limit 1 using the same unconsumed token. A CRD limit-1 body is capped at 16 MiB; projected items are capped at 64 KiB per page and accumulated scan. No global cap was raised and schemas are not forwarded.
+- `src-tauri/src/connection/transport.rs`: fixed allowlisted resource paths; an ordinary 2 MiB response-body bound; Secret/ConfigMap `PartialObjectMetadata` Accept negotiation without a full-object fallback. CRD inventory starts at limit 10 and retries `LimitExceeded` at limit 1 using the same unconsumed token. A CRD limit-1 body is capped at 16 MiB; projected items are capped at 64 KiB per page and accumulated scan. The separate custom-instance path reads a verified named CRD within 16 MiB before metadata-only instance negotiation; this does not raise ordinary object/list limits or forward schemas.
 - `src-tauri/src/connection/resources.rs`: inventory columns/status included alongside facts; Nodes also carry their separate typed node contract.
 - `src/app/cluster/detailApi.ts`: closed IPC response shape, matching cluster/session/read/object identity, bounded facts and related references. `sections` remains optional for older fixtures.
 - `src-tauri/src/lib.rs`: both `cluster_resource_detail` and
@@ -41,6 +41,12 @@ interaction; retained rows remain stale on failed updates, not silently current.
 
 Inspector GET/YAML reads still use explicit Refresh and exact-object cancellation;
 inventory polling does not automatically reload an editor or resubmit a mutation.
+Cmd/Ctrl+R in a focused resource inspector is captured by
+`ResourceInspector.tsx`, which prevents default and stops propagation before the
+workspace handler can refresh the table behind it. It refreshes only the selected
+resource read; busy, repeated, composing or extra-modifier events do not duplicate
+the read. Outside the inspector the active Catalog/workspace handler owns the
+shortcut, including overview/resource/custom lists. This is not a mutation shortcut.
 Fetched-time timestamps are no longer rendered, but resource Age/Last seen and
 other observed object timestamps remain meaningful. Optional Pod LIST/WATCH is
 still opt-in, not full Freelens parity. The previously agent-verified reference is
@@ -152,11 +158,21 @@ composition does not add a duplicate Refresh. Initial reads use `ContentLoading`
 centered named Astryx spinner; retained reads use its nonblocking progress bar and
 keep actionable errors. Browser acceptance remains in `tests/resource-inspector.spec.ts`,
 `tests/inspector-resize.spec.ts` and `tests/loading-feedback.spec.ts`.
+`tests/compact-inspector.spec.ts` also checks both Meta+R and Control+R with
+inspector focus and asserts the resource list is not refreshed. `ContentError`
+centers blocking detail failures; same-object failures with retained facts use a
+compact stale error. Search/filter controls on surrounding data pages remain at
+the top. `tests/centered-errors.spec.ts` covers this distinction on inventory pages.
 
 `resources.rs` inventory event text is capped at 256 UTF-8 bytes after control and
 bidi-character filtering. This does not detect credentials in messages or other
-selected text. CRD facts remain group/scope/versions, not schemas or dynamic
-custom-resource instance browsing. Native smoke tests and real-cluster validation
+selected text. CRD inspector facts remain group/scope/versions, not schemas.
+The separate [custom-resource metadata list](custom-resources.md) does not expose
+custom-object details/edit/delete: its names are plain text, not dead links.
+Cluster Overview Warning Events resolve related-object/namespace details through
+Rust using validated Event identities and the existing inspector; no historical
+Prometheus or fabricated metric detail is implied.
+Native file-picker smoke tests and actual-cluster validation
 have not been performed by this documentation pass. No real kubeconfig was read.
 Latest full-suite validation for automatic refresh, navigation and prerelease changes is pending; older
 counts in the workspace reference are historical, not current verification.

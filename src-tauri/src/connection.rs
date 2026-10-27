@@ -17,6 +17,7 @@ mod config;
 pub(crate) mod create;
 #[cfg(test)]
 mod create_tests;
+pub(crate) mod custom_resources;
 pub(crate) mod delete;
 #[cfg(test)]
 mod delete_tests;
@@ -317,6 +318,8 @@ struct Session {
     client: Option<Client>,
     cancel: CancellationToken,
     reads: HashMap<ResourceKind, ReadSlot>,
+    custom_discovery: Option<custom_resources::CustomSlot>,
+    custom_instances: Option<custom_resources::CustomSlot>,
     creates: HashMap<ResourceKind, CreateSlot>,
     deletes: HashMap<ResourceKind, delete::DeleteSlot>,
     detail: details::DetailSlot,
@@ -398,6 +401,8 @@ impl ConnectionEngine {
             client: None,
             cancel: CancellationToken::new(),
             reads: HashMap::new(),
+            custom_discovery: None,
+            custom_instances: None,
             creates: HashMap::new(),
             deletes: HashMap::new(),
             detail: details::DetailSlot::default(),

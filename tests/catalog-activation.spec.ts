@@ -53,14 +53,14 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await expect(inset).toBeVisible();
   await expect(inset.getByRole("link", { name: "Nodes", exact: true })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath("cluster-workspace.png") });
   for (const [name, section] of [["Nodes", "nodes"], ["Workloads", "workloads"], ["Network", "network"], ["Storage", "storage"], ["Helm", "helm"]]) {
     await inset.getByRole("link", { name, exact: true }).click();
     await expect(page).toHaveURL(new RegExp(`section=${section}$`));
     await expect(inset.getByRole("link", { name, exact: true })).toHaveAttribute("aria-current", "page");
     if (section === "nodes") await expect(page.getByRole("main")).toContainText("No nodes were returned");
-    else await expect(page.getByRole("table", { name: `${name} destinations`, exact: true })).toBeVisible();
+    else await expect(page.getByRole("navigation", { name: `${name} destinations`, exact: true })).toBeVisible();
   }
   expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel"].includes(call.command))).toBe(true);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();

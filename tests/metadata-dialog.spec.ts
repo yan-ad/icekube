@@ -5,8 +5,9 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     Object.assign(window, { isTauri: true, __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
       if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: ["one", "two"].map(id => ({ id, name: `Development ${id}`, contextName: `${id}-context`, source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: true })) };
-      if (command === "cluster_session_open" || command === "cluster_connect") return { ...args?.request, sessionId: "fixture-session", contextName: "one-context", status: "disconnected", apiVersion: null, error: null };
-      if (command === "cluster_disconnect") return;
+      if (command === "cluster_session_open" || command === "cluster_connect") return { ...args?.request, sessionId: "fixture-session", contextName: "one-context", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
+      if (command === "cluster_resources" && ["nodes", "events"].includes(String(args?.request.kind))) return { ...args?.request, namespace: null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: 1793000000000 };
+      if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
       throw new Error(`Unexpected IPC: ${command}`);
     } } });
   });

@@ -4,6 +4,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { Button } from "@astryxdesign/core/Button";
 import { StatusBadge } from "./StatusBadge";
 import { useResourceInspector } from "./ResourceInspector";
@@ -108,8 +109,8 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
     <ContentLoading label={`Loading Helm ${view}…`} refreshing active={visibleLoading && !!scopedPage} />
     {loading && !scopedPage && <ContentLoading label={`Loading Helm ${view}…`} />}
     {pending && <Text role="status">Updating search results…</Text>}
-    {error?.scope === scope && <Text role="alert">{error.message}</Text>}
-    {scopedPage && error?.scope === scope && <Text role="status">Updates unavailable. Showing the last successful snapshot, which may be stale.</Text>}
+    {error?.scope === scope && <ContentError title={`Could not load Helm ${view}`} message={error.message} retained={!!scopedPage}
+      disabled={loading || pending} onRetry={() => setRevision(value => value + 1)} />}
     {scopedPage && <>
       {scopedPage.truncated && <Text role="status">This inventory may be partial. At most 500 rows are displayed; Helm may apply its own list limit. Filters apply only to loaded rows.</Text>}
       <HelmTable aria-label={`Helm ${label}`} aria-busy={visibleLoading || pending} data={items} columns={columns} idKey="id" density="compact" hasHover textOverflow="truncate" plugins={plugins}

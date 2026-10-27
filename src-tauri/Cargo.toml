@@ -43,6 +43,7 @@ jiff = "0.2"
 process-wrap = { version = "=10.0.1", default-features = false, features = ["tokio1", "process-group", "job-object", "kill-on-drop"] }
 tauri-plugin-updater = "=2.14.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
+tauri-plugin-dialog = "2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

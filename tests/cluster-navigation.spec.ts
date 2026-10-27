@@ -17,6 +17,8 @@ async function fixture(page: Page, section = "overview", narrow = false) {
         if (command === "cluster_connect") return { ...args?.request, contextName: "dev-context", status: "connected", apiVersion: "v1.35.8", error: null };
         if (command === "cluster_resources") return { ...args?.request, namespace: args?.request.namespace ?? null,
           continueToken: null, metrics: null, items: args?.request.kind === "namespaces" ? ["team-a", "team-b", "production", "default"].map(name => ({ name, namespace: null, status: "Active", createdAt: null, node: null, columns: {} })) : [], truncated: false, fetchedAt: 1793000000000 };
+        if (command === "cluster_custom_resource_definitions") return { ...args?.request, kind: "customResourceDefinitions", namespace: null, metrics: null, items: [], continueToken: null, truncated: false, fetchedAt: 1793000000000 };
+        if (command === "cluster_custom_resource_definitions_cancel") return;
         if (command === "helm_table") return { ...args?.request, items: [], truncated: false };
         if (command === "cluster_pod_forward_list") return [];
         throw new Error(`Unexpected IPC: ${command}`);
@@ -25,12 +27,13 @@ async function fixture(page: Page, section = "overview", narrow = false) {
   });
   await page.setViewportSize({ width: narrow ? 360 : 1200, height: 800 });
   await page.goto(`/#/cluster/one?section=${section}`);
-  await expect(page.getByRole("table", { name: section === "overview" || section === "not-a-resource" ? "Cluster destinations" : "Deployments", exact: true })).toBeVisible();
+  if (section === "overview" || section === "not-a-resource") await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
+  else await expect(page.getByRole("table", { name: "Deployments", exact: true })).toBeVisible();
 }
 const navigation = (page: Page) => page.getByRole("navigation", { name: "Cluster navigation", exact: true });
 async function onlyReadRequests(page: Page) {
   const calls = await page.evaluate(() => (window as unknown as { __navigationCalls: string[] }).__navigationCalls);
-  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect", "cluster_connect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list"].includes(command))).toBe(true);
+  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect", "cluster_connect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_custom_resource_definitions", "cluster_custom_resource_definitions_cancel"].includes(command))).toBe(true);
 }
 
 test("disclosures expand and collapse by keyboard without navigation; children have real destinations", async ({ page }) => {
@@ -86,6 +89,7 @@ test("every reference group exposes its children with resource tables or destina
       const tableName = child.id === "helm-charts" ? "Helm Charts" : child.id === "helm-releases" ? "Helm Releases"
         : child.id === "port-forwarding" ? "Port forwards" : view?.label ?? `${child.label} destinations`;
       if (child.id === "workloads-overview") await expect(page.getByRole("heading", { name: "Workloads overview", exact: true })).toBeVisible();
+      else if (tableName.endsWith(" destinations")) await expect(page.getByRole("navigation", { name: tableName, exact: true })).toBeVisible();
       else await expect(page.getByRole("table", { name: tableName, exact: true })).toBeVisible();
       await expect(nav.getByRole("link", { name: child.label, exact: true })).toHaveAttribute("aria-current", "page");
     }
@@ -118,7 +122,7 @@ test("narrow drawer keeps disclosures open but closes on leaf activation", async
 
 test("unknown child IDs are rejected rather than rendered as a resource section", async ({ page }) => {
   await fixture(page, "not-a-resource");
-  await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
   await expect(navigation(page).getByRole("link", { name: "Cluster", exact: true })).toHaveAttribute("aria-current", "page");
   await onlyReadRequests(page);
 });

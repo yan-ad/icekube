@@ -18,7 +18,39 @@ Electron/Node runtime. No upstream implementation was copied in this documentati
 | YAML: `dock/edit-resource/view.tsx` (upstream EditorPanel, not CodeJar) | Icekube `YamlEditor.tsx` uses locked CodeJar 4.3.0 and highlight.js YAML browser modules. Actual callers: `PodDetailsView.tsx` (YAML), `ResourceCreate.tsx` (Resource YAML), `HelmInstall.tsx` (Values YAML). Rust `connection/pods.rs`, `connection/create.rs` and Helm services own data, validation and mutations. | Editable/read-only/busy, external value updates, caret/IME, escaped source, disposal. `tests/yaml-editor.spec.ts`: `real CodeJar highlights escaped source and exposes a named multiline editor`, `read-only YAML preserves serialization and rejects keyboard, paste, cut and undo`, `composition is not highlighted or published mid-IME, and commits once`, `unmount removes handlers and pending callbacks cannot publish`. |
 | Details sidebar: `kube-object-details/kube-object-details.tsx`, `drawer/drawer.tsx` | `ResourceInspector.tsx` owns a nonmodal, layout-flow sidebar with a separating border, named Refresh/Expand/Restore/Close icons, pointer capture and keyboard resize. Rust `connection/details.rs`/`pods.rs` own scoped reads and cancellation. | Loading, missing/replaced, permission/error, retained stale, open/closed/expanded/dragging; `tests/inspector-resize.spec.ts`: `opening, dragging and expanding reflow the workspace, restore retains the dragged width`, `separator keyboard bounds and reduced motion remain usable on narrow windows`, `close immediately disposes pending content while an empty inert shell collapses`, `pointer cancellation and route disposal end dragging without late detail revival`. |
 | Workloads overview: `workloads-overview/overview.tsx`, `overview-statuses.tsx`, `overview-workload-status.tsx` | `WorkloadsOverview.tsx` shows seven status donuts from Rust `connection/transport.rs` LISTs and `resources.rs` projection. Namespace and Refresh restart scoped reads. Category links open their resource tables; event links resolve identity through Rust detail relationships. | Loaded/zero/loading/partial/stale/permission/error remain separate. `tests/workloads-overview.spec.ts`: `uses real loaded counts and never turns unknown Running metadata green`, `bounds pagination and isolates per-kind permission errors`, `refresh retains stale inventory on failure and empty results remain explicit`, `cancels the exact pending read on namespace change and ignores late completion`. |
-| CRDs: `custom-resource-definitions/view.tsx`, `details.tsx`; `custom-resources/details.tsx` shows upstream instance behavior outside current scope | Icekube lists and inspects allowlisted CRD facts. Rust `connection/transport.rs` handles adaptive page fetches; `resources.rs` and `detail_facts.rs` project bounded facts. Custom instances and dynamic schema browsing are not implemented. | Permission/unavailable/error/cancel/partial continuation, no fabricated empty success. `src-tauri/src/connection/crd_fetch_tests.rs`: `crd_large_schema_retries_same_opaque_token_at_one_and_projects_only_facts`, `crd_filtered_scan_retries_without_skipping_and_resumes_at_unscanned_token`, `crd_single_object_cap_and_ordinary_inventory_budget_remain_enforced`, `crd_retry_failure_is_not_an_empty_or_partial_success`, `crd_cancel_during_retry_releases_engine_read_slot`, `crd_single_retry_rejects_ignored_limit_and_repeated_tokens`. |
+| Custom resources: `custom-resource-definitions/view.tsx`, `details.tsx`; `custom-resources/view.tsx`, `discovered-custom-resources.injectable.ts` | Definitions remains available. `CustomResourcesProvider.tsx` lazily discovers group/kind destinations; `CustomResourceTable.tsx` displays metadata-only instances. Rust `connection/custom_resources.rs` verifies the named CRD and owns safe paths, metadata negotiation and independent reads/cancellation. No custom-object detail or mutation UI. | See [custom resources](custom-resources.md) for exact bounds and acceptance mapping. Ordinary Definitions retains `connection/crd_fetch_tests.rs` adaptive-fetch regressions. Discovery does not guarantee all definitions in one batch. |
+| Cluster overview: `cluster/cluster-overview.tsx` | `ClusterOverview.tsx` uses Rust `cluster_resources` Nodes/metrics and Warning Event reads, each bounded to one page of 100 items. CPU/memory are current snapshots, not Prometheus history. Event relationships resolve scoped details through Rust and the existing inspector. | `tests/workspace-overview.spec.ts`: actual utilization/sorted warning events, unavailable metrics, explicit empty/isolated errors, exact cancellation and late-reply rejection. |
+
+The overview and custom-resource view/discovery paths above were checked through
+Git at the recorded commit and their source read for this pass. Destination card
+composition, the native picker, centered errors and shortcut priority are local
+Icekube refinements, not claims of copied upstream components.
+
+## Requested interaction refinements
+
+| Workflow | Rust / UI ownership and expected interaction | Acceptance source and limits |
+| --- | --- | --- |
+| Choose file | Rust `catalog_picker.rs::catalog_choose_kubeconfig` opens a main-window native dialog and returns a path or cancellation, never contents. `CatalogForms.tsx` keeps manual entry, ignores disposed dialog replies and imports only after confirmation. Existing `catalog_import_kubeconfig` validates readable regular targets and the 1 MiB bound; the form does not repeat routine size copy. | `tests/kubeconfig-picker.spec.ts`; `catalog_picker.rs` path/cancellation/encoding tests. Browser IPC mocks and synthetic paths, not a native dialog smoke test. |
+| Parent destinations | `DestinationGrid.tsx` renders fixed parent destinations as named card anchors with resource-specific descriptions from `destinationDescriptions.ts`. Resource tables are not converted to cards. No destination count/fan-out read is implied. | `tests/destination-grid.spec.ts`: copy, real anchor destinations, accessible descriptions and layout. |
+| Content failures | `ContentError.tsx` centers blocking first-load failures below top search/filters; retained rows get compact error/stale feedback. Working retry actions expose a shortcut hint; unavailable browser actions do not. | `tests/centered-errors.spec.ts`: Catalog/Nodes/Pods/Helm failures, retained rows, empty versus failed, narrow themes and busy retry guards. |
+| Refresh priority | Cmd/Ctrl+R uses the active Catalog category or registered workspace handler, including overview/resource/custom rows. `ResourceInspector.tsx` captures the chord when focus is within its resource panel, stops propagation and refreshes that object only. Busy/repeated/composing/extra-modifier keys cannot duplicate reads. | Catalog cases in `tests/centered-errors.spec.ts`; focused detail-only cases in `tests/compact-inspector.spec.ts`; overview and custom fixture cases. Native OS/webview shortcut dispatch remains unverified. |
+
+## Cluster Overview snapshot contract
+
+This is separate from the Workloads overview's multi-page donuts below. Nodes and
+Warning Events are read sequentially, one page of at most 100 each. Continuation
+is partial, not a cluster total. Utilization needs available metrics, a complete
+node page and valid per-node usage/denominators. Allocatable is used when valid
+for every node, otherwise capacity; missing or invalid inputs remain unavailable.
+Independent read failures and stale retained snapshots stay visible. Foreground
+updates use the existing 30-second scheduler guards and exact Rust cancellation.
+
+The table shows at most ten Warning Events from the loaded bounded snapshot,
+sorted by reported occurrence with creation fallback. Related-object and namespace
+buttons resolve through existing validated Event identities in Rust before opening
+inspector details. Selected event text remains cluster-provided and
+is not guaranteed secret-free. No Prometheus integration is configured; no
+historical utilization chart or sample time series is presented as real data.
 
 ## Automatic foreground inventory reads
 
@@ -225,8 +257,17 @@ operations or native smoke tests were used. See [credential renewal](credential-
 for the separate Rust authentication contract and its fixture mapping.
 
 Current full-suite validation is pending. Do not carry the historical 650-browser/
-230-Rust totals forward or describe the planned 663-browser run as passed.
+230-Rust totals forward or describe a planned browser run as passed.
 This documentation pass checked source, not native windows or real clusters.
+
+`tests/node-search-rendering.spec.ts` addresses the latest CI budget issue by
+removing forced 4x CPU throttling from the normal run, not by skipping/retrying
+tests or raising timeouts. Optional local stress remains available with
+`ICEKUBE_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts`.
+The regression still records all 20 sequential input events against 100 rows,
+checks zero additional table-body renders during the pending draft after its
+initial invalidation, and verifies no draft IPC plus exactly one committed query.
+It is render isolation evidence, not an FPS or shared-runner latency guarantee.
 
 ## Prerelease and CI scope
 
@@ -249,3 +290,10 @@ publishes a prerelease marked not latest. These are configured checks, not a cla
 that a release has run. Installation requires trusting the release, checking its
 checksum, copying to `/Applications` and following the README's app-scoped
 quarantine instruction; never disable Gatekeeper globally.
+
+The separate manual [release dry run](release-dry-run.md) runs full reusable CI
+before building and statically inspecting an ARM64 ad-hoc app and headless DMG.
+It has read-only contents permission, no publication/tag/version changes or
+signing secrets. Its seven-day Actions evidence is not confidential in a public
+repository. Native picker, actual-cluster and installation smoke tests remain
+unperformed; current full-suite results will be recorded after verification.

@@ -6,9 +6,11 @@ import { CatalogProvider } from "./catalog/CatalogProvider";
 import ClusterWorkspacePage from "./cluster/ClusterWorkspacePage";
 import { clusterDestinations, type ClusterSectionId } from "./cluster/navigation";
 import { WorkspaceRefreshProvider } from "./cluster/WorkspaceRefresh";
+import { CustomResourcesProvider } from "./cluster/CustomResourcesProvider";
+import { validDefinitionName } from "./cluster/customResourcesApi";
 
 const rootRoute = createRootRoute({
-  component: () => <CatalogProvider><WorkspaceRefreshProvider><MainLayout /></WorkspaceRefreshProvider></CatalogProvider>,
+  component: () => <CatalogProvider><WorkspaceRefreshProvider><CustomResourcesProvider><MainLayout /></CustomResourcesProvider></WorkspaceRefreshProvider></CatalogProvider>,
   notFoundComponent: NotFoundPage,
 });
 const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", beforeLoad: () => { throw redirect({ to: "/catalog", replace: true }); } });
@@ -24,8 +26,9 @@ const clusterWorkspaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "cluster/$clusterId",
   component: ClusterWorkspacePage,
-  validateSearch: (search: Record<string, unknown>): { section?: ClusterSectionId } => ({
-    section: clusterDestinations.find((item) => item.id === search.section)?.id,
+  validateSearch: (search: Record<string, unknown>): { section?: ClusterSectionId | "custom-resource-instances"; definition?: string } => ({
+    section: search.section === "custom-resource-instances" ? "custom-resource-instances" : clusterDestinations.find((item) => item.id === search.section)?.id,
+    definition: search.section === "custom-resource-instances" && validDefinitionName(search.definition) ? search.definition : undefined,
   }),
 });
 

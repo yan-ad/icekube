@@ -106,7 +106,7 @@ test("explicit import and add link populate the combined list; remove confirms l
   await expect(page.getByRole("heading", { name: "Your catalog is empty", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Add config", exact: true }).click();
   const dialog = page.getByRole("dialog");
-  await expect(dialog).toContainText("kubeconfig file or symbolic link");
+  await expect(dialog).toContainText("Import context metadata.");
   await dialog.getByRole("textbox", { name: "Kubeconfig path Required", exact: true }).fill("/fixtures/config-link");
   await dialog.getByRole("button", { name: "Import contexts", exact: true }).click();
   await expect(dialog).toHaveCount(0);

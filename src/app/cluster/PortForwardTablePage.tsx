@@ -8,6 +8,7 @@ import { Selector } from "@astryxdesign/core/Selector";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlus, IconSearch } from "@tabler/icons-react";
 import { TableActionOverlay, TableToolbar, tableViewport } from "./TableToolbar";
@@ -192,7 +193,7 @@ function PortForwardSession({ clusterId, sessionId }: PortForwardTablePageProps)
         <Selector label="Namespace filter" isLabelHidden value={namespaceFilter} onChange={setNamespaceFilter} size="sm" options={[{ value: "", label: "All namespaces" }, ...namespaces.map((value) => ({ value, label: value }))]} />
       </TableToolbar>
     <ContentLoading label="Loading port forwards…" refreshing active={refreshing && !!forwards} />
-    {error && <Text role="alert">{forwards ? "Retained forward states may be stale. " : ""}{error}</Text>}
+    {error && <ContentError title="Port forwards unavailable" message={`${forwards ? "Retained forward states may be stale. " : ""}${error}`} retained={!!forwards} onRetry={() => void load(true)} disabled={isLoading} />}
     {actionError && <Text role="alert">{actionError}</Text>}
     {pending && <Text role="status">Updating search results…</Text>}
     {!forwards && !error && <ContentLoading label="Loading port forwards…" />}

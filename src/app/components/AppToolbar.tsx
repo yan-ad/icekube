@@ -79,6 +79,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const { openPreferences } = usePreferences();
   const { clusterId } = useParams({ strict: false });
   const refresh = workspaceRefresh.action?.clusterId === clusterId ? workspaceRefresh.action : null;
+  const catalog = useCatalog();
   const clusterActions = workspaceRefresh.clusterActions?.clusterId === clusterId ? workspaceRefresh.clusterActions : null;
   const pageActions = workspaceRefresh.pageActions && workspaceRefresh.pageActions.clusterId === clusterId && workspaceRefresh.pageActions.section === refresh?.section ? workspaceRefresh.pageActions : null;
   const status = clusterActions?.status;
@@ -98,14 +99,18 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   ];
   useEffect(() => {
     function onRefresh(event: KeyboardEvent) {
-      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r" && !event.isComposing && refresh) {
+      if (event.defaultPrevented) return;
+      if ((event.metaKey !== event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "r" && !event.isComposing && (refresh || isCatalog)) {
         event.preventDefault();
-        if (refresh.enabled && !event.repeat) refresh.refresh();
+        if (event.repeat) return;
+        if (isCatalog) {
+          if (catalog.available && !catalog.busy && !catalog.loading) void catalog.run("catalog_list");
+        } else if (refresh?.enabled) refresh.refresh();
       }
     }
     window.addEventListener("keydown", onRefresh);
     return () => window.removeEventListener("keydown", onRefresh);
-  }, [refresh]);
+  }, [refresh, isCatalog, catalog.available, catalog.busy, catalog.loading, catalog.run]);
 
   return (
     <>

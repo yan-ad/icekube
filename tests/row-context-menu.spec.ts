@@ -48,6 +48,10 @@ async function fixture(page: Page, section: string) {
             if (controls.holdListen) await new Promise<void>(resolve => pending.push(resolve));
             const id = ++next; listeners.set(id, { event: args!.event, handler: args!.handler }); return id;
           }
+          if (command === "cluster_custom_resource_definitions_cancel") return null;
+          if (command === "cluster_custom_resource_definitions") return { ...r, kind: "customResourceDefinitions", namespace: null,
+            items: [],
+            continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
           if (command === "plugin:event|unlisten") { listeners.delete(args!.eventId); return null; }
           if (command === "row_context_menu_show") {
             if (controls.holdShow) await new Promise<void>(resolve => pending.push(resolve));

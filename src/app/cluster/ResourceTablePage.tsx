@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useDebouncedSearch } from "./useDebouncedSearch";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -204,8 +205,8 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} refreshing active={visibleLoading && !!page} />
     {loading && !page && <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} />}
-    {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && error && <Text role="status">Updates unavailable. Showing the last successful snapshot, which may be stale.</Text>}
+    {error && <ContentError title={`Could not load ${view.label.toLowerCase()}`} message={`${connectionMessage(error)} (${error})`} retained={!!page}
+      disabled={loading || pending} onRetry={() => setRevision(value => value + 1)} />}
     {page && <Table aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={visibleLoading || pending}
       plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}

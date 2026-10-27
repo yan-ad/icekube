@@ -19,6 +19,7 @@ import { useResourceRowMenu } from "./RowContextMenu";
 import { NodesTable } from "./NodesTable";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { ContentLoading } from "../components/ContentLoading";
+import { ContentError } from "../components/ContentError";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 
 const metricMessages = {
@@ -111,8 +112,8 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     </TableToolbar>}
     <ContentLoading label={`Loading ${kind}…`} refreshing active={visibleLoading && !!page} />
     {loading && !page && <ContentLoading label={`Loading ${kind}…`} />}
-    {error && <Text role="alert">{connectionMessage(error)}</Text>}
-    {page && error && <Text role="status">Updates unavailable. Showing the last successful snapshot, which may be stale.</Text>}
+    {error && <ContentError title={`Could not load ${kind}`} message={`${connectionMessage(error)} (${error})`} retained={!!page}
+      disabled={loading || pending} onRetry={() => { setTokens([null]); setIndex(0); setLoading(true); setRevision(value => value + 1); }} />}
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}

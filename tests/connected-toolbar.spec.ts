@@ -25,6 +25,7 @@ async function connectedMacWindow(page: Page) {
           };
           if (command === "cluster_session_open") return snapshot;
           if (command === "cluster_connect") return { ...snapshot, status: "connected", apiVersion: "v1.34.1" };
+          if (command === "cluster_resources" && ["nodes", "events"].includes(String(request.kind))) return { ...request, namespace: null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: 1793000000000 };
           if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
           throw new Error(`Unexpected toolbar fixture command: ${command}`);
         },
@@ -32,7 +33,7 @@ async function connectedMacWindow(page: Page) {
     });
   });
   await page.goto("/#/cluster/one");
-  await expect(page.getByRole("table", { name: "Cluster destinations", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toHaveAttribute("aria-description", "Connection status: Connected");
 }
 
@@ -51,7 +52,7 @@ for (const fontPercent of [100, 125]) {
       else await expect(statusBadge).toHaveCount(0);
       const actions = toolbar.getByRole("button", { name: "Cluster actions", exact: true });
       await expect(toolbar.getByRole("button", { name: "Open Icekube on GitHub", exact: true })).toBeVisible();
-      await expect(toolbar.getByRole("button", { name: "Refresh cluster", exact: true })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Refresh overview", exact: true })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: "Switch cluster", exact: true })).toBeVisible();
       await expect(actions).toHaveAttribute("aria-description", "Connection status: Connected");
       const iconColor = await actions.locator("svg").evaluate(icon => {
