@@ -40,6 +40,7 @@ async function fixture(page: Page, section: string) {
   });
   await page.setViewportSize({ width: 1500, height: 900 });
   await page.goto(section === "catalog" ? "/#/catalog/all" : `/#/cluster/one?section=${section}`);
+  await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
 const calls = (page: Page, command: string, kind?: string) => page.evaluate(({ command, kind }) =>
   (window as SearchWindow).__searchCalls.filter(call => call.command === command && (!kind || call.request.kind === kind)), { command, kind });

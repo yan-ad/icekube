@@ -3,12 +3,18 @@ name: Unsigned Apple Silicon prerelease
 on:
   push:
     tags: ['*-pre.*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing immutable prerelease tag to rebuild after CI recovery'
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: unsigned-prerelease-${{ github.ref }}
+  group: unsigned-prerelease-${{ inputs.tag || github.ref_name }}
   cancel-in-progress: false
 
 jobs:
@@ -24,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.tag || github.ref }}
           fetch-depth: 0
           persist-credentials: false
       - uses: actions/setup-python@v5
@@ -31,8 +38,9 @@ jobs:
           python-version: '3.13'
       - name: Validate Apple Silicon runner and exact prerelease tag
         env:
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
           RELEASE_COMMIT: ${{ github.sha }}
+          RELEASE_EVENT: ${{ github.event_name }}
         run: |
           test "$(uname -m)" = arm64
           python3 - <<'PY'
@@ -55,8 +63,10 @@ jobs:
           def git(*args):
               return subprocess.check_output(['git', *args], text=True).strip()
           head = git('rev-parse', 'HEAD')
-          if git('rev-parse', f'refs/tags/{tag}^{{commit}}') != head or head != os.environ['RELEASE_COMMIT']:
-              raise SystemExit('Tag, checked-out commit and Actions commit must agree')
+          if git('rev-parse', f'refs/tags/{tag}^{{commit}}') != head:
+              raise SystemExit('Tag and checked-out commit must agree')
+          if os.environ['RELEASE_EVENT'] == 'push' and head != os.environ['RELEASE_COMMIT']:
+              raise SystemExit('Tag and Actions push commit must agree')
           git('diff', '--exit-code')
           git('diff', '--cached', '--exit-code')
           PY
@@ -112,7 +122,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RELEASE_TAG: ${{ github.ref_name }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           cat > release-notes.md <<'NOTES'
           ## Apple Silicon macOS prerelease

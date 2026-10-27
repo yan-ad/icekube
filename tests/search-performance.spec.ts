@@ -44,6 +44,7 @@ async function fixture(page: Page, section: string, count: number) {
   }, { count });
   await page.setViewportSize({ width: 1500, height: 900 });
   await page.goto(`/#/cluster/one?section=${section}`);
+  await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
 const reads = (page: Page, kind: string) => page.evaluate(kind => (window as SearchWindow).__searchCalls.filter(c => c.command === "cluster_resources" && c.request.kind === kind), kind);
 

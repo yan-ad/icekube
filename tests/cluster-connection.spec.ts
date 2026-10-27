@@ -228,6 +228,7 @@ test("Meta+r and Control+r refresh the scoped workspace without document reload 
   const urlBefore = page.url();
   await page.evaluate(() => Object.assign(window, { __documentMarker: "same-document" }));
   for (const shortcut of ["Meta+r", "Control+r"]) {
+    await expect(page.getByRole("button", { name: "Refresh nodes", exact: true })).toBeEnabled();
     const previous = await callList(page);
     const request = previous.filter((call) => call.command === "cluster_resources").at(-1)!.request;
     await page.keyboard.press(shortcut);
