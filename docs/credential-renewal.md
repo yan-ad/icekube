@@ -47,6 +47,31 @@ command string, or run arbitrary Kubernetes commands. Installing/configuring an
 exec helper is still a trust decision: the configured executable runs with the
 user's permissions.
 
+### macOS application launches and helper lookup
+
+Finder/Dock launches do not inherit the login shell's PATH. For configured exec
+helpers, Iceon preserves an explicit `exec.env` entry named `PATH` exactly. If no
+such entry exists, only the helper child receives a bounded PATH: inherited
+absolute directories first, followed by Homebrew's `/opt/homebrew/bin` and
+`/usr/local/bin`, fixed Google Cloud SDK `bin` locations under Homebrew and
+`~/google-cloud-sdk` / `~/.local/share/google-cloud-sdk`, and standard system
+directories. Empty, relative and duplicate inherited entries are omitted.
+Lookup is capped at 128 directories / 32 KiB. Absolute commands remain absolute;
+relative commands with path separators stay relative to the canonical kubeconfig
+directory. Both initial exec authentication and renewal use this behavior.
+
+The app does not evaluate shell startup files, invoke a login shell, scan
+directories, install tools, run legacy provider `cmd-path`, or change its global
+environment. Helper arguments, credentials and ExecCredential output never enter
+renderer diagnostics. Explicit kubeconfig environments and installed executables
+remain user-controlled trust boundaries; this is not executable identity pinning.
+
+For an installed build without this lookup support, use Terminal's
+`command -v gke-gcloud-auth-plugin` (or the configured helper's name) to find its
+absolute path. Set that path as the selected user's `exec.command`, or provide an
+explicit `exec.env` PATH, then re-import corrected metadata if the source changed
+and reconnect. No path output means the helper must be installed separately.
+
 Helpers have a 15-second deadline, bounded stdout (1 MiB) and stderr (64 KiB),
 with token and PEM bounds enforced before credentials are installed. Token-file
 reads resolve the configured path beside the canonical source, canonicalize it,

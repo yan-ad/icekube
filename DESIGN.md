@@ -383,6 +383,12 @@ not persisted into Catalog's metadata snapshot.
   cached legacy provider/static credentials do not auto-refresh. See
   [credential renewal](docs/credential-renewal.md) for replay and lifecycle limits.
   Credential helpers are Rust-owned, not Pod terminals. Inherited proxy routing is not enabled.
+  On macOS, a helper without an explicit kubeconfig PATH receives a child-only,
+  bounded PATH containing inherited absolute directories and fixed Homebrew/Google
+  Cloud SDK installation locations. No login shell, shell startup files, directory
+  scanning, automatic installation or global environment modification is used.
+  Explicit `exec.env.PATH` remains unchanged. See `connection/auth_path.rs` and
+  [credential renewal](docs/credential-renewal.md) for bounds and fixture coverage.
 - `connection/transport.rs` uses `kube` 4.2.0 with rustls. It sends only allowlisted
   GETs for version and supported resource inventories. Pod subresources and confirmed
   mutations have separate scoped engine services, not arbitrary renderer URLs.

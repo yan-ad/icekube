@@ -18,6 +18,10 @@ use std::{
 use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::sync::CancellationToken;
 
+#[cfg(any(target_os = "macos", test))]
+#[path = "auth_path.rs"]
+mod auth_path;
+
 const STDOUT_LIMIT: usize = 1024 * 1024;
 const STDERR_LIMIT: usize = 64 * 1024;
 const CONFIG_LIMIT: usize = 1024 * 1024;
@@ -185,7 +189,7 @@ fn helper_request(exec: &ExecConfig, cluster: &Cluster, base: &Path) -> Result<H
         return Err(ConnectionError::KubeconfigInvalid);
     }
     let path = PathBuf::from(command);
-    // A single component is looked up in inherited PATH. No login shell or tilde expansion.
+    // Relative paths stay relative to the canonical kubeconfig directory.
     let command = if path.is_relative() && (command.contains('/') || command.contains('\\')) {
         base.join(path)
     } else {
@@ -287,6 +291,12 @@ fn helper_request(exec: &ExecConfig, cluster: &Cluster, base: &Path) -> Result<H
     if size.saturating_add(info.len()) > CONFIG_LIMIT {
         return Err(ConnectionError::LimitExceeded);
     }
+    #[cfg(target_os = "macos")]
+    auth_path::configure(
+        &mut env,
+        std::env::var_os("PATH").as_deref(),
+        std::env::var_os("HOME").as_deref().map(Path::new),
+    )?;
     Ok(HelperRequest {
         command,
         args,

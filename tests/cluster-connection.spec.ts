@@ -155,6 +155,7 @@ const actions = (page: Page) => page.getByRole("button", { name: "Cluster action
 for (const [code, detail] of [
   ["tlsFailed", "The cluster TLS connection could not be verified"],
   ["unsupportedAuth", "authentication method that is not supported yet"],
+  ["authHelperMissing", "Desktop apps may have a different PATH than Terminal"],
   ["insecureTransport", "insecure transport configuration"],
   ["authFailed", "Cluster authentication failed"],
   ["network", "The cluster could not be reached"],
