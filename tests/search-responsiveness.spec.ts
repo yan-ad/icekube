@@ -4,7 +4,7 @@ type Request = Record<string, any>;
 type Call = { command: string; request: Request };
 type SearchWindow = Window & { __searchCalls: Call[]; __releaseSearch: () => void };
 
-async function fixture(page: Page, section: string) {
+async function fixture(page: Page, section: string, controlledClock = false) {
   page.on("pageerror", error => { throw error; });
   await page.addInitScript(() => {
     const calls: Call[] = [];
@@ -39,6 +39,9 @@ async function fixture(page: Page, section: string) {
     });
   });
   await page.setViewportSize({ width: 1500, height: 900 });
+  // React captures timer/performance APIs at module load. Install before it
+  // loads so it cannot mix native callbacks with a subsequently paused clock.
+  if (controlledClock) await page.clock.install();
   await page.goto(section === "catalog" ? "/#/catalog/all" : `/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
@@ -69,13 +72,12 @@ for (const [section, label, inputLabel, command, needle, count] of [
 
 for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes", "Nodes"]]) {
   test(`${label}: 100 retained rows coalesce keyboard input and reject late results`, async ({ page }) => {
-    await fixture(page, section);
+    await fixture(page, section, true);
     const grid = page.getByRole("table", { name: label, exact: true });
     await expect(grid.getByRole("row")).toHaveCount(101);
     const before = (await calls(page, "cluster_resources", kind)).length;
     const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
     await grid.getByRole("checkbox").nth(1).click();
-    await page.clock.install();
     await page.clock.pauseAt(new Date());
     await input.pressSequentially("abcdefghijklmnopqrst");
     await expect(input).toHaveValue("abcdefghijklmnopqrst");
@@ -87,14 +89,15 @@ for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes
       await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeDisabled();
       await page.keyboard.press("Escape");
     }
-    await page.clock.runFor(159);
+    await page.clock.fastForward(159);
     expect((await calls(page, "cluster_resources", kind)).length).toBe(before);
-    await page.clock.runFor(1);
+    // Check the debounce boundary without replaying every intervening frame.
+    await page.clock.fastForward(1);
     await page.clock.resume();
     await expect(grid).toContainText("abcdefghijklmnopqrst");
     const searches = (await calls(page, "cluster_resources", kind)).slice(before);
     expect(searches.map(call => call.request.query)).toEqual(["abcdefghijklmnopqrst"]);
-    expect(searches[0].request.continueToken).toBeNull();
+    expect(searches[0].request).toMatchObject({ clusterId: "one", kind, query: "abcdefghijklmnopqrst", continueToken: null });
     await input.fill("held");
     await expect.poll(async () => (await calls(page, "cluster_resources", kind)).at(-1)?.request.query).toBe("held");
     const held = (await calls(page, "cluster_resources", kind)).at(-1)!.request;
@@ -109,26 +112,30 @@ for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes
     await expect(grid).toContainText("final");
     await expect(grid).not.toContainText("held");
     await expect(input).toHaveValue("final");
+    expect((await calls(page, "cluster_resources", kind)).slice(before).map(call => call.request.query))
+      .toEqual(["abcdefghijklmnopqrst", "held", "final"]);
   });
 }
 
 test("namespace changes during the debounce cannot restore the old request scope", async ({ page }) => {
-  await fixture(page, "pods");
+  await fixture(page, "pods", true);
   const grid = page.getByRole("table", { name: "Pods", exact: true });
   await expect(grid.getByRole("row")).toHaveCount(101);
   const input = page.getByRole("textbox", { name: "Search Pods", exact: true });
   const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
-  await page.clock.install();
   await page.clock.pauseAt(new Date());
   await input.pressSequentially("scoped");
   await namespace.click();
   await page.getByRole("option", { name: "team-b", exact: true }).click();
   await expect.poll(async () => (await calls(page, "cluster_resources", "pods")).at(-1)?.request.namespace).toBe("team-b");
-  await page.clock.runFor(180);
+  await page.clock.fastForward(180);
   await page.clock.resume();
   await expect(input).toHaveValue("scoped");
   await expect(grid).toContainText("scoped");
   const searches = (await calls(page, "cluster_resources", "pods")).filter(call => call.request.query === "scoped");
-  expect(searches.length).toBeGreaterThan(0);
+  // Namespace changes remount the snapshot; StrictMode replays its read effect.
+  expect(searches).toHaveLength(2);
+  expect(new Set(searches.map(search => search.request.readId)).size).toBe(2);
+  expect(new Set(searches.map(search => search.request.sessionId)).size).toBe(1);
   for (const search of searches) expect(search.request).toMatchObject({ clusterId: "one", query: "scoped", namespace: "team-b", continueToken: null });
 });

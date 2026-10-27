@@ -32,8 +32,11 @@ detect corruption; they do not authenticate the publisher. Automatic application
 updates are disabled in this prerelease: no updater manifest, archive or signature
 is published, and its updater public key and endpoints are empty.
 
-CI checks Rust on macOS and Linux, plus frontend browser fixtures on Linux,
-including a Rust detail-contract fixture prebuild for cold runners. The unsigned
+CI checks Rust on macOS and Linux, then runs all browser fixtures across four
+Linux shards. The Rust job exports the real detail contract once; browser shards
+verify its commit and do not compile Rust. Each shard prints individual test
+progress and has an eight-minute suite deadline, with failure traces retained.
+The unsigned
 prerelease workflow runs CI and exact tag/version checks before building, verifies
 the ad-hoc app and DMG, uploads a draft and checks its downloaded checksums before
 publishing a prerelease (not latest). This describes the workflow, not a claim that

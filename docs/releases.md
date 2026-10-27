@@ -9,7 +9,20 @@ Apple Developer credentials or Tauri updater signing secrets.
 `.github/workflows/ci.yml` runs on pushes to `super`, pull requests, manual runs,
 and reusable workflow calls. Rust formatting, locked tests and Clippy run on
 `macos-15` and `ubuntu-24.04`. Frontend builds and Chromium fixture tests run on
-Ubuntu. Tests use fixtures and mocked IPC, not a real cluster or kubeconfig.
+Ubuntu in four test-level shards, with two browser workers per shard. Tests use
+fixtures and mocked IPC, not a real cluster or kubeconfig. All tests remain in the
+release gate; this is not a reduced smoke suite.
+
+The Linux Rust job exports the real 41-kind detail contract as a same-commit
+artifact. Browser shards consume that artifact rather than compiling Rust or
+installing native GTK/WebKit build dependencies. A missing or mismatched artifact
+fails the contract test. Local runs can still generate the contract using Cargo.
+
+Each shard emits test-by-test progress and a blob report, retains failure traces,
+and has an eight-minute Playwright deadline inside a ten-minute Actions test-step
+limit. Setup steps are separately bounded and the entire shard job is limited to
+20 minutes. These are failure ceilings, not promised execution times. The four
+shards currently contain 166, 166, 166 and 165 tests, without omissions or duplicates.
 
 `.github/workflows/prerelease-unsigned.yml` runs on tag pushes matching
 `*-pre.*`. It reuses the full CI workflow, then requires canonical

@@ -1,14 +1,24 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 test("Rust detail projections for every resource kind satisfy the renderer contract", async ({ page }) => {
-  test.setTimeout(180_000);
-  const output = execFileSync("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "export_frontend_detail_contract", "--", "--nocapture"], {
-    encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 150_000,
-  });
-  const line = output.split("\n").find(line => line.startsWith("DETAIL_CONTRACT_JSON:"));
-  expect(line, "the backend must generate the fixture through its real projector and serde serializer").toBeTruthy();
-  const cases = JSON.parse(line!.slice("DETAIL_CONTRACT_JSON:".length));
+  const artifactPath = process.env.ICEKUBE_DETAIL_CONTRACT;
+  let cases;
+  if (artifactPath) {
+    const artifact = JSON.parse(readFileSync(artifactPath, "utf8"));
+    expect(artifact.commit, "the Rust fixture and renderer must come from the same commit").toBe(process.env.GITHUB_SHA);
+    cases = artifact.cases;
+  } else {
+    expect(process.env.CI, "CI must consume its Rust-job artifact, never compile Rust inside a browser shard").toBeFalsy();
+    test.setTimeout(180_000);
+    const output = execFileSync("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "export_frontend_detail_contract", "--", "--nocapture"], {
+      encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 150_000,
+    });
+    const line = output.split("\n").find(line => line.startsWith("DETAIL_CONTRACT_JSON:"));
+    expect(line, "the backend must generate the fixture through its real projector and serde serializer").toBeTruthy();
+    cases = JSON.parse(line!.slice("DETAIL_CONTRACT_JSON:".length));
+  }
   expect(cases).toHaveLength(41);
   await page.goto("/");
   const failures = await page.evaluate(async cases => {

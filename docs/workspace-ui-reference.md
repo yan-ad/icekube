@@ -236,8 +236,13 @@ than Developer ID or notarization. Updater public key/endpoints are empty; no
 updater manifest, archive or signature is published. Foreground inventory polling
 is independent of application updates, which remain disabled for this prerelease.
 
-CI configures Rust checks on macOS and Linux and frontend Chromium fixtures on
-Linux, prebuilding the Rust detail-contract fixture for a cold runner. The unsigned
+CI configures Rust checks on macOS and Linux and four parallel Chromium fixture
+shards on Linux. Rust exports the real detail-contract artifact once; the browser
+contract test verifies its commit instead of invoking Cargo in a browser worker.
+Each shard prints individual test progress, preserves failure traces and has an
+eight-minute suite deadline inside a ten-minute Actions test step. Setup and
+test timeouts remain distinct; no tests are skipped to accelerate the release.
+The unsigned
 tag workflow waits for CI and exact tag/manifest checks, builds and verifies the
 app/DMG, creates a draft, verifies downloaded uploaded assets/checksums, then
 publishes a prerelease marked not latest. These are configured checks, not a claim

@@ -3,7 +3,7 @@ import { expect, test, type Page } from "@playwright/test";
 type Call = { command: string; request: Record<string, any> };
 type SearchWindow = Window & { __searchCalls: Call[]; __releaseSearch: () => void };
 
-async function fixture(page: Page, section: string, count: number) {
+async function fixture(page: Page, section: string, count: number, controlledClock = false) {
   await page.addInitScript(({ count }) => {
     const calls: Call[] = [];
     const held: (() => void)[] = [];
@@ -43,6 +43,8 @@ async function fixture(page: Page, section: string, count: number) {
     });
   }, { count });
   await page.setViewportSize({ width: 1500, height: 900 });
+  // Install before React captures timer/performance APIs, not over a live tree.
+  if (controlledClock) await page.clock.install();
   await page.goto(`/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
@@ -63,26 +65,29 @@ test("500 cached Helm charts filter locally without extra Rust reads", async ({ 
 
 for (const count of [100]) for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes", "Nodes"]]) {
   test(`${label}: ${count} retained rows coalesce a 20-character typing burst`, async ({ page }) => {
-    await fixture(page, section, count);
+    await fixture(page, section, count, true);
     const grid = page.getByRole("table", { name: label, exact: true });
     await expect(grid).toBeVisible();
     await expect(grid.getByRole("row")).toHaveCount(count + 1);
     const before = (await reads(page, kind)).length;
     const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
-    await page.clock.install();
     await page.clock.pauseAt(new Date());
     await input.pressSequentially("abcdefghijklmnopqrst");
     await expect(input).toHaveValue("abcdefghijklmnopqrst");
     expect((await reads(page, kind)).length).toBe(before);
-    await page.clock.runFor(159);
+    await page.clock.fastForward(159);
     expect((await reads(page, kind)).length).toBe(before);
-    await page.clock.runFor(1);
+    await page.clock.fastForward(1);
     await page.clock.resume();
     await expect.poll(async () => (await reads(page, kind)).length).toBe(before + 1);
     await expect(grid).toContainText("abcdefghijklmnopqrst");
     const after = await reads(page, kind);
     expect(after.slice(before).map(call => call.request.query)).toEqual(["abcdefghijklmnopqrst"]);
-    expect(after.at(-1)!.request.continueToken).toBeNull();
+    expect(after.at(-1)!.request).toMatchObject({
+      clusterId: "one", sessionId: after[before - 1].request.sessionId,
+      kind, query: "abcdefghijklmnopqrst", continueToken: null,
+    });
+    expect(after.at(-1)!.request.readId).not.toBe(after[before - 1].request.readId);
   });
 }
 
