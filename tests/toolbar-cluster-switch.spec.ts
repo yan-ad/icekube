@@ -3,7 +3,11 @@ import { expect, test, type Page } from "@playwright/test";
 async function fixture(page: Page, route = "/#/cluster/one?section=network") {
   await page.addInitScript(() => {
     const calls: { command: string; request: Record<string, unknown> }[] = [];
-    Object.assign(window, { toolbarCalls: calls, isTauri: true, __TAURI_INTERNALS__: {
+    const control = { holdConnect: false };
+    const pending: (() => void)[] = [];
+    Object.assign(window, { toolbarCalls: calls, toolbarControl: control,
+      releaseToolbarConnect: () => { control.holdConnect = false; pending.splice(0).forEach(resolve => resolve()); },
+      isTauri: true, __TAURI_INTERNALS__: {
       invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
         const request = args?.request ?? {};
         calls.push({ command, request });
@@ -13,7 +17,11 @@ async function fixture(page: Page, route = "/#/cluster/one?section=network") {
         ] };
         const snapshot = { clusterId: request.clusterId, sessionId: request.sessionId ?? `lease-${calls.length}`, contextName: request.clusterId, status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_session_open") return snapshot;
-        if (command === "cluster_connect") { await new Promise(resolve => setTimeout(resolve, 150)); return { ...snapshot, status: "connected", apiVersion: "v1" }; }
+        if (command === "cluster_connect") {
+          if (control.holdConnect) await new Promise<void>(resolve => pending.push(resolve));
+          return { ...snapshot, status: "connected", apiVersion: "v1" };
+        }
+        if (command === "catalog_connection_states") return [];
         if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
         throw new Error(`Unexpected toolbar command: ${command}`);
       },
@@ -34,8 +42,10 @@ test("refresh follows forward; searchable cluster switch preserves section and s
   const names = await toolbar.locator("button").evaluateAll(buttons => buttons.map(button => button.getAttribute("aria-label")));
   expect(names.indexOf("Refresh cluster")).toBe(names.indexOf("Go forward") + 1);
   expect(names.indexOf("Switch cluster")).toBe(names.indexOf("Refresh cluster") + 1);
+  await page.evaluate(() => { (window as Window & { toolbarControl: { holdConnect: boolean } }).toolbarControl.holdConnect = true; });
   await refresh.click();
   await expect(refresh).toBeDisabled();
+  await page.evaluate(() => (window as Window & { releaseToolbarConnect: () => void }).releaseToolbarConnect());
   await expect(refresh).toBeEnabled();
   const before = await calls(page);
   expect(before.filter(call => call.command === "cluster_session_open").length).toBeGreaterThan(1);

@@ -44,7 +44,7 @@ async function fixture(page: Page, section: string, count: number, controlledClo
   }, { count });
   await page.setViewportSize({ width: 1500, height: 900 });
   // Install before React captures timer/performance APIs, not over a live tree.
-  if (controlledClock) await page.clock.install();
+  if (controlledClock) await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await page.goto(`/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
@@ -71,7 +71,8 @@ for (const count of [100]) for (const [section, kind, label] of [["pods", "pods"
     await expect(grid.getByRole("row")).toHaveCount(count + 1);
     const before = (await reads(page, kind)).length;
     const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
-    await page.clock.pauseAt(new Date());
+    // Use the browser clock, with a transport guard before typing, not host time.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     await input.pressSequentially("abcdefghijklmnopqrst");
     await expect(input).toHaveValue("abcdefghijklmnopqrst");
     expect((await reads(page, kind)).length).toBe(before);

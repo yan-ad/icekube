@@ -1,18 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function engineFixture(page: Page, options: { empty?: boolean; failList?: boolean; slow?: boolean; discoveryFailure?: boolean; defaultConfig?: boolean } = {}) {
+async function engineFixture(page: Page, options: { empty?: boolean; failList?: boolean; slow?: boolean; holdList?: boolean; discoveryFailure?: boolean; defaultConfig?: boolean } = {}) {
   await page.addInitScript((options) => {
     const initial = { revision: 1, discoveryError: null, clusters: options.empty ? [] : [{ id: "cluster-fixture", name: "Development", contextName: "Development", source: "kubeconfig", labels: ["file=/fixtures/fixture.yaml"], color: "#476BA1", status: "disconnected", pinned: false }], webLinks: options.empty ? [] : [{ id: "link-fixture", name: "Documentation", url: "https://docs.example.test/", source: "local", labels: [], color: "#EAA40B", pinned: false }] };
     const read = () => JSON.parse(sessionStorage.getItem("test.catalog") ?? JSON.stringify(initial));
     const calls: { command: string; request: unknown }[] = [];
+    const pending: (() => void)[] = [];
     Object.assign(window, {
       isTauri: true,
       __catalogCalls: calls,
+      __releaseCatalogList: () => { options.holdList = false; pending.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
           const request = args?.request ?? {};
           calls.push({ command, request });
 
+          if (options.holdList && command === "catalog_list") await new Promise<void>(resolve => pending.push(resolve));
           if (options.slow) await new Promise((resolve) => setTimeout(resolve, 300));
           if (options.failList && command === "catalog_list") throw "storeCorrupt";
           const state = read();
@@ -142,9 +145,10 @@ test("invalid imports stay in dialog with safe errors and preserve records", asy
 });
 
 test("loading and corrupt storage are distinct from an empty catalog", async ({ page }) => {
-  await engineFixture(page, { failList: true, slow: true });
+  await engineFixture(page, { failList: true, holdList: true });
   await page.goto("/#/catalog");
   await expect(page.getByRole("status", { name: "Loading catalog…", exact: true })).toBeVisible();
+  await page.evaluate(() => (window as Window & { __releaseCatalogList: () => void }).__releaseCatalogList());
   await expect(page.getByRole("alert")).toContainText("has not been overwritten");
   await expect(page.getByRole("heading", { name: "Catalog unavailable", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Add config", exact: true })).toBeDisabled();

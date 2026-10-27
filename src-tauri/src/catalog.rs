@@ -34,6 +34,15 @@ pub enum CatalogError {
     StoreCorrupt,
     OpenFailed,
 }
+
+/// Ephemeral connection state projected onto a catalog entry. This is never
+/// persisted with the catalog metadata.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ClusterConnectionState {
+    pub cluster_id: String,
+    pub status: &'static str,
+}
 type Result<T> = std::result::Result<T, CatalogError>;
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

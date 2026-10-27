@@ -41,7 +41,7 @@ async function fixture(page: Page, section: string, controlledClock = false) {
   await page.setViewportSize({ width: 1500, height: 900 });
   // React captures timer/performance APIs at module load. Install before it
   // loads so it cannot mix native callbacks with a subsequently paused clock.
-  if (controlledClock) await page.clock.install();
+  if (controlledClock) await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
   await page.goto(section === "catalog" ? "/#/catalog/all" : `/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
@@ -78,7 +78,8 @@ for (const [section, kind, label] of [["pods", "pods", "Pods"], ["nodes", "nodes
     const before = (await calls(page, "cluster_resources", kind)).length;
     const input = page.getByRole("textbox", { name: `Search ${label}`, exact: false });
     await grid.getByRole("checkbox").nth(1).click();
-    await page.clock.pauseAt(new Date());
+    // Use the browser clock, with a transport guard before typing, not host time.
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
     await input.pressSequentially("abcdefghijklmnopqrst");
     await expect(input).toHaveValue("abcdefghijklmnopqrst");
     expect((await calls(page, "cluster_resources", kind)).length).toBe(before);
@@ -123,7 +124,7 @@ test("namespace changes during the debounce cannot restore the old request scope
   await expect(grid.getByRole("row")).toHaveCount(101);
   const input = page.getByRole("textbox", { name: "Search Pods", exact: true });
   const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
-  await page.clock.pauseAt(new Date());
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
   await input.pressSequentially("scoped");
   await namespace.click();
   await page.getByRole("option", { name: "team-b", exact: true }).click();

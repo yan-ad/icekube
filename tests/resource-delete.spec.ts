@@ -45,6 +45,7 @@ async function fixture(page: Page, section = "config-maps", options: Controls = 
       __releaseDelete: () => { control.hold = false; pending.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const r = { ...args?.request }; calls.push({ command, request: r });
+        if (command === "catalog_connection_states") return [];
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
         ] };

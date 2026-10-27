@@ -1,11 +1,12 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
+export type ClusterConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 export type ClusterSummary = {
   id: string;
   name: string;
   contextName: string;
   source: string;
-  status: "disconnected";
+  status: ClusterConnectionStatus;
   pinned: boolean;
   labels: string[];
   color: string;
@@ -33,6 +34,18 @@ export function catalogError(error: unknown): string {
     ? messages[error]
     : "The catalog operation failed. Try again; no success has been assumed.";
 }
+function connectionStatus(value: unknown): value is ClusterConnectionStatus {
+  return typeof value === "string" && ["disconnected", "connecting", "connected", "error"].includes(value);
+}
+export async function loadCatalogConnectionStates(): Promise<{ clusterId: string; status: ClusterConnectionStatus }[]> {
+  if (!hasCatalogEngine()) throw "unavailable";
+  const result: unknown = await invoke("catalog_connection_states");
+  if (!Array.isArray(result) || result.length > 1 || !result.every(item => record(item)
+    && Object.keys(item).every(key => ["clusterId", "status"].includes(key))
+    && typeof item.clusterId === "string" && item.clusterId.length > 0 && item.clusterId.length <= 256
+    && !/[\u0000-\u001f\u007f-\u009f]/.test(item.clusterId) && connectionStatus(item.status))) throw "invalidResponse";
+  return result;
+}
 
 export async function openSavedWebLink(id: string): Promise<void> {
   if (!hasCatalogEngine()) throw "unavailable";
@@ -56,7 +69,7 @@ function parseSnapshot(value: unknown): CatalogSnapshot {
     || !Array.isArray(value.clusters) || !Array.isArray(value.webLinks)
     || value.clusters.length + value.webLinks.length > 1000
     || !value.clusters.every((item) => summary(item) && record(item)
-      && typeof item.contextName === "string" && typeof item.source === "string" && item.status === "disconnected")
+      && typeof item.contextName === "string" && typeof item.source === "string" && connectionStatus(item.status))
     || !value.webLinks.every((item) => summary(item) && typeof item.url === "string")
     || new Set([...value.clusters, ...value.webLinks].map((item) => item.id)).size !== value.clusters.length + value.webLinks.length) throw "invalidResponse";
   return value as CatalogSnapshot;

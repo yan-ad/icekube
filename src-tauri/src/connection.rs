@@ -36,6 +36,8 @@ mod renewal;
 mod resource_tests;
 mod resources;
 #[cfg(test)]
+mod runtime_status_tests;
+#[cfg(test)]
 mod tests;
 mod transport;
 
@@ -74,6 +76,19 @@ pub enum ConnectionError {
     HelmUnavailable,
     Conflict,
 }
+impl Session {
+    fn catalog_status(&self) -> &'static str {
+        if self.cancel.is_cancelled() {
+            return "disconnected";
+        }
+        match (self.snapshot.status, self.client.is_some()) {
+            ("connected", true) => "connected",
+            ("connecting", _) => "connecting",
+            ("error", _) => "error",
+            _ => "disconnected",
+        }
+    }
+}
 struct CreateSlot {
     id: u64,
     cancel: Option<CancellationToken>,
@@ -86,6 +101,46 @@ fn validate_credentials(client: &Client) -> Result<()> {
         Err(ConnectionError::AuthExpired)
     } else {
         Ok(())
+    }
+}
+
+impl ConnectionEngine {
+    /// Overlay the current, single-workspace lease onto a catalog snapshot.
+    /// Catalog rows remain disconnected when there is no matching live lease.
+    pub fn project_catalog_statuses(
+        &self,
+        snapshot: &mut crate::catalog::CatalogSnapshot,
+    ) -> Result<()> {
+        let state = self
+            .session
+            .lock()
+            .map_err(|_| ConnectionError::StoreUnavailable)?;
+        for cluster in &mut snapshot.clusters {
+            cluster.status = "disconnected";
+        }
+        if let Some(session) = state.as_ref()
+            && let Some(cluster) = snapshot
+                .clusters
+                .iter_mut()
+                .find(|cluster| cluster.id == session.snapshot.cluster_id)
+        {
+            cluster.status = session.catalog_status();
+        }
+        Ok(())
+    }
+
+    pub fn catalog_connection_states(&self) -> Result<Vec<crate::catalog::ClusterConnectionState>> {
+        let state = self
+            .session
+            .lock()
+            .map_err(|_| ConnectionError::StoreUnavailable)?;
+        let Some(session) = state.as_ref() else {
+            return Ok(Vec::new());
+        };
+        Ok(vec![crate::catalog::ClusterConnectionState {
+            cluster_id: session.snapshot.cluster_id.clone(),
+            status: session.catalog_status(),
+        }])
     }
 }
 fn validate_read_id(id: u64) -> Result<()> {

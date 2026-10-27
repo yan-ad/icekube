@@ -1,8 +1,8 @@
-import { memo, useCallback, useDeferredValue, useMemo, useState } from "react";
+import { memo, useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { useNavigate, useRouterState } from "@tanstack/react-router";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Button } from "@astryxdesign/core/Button";
-import { Badge } from "@astryxdesign/core/Badge";
+import { StatusBadge } from "../cluster/StatusBadge";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconPin, IconPinnedOff, IconSearch, IconTrash } from "@tabler/icons-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
@@ -51,7 +51,17 @@ export default function CatalogPage() {
     select: (state) => state.location.search.item,
   });
   const navigate = useNavigate();
-  const { snapshot, loading, busy, error, available, run, openWebLink } = useCatalog();
+  const { snapshot, loading, busy, error, available, run, openWebLink, connectionStates, refreshConnectionStates } = useCatalog();
+  const hasRuntimeState = Object.values(connectionStates).some(status => status !== "disconnected");
+  useEffect(() => {
+    if (!hasRuntimeState || !available) return;
+    const refresh = () => { if (document.visibilityState === "visible") void refreshConnectionStates(); };
+    refresh();
+    const timer = window.setInterval(refresh, 2_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { clearInterval(timer); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", refresh); };
+  }, [hasRuntimeState, available, refreshConnectionStates]);
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [remove, setRemove] = useState<CatalogRow | null>(null);
@@ -65,7 +75,7 @@ export default function CatalogPage() {
     ...(snapshot?.clusters ?? []).map((item) => ({
       ...item,
       category: "Clusters" as const,
-      status: "Disconnected",
+      status: ({ disconnected: "Disconnected", connecting: "Connecting…", connected: "Connected", error: "Connection error", disconnecting: "Disconnecting…", unknown: "Unknown" })[connectionStates[item.id] ?? item.status],
     })),
     ...(snapshot?.webLinks ?? []).map((item) => ({
       ...item,
@@ -74,7 +84,7 @@ export default function CatalogPage() {
     })),
   ]
     .filter((item) => kind === "All Categories" || item.category === kind)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), [snapshot, kind]);
+    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), [snapshot, kind, connectionStates]);
   const searchable = useMemo(() => rows.map(item => ({ item, text:
     `${item.name} ${item.category} ${item.source} ${item.labels.join(" ")} ${item.url ?? ""}`.toLowerCase(),
   })), [rows]);
@@ -162,7 +172,7 @@ export default function CatalogPage() {
       key: "status",
       header: "Status",
       width: proportional(1.3),
-      renderCell: (item) => <Badge variant="neutral" label={item.status} />,
+      renderCell: (item) => <StatusBadge status={item.status} variant={item.status === "Connection error" ? "error" : item.status.startsWith("Connecting") || item.status.startsWith("Disconnecting") ? "warning" : undefined} />,
     },
     {
       key: "actions",

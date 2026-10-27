@@ -106,6 +106,10 @@ by confirmation. Opening a dialog alone does not submit a mutation.
   their meanings. Unknown states and generic booleans stay neutral. The Azure
   accent is generated through Astryx CLI from `#0074e2` and mapped to theme roles;
   neutral surfaces, green success statuses and black log surfaces are preserved.
+- Catalog cluster status comes from Rust's current runtime lease rather than a
+  hardcoded Disconnected label. Status polling reads in-memory state only, never
+  credentials or the cluster. Leaving a workspace still releases its connection;
+  the Catalog follows that release rather than retaining a historical green badge.
 - Sidebar transitions preserve navigation context; exiting cluster navigation is
   inert and hidden from accessibility, and reduced motion removes transitions.
   Show saved metadata opens a named modal from Cluster actions, not an inline panel.

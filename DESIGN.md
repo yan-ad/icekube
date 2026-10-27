@@ -118,6 +118,21 @@ unused starter CSS, not design authority. The active brand theme lives in
    All Categories combines both kinds. `/catalog` and `/catalog/all` show this view; `/catalog/general` redirects
    to `/catalog/all`. Clusters and Web Links filter the shared snapshot.
 
+Catalog cluster badges are runtime observations, not persisted import metadata.
+Rust overlays the current `ConnectionEngine` lease on every Catalog response;
+the renderer does not hardcode Disconnected or infer Connected from a kubeconfig.
+`catalog_connection_states` reads only the current in-memory lease, without file
+discovery, authentication helpers or Kubernetes traffic. Catalog refreshes that
+projection while a runtime state is active, using one non-overlapping read every
+two seconds while visible and on focus. Local session transitions invalidate
+older reads and Catalog responses; failed status reads become Unknown. Connected
+uses a success badge, errors use an error badge, and web links remain Not checked.
+The existing single-workspace lifecycle is unchanged: leaving the workspace
+releases its connection. Catalog shows Disconnecting until release completes,
+then Disconnected; it never presents a historical successful connection as live.
+`tests/catalog-connection-status.spec.ts` and Rust `runtime_status_tests` cover
+projection, stale replies, replacement leases, disconnect and persistence isolation.
+
 ### Cluster workspace and row activation
 
 Catalog rows activate with a click, Enter, or Space. Cluster rows and pinned

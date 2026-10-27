@@ -1,25 +1,29 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { connectSession, disconnectSession, errorCode, openSession, type ConnectionErrorCode, type ConnectionSnapshot } from "./api";
+import { useCatalog } from "../catalog/CatalogProvider";
 
 type View = { snapshot: ConnectionSnapshot | null; phase: "opening" | "ready" | "connecting" | "releasing" | "failed"; error: ConnectionErrorCode | null };
 type Owner = { disposed: boolean; generation: number; snapshot: ConnectionSnapshot | null; phase: View["phase"]; release: (() => Promise<void>) | null };
 
 export function useClusterSession(clusterId: string) {
+  const { observeConnection, releaseConnection } = useCatalog();
   const owner = useRef<Owner | null>(null);
   const [view, setView] = useState<View>({ snapshot: null, phase: "opening", error: null });
   const publish = useCallback((scope: Owner, next: View) => {
     if (scope.disposed || owner.current !== scope) return;
     scope.snapshot = next.snapshot; scope.phase = next.phase; setView(next);
-  }, []);
+    if (next.snapshot) observeConnection(next.snapshot);
+  }, [observeConnection]);
   const attach = useCallback(async (scope: Owner, generation: number) => {
     const snapshot = await openSession(clusterId);
     let released: Promise<void> | null = null;
-    const release = () => released ??= disconnectSession({ clusterId, sessionId: snapshot.sessionId });
+    const request = { clusterId, sessionId: snapshot.sessionId };
+    const release = () => released ??= releaseConnection(request, () => disconnectSession(request));
     if (scope.disposed || generation !== scope.generation) { void release().catch(() => {}); return null; }
     scope.release = release;
     publish(scope, { snapshot, phase: "ready", error: snapshot.error });
     return snapshot;
-  }, [clusterId, publish]);
+  }, [clusterId, publish, releaseConnection]);
   const connectOwned = useCallback(async (scope: Owner) => {
     if (scope.disposed || scope.phase !== "ready" || !scope.snapshot || scope.snapshot.clusterId !== clusterId || scope.snapshot.status === "connected") return;
     const snapshot = scope.snapshot;
@@ -63,10 +67,10 @@ export function useClusterSession(clusterId: string) {
       if (snapshot && reconnect) await connectOwned(scope);
     } catch (reason) {
       if (scope.disposed || generation !== scope.generation) return;
-      scope.release = () => disconnectSession({ clusterId, sessionId: previous.sessionId });
+      scope.release = () => releaseConnection({ clusterId, sessionId: previous.sessionId }, () => disconnectSession({ clusterId, sessionId: previous.sessionId }));
       publish(scope, { snapshot: null, phase: "failed", error: errorCode(reason) });
     }
-  }, [attach, clusterId, connectOwned, publish]);
+  }, [attach, clusterId, connectOwned, publish, releaseConnection]);
   const connect = useCallback(async () => {
     const scope = owner.current;
     if (!scope) return;

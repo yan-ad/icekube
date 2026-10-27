@@ -18,11 +18,18 @@ use tauri_plugin_opener::OpenerExt;
 
 async fn catalog_operation(
     engine: Arc<CatalogEngine>,
+    connections: Arc<connection::ConnectionEngine>,
     operation: impl FnOnce(&CatalogEngine) -> Result<CatalogSnapshot, CatalogError> + Send + 'static,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    tauri::async_runtime::spawn_blocking(move || operation(&engine))
-        .await
-        .map_err(|_| CatalogError::StoreUnavailable)?
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut snapshot = operation(&engine)?;
+        connections
+            .project_catalog_statuses(&mut snapshot)
+            .map_err(|_| CatalogError::StoreUnavailable)?;
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|_| CatalogError::StoreUnavailable)?
 }
 
 #[tauri::command]
@@ -287,49 +294,77 @@ async fn catalog_open_web_link(
 #[tauri::command]
 async fn catalog_list(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(engine.inner().clone(), CatalogEngine::list).await
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        CatalogEngine::list,
+    )
+    .await
+}
+
+#[tauri::command]
+fn catalog_connection_states(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+) -> Result<Vec<catalog::ClusterConnectionState>, connection::ConnectionError> {
+    connections.catalog_connection_states()
 }
 
 #[tauri::command]
 async fn catalog_import_kubeconfig(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: ImportRequest,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(engine.inner().clone(), move |engine| {
-        engine.import_kubeconfig(request)
-    })
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.import_kubeconfig(request),
+    )
     .await
 }
 
 #[tauri::command]
 async fn catalog_add_web_link(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: AddWebLinkRequest,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(engine.inner().clone(), move |engine| {
-        engine.add_web_link(request)
-    })
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.add_web_link(request),
+    )
     .await
 }
 
 #[tauri::command]
 async fn catalog_set_pin(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: PinRequest,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(engine.inner().clone(), move |engine| {
-        engine.set_pin(request)
-    })
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.set_pin(request),
+    )
     .await
 }
 
 #[tauri::command]
 async fn catalog_remove(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: RemoveRequest,
 ) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(engine.inner().clone(), move |engine| engine.remove(request)).await
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.remove(request),
+    )
+    .await
 }
 
 #[tauri::command]
@@ -391,6 +426,7 @@ pub fn run() {
             context_menu::row_context_menu_show,
             context_menu::row_context_menu_cancel,
             catalog_list,
+            catalog_connection_states,
             catalog_import_kubeconfig,
             catalog_add_web_link,
             catalog_set_pin,
@@ -452,6 +488,31 @@ pub fn run() {
 
 #[cfg(test)]
 mod command_state_tests {
+    #[test]
+    fn catalog_commands_extract_the_registered_shared_connection_engine() {
+        let source = include_str!("lib.rs");
+        for command in [
+            "catalog_list",
+            "catalog_import_kubeconfig",
+            "catalog_add_web_link",
+            "catalog_set_pin",
+            "catalog_remove",
+            "catalog_connection_states",
+        ] {
+            let signature = source
+                .split(&format!("fn {command}("))
+                .nth(1)
+                .expect("catalog command exists")
+                .split(") ->")
+                .next()
+                .unwrap();
+            assert!(
+                signature.contains("tauri::State<'_, Arc<connection::ConnectionEngine>>"),
+                "{command} must observe the registered shared engine"
+            );
+        }
+    }
+
     #[test]
     fn generic_details_extract_the_registered_shared_engine_type() {
         let source = include_str!("lib.rs");
