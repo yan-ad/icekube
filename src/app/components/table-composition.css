@@ -1,4 +1,4 @@
-[data-icekube-table-viewport] td .astryx-button[data-variant="ghost"] {
+[data-iceon-table-viewport] td .astryx-button[data-variant="ghost"] {
   justify-content: flex-start;
   padding-inline: 0;
   width: auto;
@@ -6,21 +6,21 @@
   color: var(--color-text-accent);
 }
 
-[data-icekube-table-viewport] .table-selection-heading {
+[data-iceon-table-viewport] .table-selection-heading {
   position: relative;
 }
 
-[data-icekube-table-viewport] .table-selection-original-label,
-[data-icekube-table-viewport] .table-selection-muted-label {
+[data-iceon-table-viewport] .table-selection-original-label,
+[data-iceon-table-viewport] .table-selection-muted-label {
   opacity: 0;
 }
 
-[data-icekube-table-viewport] .table-selection-original-label:focus-within,
-[data-icekube-table-viewport] .table-selection-muted-label:focus-within {
+[data-iceon-table-viewport] .table-selection-original-label:focus-within,
+[data-iceon-table-viewport] .table-selection-muted-label:focus-within {
   opacity: 1;
 }
 
-[data-icekube-table-viewport] .table-selection-summary {
+[data-iceon-table-viewport] .table-selection-summary {
   position: absolute;
   inset-inline-start: 0;
 }

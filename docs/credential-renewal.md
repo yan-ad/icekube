@@ -2,7 +2,7 @@
 
 ## Source and scope
 
-This contract describes Icekube source, not a claim of provider compatibility or
+This contract describes Iceon source, not a claim of provider compatibility or
 Freelens parity. Owners are `src-tauri/src/connection/config.rs`, `auth.rs`,
 `renewal.rs` and the session lifecycle in `src-tauri/src/connection.rs`.
 React receives typed public results, not credentials. No upstream implementation

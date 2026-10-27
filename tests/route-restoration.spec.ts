@@ -6,7 +6,7 @@ async function fixture(page: Page, route: unknown, enabled = true, restoreRoute 
     const calls: { command: string; route?: unknown }[] = [];
     Object.assign(window, {
       isTauri: true,
-      __ICEKUBE_WINDOW_LAYOUT__: { seamless: false, platform: "linux", restoreRoute },
+      __ICEON_WINDOW_LAYOUT__: { seamless: false, platform: "linux", restoreRoute },
       __routeHistory: calls,
       __TAURI_INTERNALS__: {
         metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },

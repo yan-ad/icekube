@@ -1,15 +1,51 @@
 import { expect, test, type Page } from "@playwright/test";
+import { defaultPreferences } from "../src/app/preferences/api";
 
 async function connectedMacWindow(page: Page) {
-  await page.addInitScript(() => {
-    Object.defineProperty(window, "__ICEKUBE_WINDOW_LAYOUT__", {
+  await page.addInitScript(preferences => {
+    Object.defineProperty(window, "__ICEON_WINDOW_LAYOUT__", {
       value: Object.freeze({ platform: "macos", seamless: true }),
     });
     let sequence = 0;
+    let callbackId = 0;
+    const handlers = new Map<number, (event: unknown) => void>();
+    const listeners = new Map<number, { event: string; handler: number; target: unknown }>();
+    const native = { ready: false, listeners };
     Object.assign(window, {
       isTauri: true,
+      __toolbarNative: native,
+      __TAURI_EVENT_PLUGIN_INTERNALS__: {
+        unregisterListener: (_event: string, id: number) => { listeners.delete(id); },
+      },
       __TAURI_INTERNALS__: {
-        invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
+        metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
+        transformCallback: (callback: (event: unknown) => void) => {
+          const id = ++callbackId;
+          handlers.set(id, callback);
+          return id;
+        },
+        unregisterCallback: (id: number) => { handlers.delete(id); },
+        invoke: async (command: string, args?: { request?: Record<string, unknown>; event?: string; handler?: number; target?: unknown; eventId?: number }) => {
+          if (command === "plugin:event|listen") {
+            if (!args?.event || args.handler === undefined || !handlers.has(args.handler)) throw new Error("Missing native event callback");
+            const id = ++callbackId;
+            listeners.set(id, { event: args.event, handler: args.handler, target: args.target });
+            return id;
+          }
+          if (command === "plugin:event|unlisten") {
+            listeners.delete(args!.eventId!);
+            return;
+          }
+          if (command === "native_navigation_ready") {
+            const subscribed = [...listeners.values()].some(listener => listener.event === "iceon://native-navigation"
+              && JSON.stringify(listener.target) === JSON.stringify({ kind: "WebviewWindow", label: "main" }));
+            if (!subscribed) throw new Error("Native navigation must subscribe before readiness");
+            native.ready = true;
+            return;
+          }
+          if (command === "preferences_get") return { revision: 1, preferences };
+          if (command === "route_history_get") return null;
+          if (command === "route_history_save") return;
           const request = args?.request ?? {};
           const snapshot = {
             clusterId: request.clusterId,
@@ -31,8 +67,13 @@ async function connectedMacWindow(page: Page) {
         },
       },
     });
-  });
+  }, defaultPreferences);
   await page.goto("/#/cluster/one");
+  await expect.poll(() => page.evaluate(() => {
+    const native = (window as unknown as { __toolbarNative: { ready: boolean; listeners: Map<number, { event: string }> } }).__toolbarNative;
+    return { ready: native.ready, navigationListeners: [...native.listeners.values()].filter(listener => listener.event === "iceon://native-navigation").length };
+  })).toEqual({ ready: true, navigationListeners: 1 });
+  await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toHaveAttribute("aria-description", "Connection status: Connected");
 }
@@ -51,7 +92,7 @@ for (const fontPercent of [100, 125]) {
       if (width >= 640) await expect(statusBadge).toBeVisible();
       else await expect(statusBadge).toHaveCount(0);
       const actions = toolbar.getByRole("button", { name: "Cluster actions", exact: true });
-      await expect(toolbar.getByRole("button", { name: "Open Icekube on GitHub", exact: true })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: "Open Iceon on GitHub", exact: true })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: "Refresh overview", exact: true })).toBeVisible();
       await expect(toolbar.getByRole("button", { name: "Switch cluster", exact: true })).toBeVisible();
       await expect(actions).toHaveAttribute("aria-description", "Connection status: Connected");

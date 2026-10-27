@@ -154,7 +154,7 @@ export function PreferencesDialog() {
               />
               <Switch
                 label="Restore last page"
-                description="Open the last catalog or cluster page when Icekube starts"
+                description="Open the last catalog or cluster page when Iceon starts"
                 value={draft.app.restoreLastPage}
                 onChange={(checked) => setDraft((d) => ({ ...d, app: { ...d.app, restoreLastPage: checked } }))}
               />
@@ -166,7 +166,7 @@ export function PreferencesDialog() {
               />
               <Switch
                 label="Start-up"
-                description="Automatically start Icekube on login"
+                description="Automatically start Iceon on login"
                 value={draft.app.openAtLogin}
                 onChange={(checked) => setDraft((d) => ({ ...d, app: { ...d.app, openAtLogin: checked } }))}
               />

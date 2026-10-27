@@ -6,7 +6,7 @@
 right-click and Shift+F10 events. The fixture supplies only synthetic catalog,
 session, inventory, details and mutation responses. Native menus are represented
 by Tauri `transformCallback` registrations and scoped
-`icekube://row-context-menu` emissions, not DOM menu items. Window layout remains
+`iceon://row-context-menu` emissions, not DOM menu items. Window layout remains
 `platform: browser`; no native chrome or actual OS menu is launched.
 
 Coverage includes all 41 Kubernetes inventory kinds, Helm charts/releases, and

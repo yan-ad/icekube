@@ -37,7 +37,7 @@ for (const width of [1440, 480]) {
     await fixture(page);
     // Force a wide inventory at desktop size too, independently of column content.
     await page.getByRole("table", { name: "Resource Quotas", exact: true }).evaluate(el => { el.style.minWidth = "2200px"; });
-    const viewport = page.locator("[data-icekube-table-viewport]");
+    const viewport = page.locator("[data-iceon-table-viewport]");
     const toolbar = page.getByRole("region", { name: "Resource Quotas filters", exact: true });
     const header = page.getByRole("columnheader").first();
     const initialToolbar = (await toolbar.boundingBox())!;

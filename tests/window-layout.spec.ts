@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 async function mockWindow(page: Page, platform: string, seamless = true, failActions = false) {
   await page.addInitScript(({ platform, seamless, failActions }) => {
-    Object.defineProperty(window, "__ICEKUBE_WINDOW_LAYOUT__", {
+    Object.defineProperty(window, "__ICEON_WINDOW_LAYOUT__", {
       value: Object.freeze({ platform, seamless }),
     });
     const calls: string[] = [];
@@ -30,7 +30,7 @@ for (const platform of ["macos", "windows", "linux"]) {
     const toolbar = page.getByTestId("window-safe-area");
     await expect(toolbar).toBeVisible();
     await expect(page.getByRole("navigation", { name: "App toolbar", exact: true })).toHaveCount(1);
-    await expect(toolbar.getByText("Icekube", { exact: true })).toHaveCount(0);
+    await expect(toolbar.getByText("Iceon", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Close window", exact: true }))
       .toHaveCount(platform === "macos" ? 0 : 1);
     await expect(toolbar.locator("[data-tauri-drag-region]").first()).toBeVisible();
@@ -63,7 +63,7 @@ for (const platform of ["macos", "windows", "linux"]) {
       const home = await page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true }).boundingBox();
       if (platform === "macos") {
         expect(home!.x).toBeGreaterThanOrEqual(80);
-        const lastAction = (await toolbar.getByRole("button", { name: width < 768 ? "Toolbar actions" : "Open Icekube on GitHub", exact: true }).boundingBox())!;
+        const lastAction = (await toolbar.getByRole("button", { name: width < 768 ? "Toolbar actions" : "Open Iceon on GitHub", exact: true }).boundingBox())!;
         const clearance = await toolbar.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
         expect(clearance).toBeGreaterThan(0);
         expect(chrome!.x + chrome!.width - lastAction.x - lastAction.width).toBeCloseTo(clearance, 1);
@@ -150,7 +150,7 @@ test("compact toolbar keeps narrow-window navigation accessible", async ({ page 
 });
 
 test("categories cannot be pinned and there is only one sidebar", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("icekube.pinned-pages.v1", JSON.stringify([
+  await page.addInitScript(() => localStorage.setItem("iceon.pinned-pages.v1", JSON.stringify([
     "/catalog/general", "/catalog/clusters", "/catalog/web-links",
   ])));
   await page.setViewportSize({ width: 1100, height: 700 });
@@ -202,7 +202,7 @@ test("toolbar toggle collapses one sidebar and persists the desktop preference",
 });
 
 test("narrow sidebar drawer ignores desktop collapse and closes after navigation", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("icekube.sidebar-collapsed.v1", "true"));
+  await page.addInitScript(() => localStorage.setItem("iceon.sidebar-collapsed.v1", "true"));
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/");
   const toggle = page.getByRole("button", { name: "Open sidebar", exact: true });

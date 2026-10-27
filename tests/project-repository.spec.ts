@@ -15,7 +15,7 @@ for (const failure of [false, true]) {
       } });
     }, failure);
     await page.goto("/");
-    const github = page.getByRole("button", { name: "Open Icekube on GitHub", exact: true });
+    const github = page.getByRole("button", { name: "Open Iceon on GitHub", exact: true });
     await expect(github).toBeVisible();
     await github.focus();
     await page.keyboard.press("Enter");
@@ -32,7 +32,7 @@ for (const failure of [false, true]) {
 test("browser preview keeps GitHub visible without native or external opening", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/");
-  const github = page.getByRole("button", { name: "Open Icekube on GitHub", exact: true });
+  const github = page.getByRole("button", { name: "Open Iceon on GitHub", exact: true });
   await expect(github).toBeVisible();
   await expect(github).toBeDisabled();
   await expect(github).toHaveAttribute("aria-description", "GitHub repository opens in the desktop app only");

@@ -52,16 +52,6 @@ impl Default for AppPreferences {
             show_tray_icon: false,
             restore_last_page: false,
         }
-
-    pub fn route_history_get(&self) -> Result<Option<crate::route_history::SavedRoute>> {
-        crate::route_history::get(&self.connection)
-    }
-    pub fn route_history_save(&self, route: crate::route_history::SavedRoute) -> Result<()> {
-        crate::route_history::save(&self.connection, route)
-    }
-    pub fn route_history_clear(&self) -> Result<()> {
-        crate::route_history::clear(&self.connection)
-    }
     }
 }
 
@@ -250,6 +240,15 @@ pub struct PreferencesEngine {
 }
 
 impl PreferencesEngine {
+    pub fn route_history_get(&self) -> Result<Option<crate::route_history::SavedRoute>> {
+        crate::route_history::get(&self.connection)
+    }
+    pub fn route_history_save(&self, route: crate::route_history::SavedRoute) -> Result<()> {
+        crate::route_history::save(&self.connection, route)
+    }
+    pub fn route_history_clear(&self) -> Result<()> {
+        crate::route_history::clear(&self.connection)
+    }
     pub fn new(data_dir: PathBuf) -> Result<Arc<Self>> {
         if let Ok(metadata) = fs::symlink_metadata(&data_dir)
             && (!metadata.is_dir() || metadata.file_type().is_symlink())
@@ -277,11 +276,6 @@ impl PreferencesEngine {
                 | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )
         .map_err(|_| PreferencesError::StoreUnavailable)?;
-
-        if !request.preferences.app.restore_last_page {
-            tx.execute("DELETE FROM route_history", [])
-                .map_err(|_| PreferencesError::StoreUnavailable)?;
-        }
 
         connection
             .pragma_update(None, "journal_mode", "DELETE")
@@ -396,6 +390,10 @@ impl PreferencesEngine {
         )
         .map_err(|_| PreferencesError::StoreUnavailable)?;
 
+        if !request.preferences.app.restore_last_page {
+            tx.execute("DELETE FROM route_history", [])
+                .map_err(|_| PreferencesError::StoreUnavailable)?;
+        }
         tx.commit()
             .map_err(|_| PreferencesError::StoreUnavailable)?;
 

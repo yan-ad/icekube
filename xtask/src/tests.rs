@@ -7,12 +7,12 @@ fn fixture() -> TempDir {
     fs::create_dir(root.join("src-tauri")).unwrap();
     fs::write(
         root.join("package.json"),
-        r#"{"name":"icekube","version":"0.1.0"}"#,
+        r#"{"name":"iceon","version":"0.1.0"}"#,
     )
     .unwrap();
     fs::write(
         root.join("src-tauri/Cargo.toml"),
-        "[package]\nname = \"icekube\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"iceon\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
     fs::write(
@@ -22,12 +22,12 @@ fn fixture() -> TempDir {
     .unwrap();
     fs::write(
         root.join("src-tauri/Cargo.lock"),
-        "version = 4\n[[package]]\nname = \"icekube\"\nversion = \"0.1.0\"\n",
+        "version = 4\n[[package]]\nname = \"iceon\"\nversion = \"0.1.0\"\n",
     )
     .unwrap();
     fs::write(
         root.join("bun.lock"),
-        "{\"workspaces\":{\"\":{\"name\":\"icekube\",},},}",
+        "{\"workspaces\":{\"\":{\"name\":\"iceon\",},},}",
     )
     .unwrap();
     dir
@@ -54,7 +54,7 @@ fn repository(root: &Path) {
             "remote",
             "add",
             "origin",
-            "/nonexistent/icekube-release-test.git",
+            "/nonexistent/iceon-release-test.git",
         ],
     )
     .unwrap();
@@ -97,7 +97,7 @@ fn version_plan_and_lock_validation() {
     assert!(plan.changes.iter().all(|c| c.after.contains("0.2.0")));
     fs::write(
         d.path().join("src-tauri/Cargo.lock"),
-        "[[package]]\nname=\"icekube\"\nversion=\"0.0.0\"",
+        "[[package]]\nname=\"iceon\"\nversion=\"0.0.0\"",
     )
     .unwrap();
     assert!(version_plan(d.path(), "patch", false).is_err());
@@ -151,14 +151,14 @@ fn bun_root_version_and_mismatch() {
     let d = fixture();
     fs::write(
         d.path().join("bun.lock"),
-        r#"{"workspaces":{"":{"name":"icekube","version":"0.1.0"}}}"#,
+        r#"{"workspaces":{"":{"name":"iceon","version":"0.1.0"}}}"#,
     )
     .unwrap();
     let plan = version_plan(d.path(), "patch", false).unwrap();
     assert_eq!(plan.changes.len(), 5);
     fs::write(
         d.path().join("bun.lock"),
-        r#"{"workspaces":{"":{"name":"icekube","version":"0.0.0"}}}"#,
+        r#"{"workspaces":{"":{"name":"iceon","version":"0.0.0"}}}"#,
     )
     .unwrap();
     assert!(version_plan(d.path(), "patch", false).is_err());

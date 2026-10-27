@@ -37,7 +37,7 @@ export function RouteRestoration() {
     let disposed = false;
     const startLocation = location.href;
     // Only the launch window's empty route is eligible. Explicit navigation wins.
-    const startup = (window as unknown as { __ICEKUBE_WINDOW_LAYOUT__?: { restoreRoute?: boolean } }).__ICEKUBE_WINDOW_LAYOUT__;
+    const startup = (window as unknown as { __ICEON_WINDOW_LAYOUT__?: { restoreRoute?: boolean } }).__ICEON_WINDOW_LAYOUT__;
     if (!native || !preferences.app.restoreLastPage || startup?.restoreRoute === false || !["", "#", "#/"].includes(initialHash) || !["/", "/catalog"].includes(location.pathname)) {
       setSettled(true);
       return;

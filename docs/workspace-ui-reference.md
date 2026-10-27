@@ -6,16 +6,16 @@ Behavior reference: local `/Users/user1/Kerjaa/freelens`, Git HEAD
 `cd07118f843c4a69f937a319a37a7c12ef2c92d8`, described as
 `v1.10.3-533-gcd07118f`. HEAD and the paths below were checked through Git;
 referenced components were read. Paths in the source column are relative to
-`packages/core/src/renderer/components/`. Icekube keeps Astryx and Rust/Tauri;
+`packages/core/src/renderer/components/`. Iceon keeps Astryx and Rust/Tauri;
 this is not full Freelens parity, extension compatibility, or adoption of its
 Electron/Node runtime. No upstream implementation was copied in this documentation pass.
 
-| Workflow / upstream source | Expected Icekube interaction and owner | UI states / acceptance mapping |
+| Workflow / upstream source | Expected Iceon interaction and owner | UI states / acceptance mapping |
 | --- | --- | --- |
 | Catalog: `catalog/catalog-add-button.tsx` | Add config and Add web link are separate named icon buttons at bottom right in `CatalogPage.tsx`/`CatalogForms.tsx`, outside table scrolling. Refresh follows Go forward in `AppToolbar.tsx`. Rust `catalog.rs` owns import, persistence and saved links. | Unavailable/loading disables actions; forms retain safe validation errors; Escape returns focus. `tests/catalog.spec.ts` covers bottom actions and toolbar Refresh placement; parameterized `${category}: bottom actions clear the table and viewport at desktop and narrow widths`. |
-| Table selection: `item-object-list/header.tsx`, `item-object-list/list-layout.tsx` (table composition reference; exact heading substitution is Icekube-specific) | `ResourceSelection.tsx` puts selected count and Clear selection in the first data heading after the checkbox. Other heading labels are visually hidden with opacity, not removed; accessible labels and column widths remain. Focused heading controls become visible. Rust deletion services retain UID/version precondition ownership. | None/selected/mixed header, scope reset, disabled unsafe identities. `tests/table-composition.spec.ts`: `${view.label}: selection replaces only heading labels without moving columns`, `filter scope clears selection and restores header labels`. |
+| Table selection: `item-object-list/header.tsx`, `item-object-list/list-layout.tsx` (table composition reference; exact heading substitution is Iceon-specific) | `ResourceSelection.tsx` puts selected count and Clear selection in the first data heading after the checkbox. Other heading labels are visually hidden with opacity, not removed; accessible labels and column widths remain. Focused heading controls become visible. Rust deletion services retain UID/version precondition ownership. | None/selected/mixed header, scope reset, disabled unsafe identities. `tests/table-composition.spec.ts`: `${view.label}: selection replaces only heading labels without moving columns`, `filter scope clears selection and restores header labels`. |
 | Semantic color: `workloads-overview/overview-workload-status.tsx` (status-chart reference; Astryx badge mapping is local) | `StatusBadge.tsx` maps recognized positive labels to success, failed labels to error, pending/degraded labels to warning. Unknown strings and generic booleans stay neutral. Node Ready=True is success, Ready=False error, positive pressure conditions warning. Rust supplies observed facts; renderer colors do not establish connection/health. | Explicit positive/negative/unknown values in both themes. `tests/semantic-status.spec.ts`: `semantic statuses use Astryx variants without interpreting generic booleans in ${colorScheme}`; `tests/table-composition.spec.ts`: `Pod health uses semantic success and warning colors`. |
-| YAML: `dock/edit-resource/view.tsx` (upstream EditorPanel, not CodeJar) | Icekube `YamlEditor.tsx` uses locked CodeJar 4.3.0 and highlight.js YAML browser modules. Actual callers: `PodDetailsView.tsx` (YAML), `ResourceCreate.tsx` (Resource YAML), `HelmInstall.tsx` (Values YAML). Rust `connection/pods.rs`, `connection/create.rs` and Helm services own data, validation and mutations. | Editable/read-only/busy, external value updates, caret/IME, escaped source, disposal. `tests/yaml-editor.spec.ts`: `real CodeJar highlights escaped source and exposes a named multiline editor`, `read-only YAML preserves serialization and rejects keyboard, paste, cut and undo`, `composition is not highlighted or published mid-IME, and commits once`, `unmount removes handlers and pending callbacks cannot publish`. |
+| YAML: `dock/edit-resource/view.tsx` (upstream EditorPanel, not CodeJar) | Iceon `YamlEditor.tsx` uses locked CodeJar 4.3.0 and highlight.js YAML browser modules. Actual callers: `PodDetailsView.tsx` (YAML), `ResourceCreate.tsx` (Resource YAML), `HelmInstall.tsx` (Values YAML). Rust `connection/pods.rs`, `connection/create.rs` and Helm services own data, validation and mutations. | Editable/read-only/busy, external value updates, caret/IME, escaped source, disposal. `tests/yaml-editor.spec.ts`: `real CodeJar highlights escaped source and exposes a named multiline editor`, `read-only YAML preserves serialization and rejects keyboard, paste, cut and undo`, `composition is not highlighted or published mid-IME, and commits once`, `unmount removes handlers and pending callbacks cannot publish`. |
 | Details sidebar: `kube-object-details/kube-object-details.tsx`, `drawer/drawer.tsx` | `ResourceInspector.tsx` owns a nonmodal, layout-flow sidebar with a separating border, named Refresh/Expand/Restore/Close icons, pointer capture and keyboard resize. Rust `connection/details.rs`/`pods.rs` own scoped reads and cancellation. | Loading, missing/replaced, permission/error, retained stale, open/closed/expanded/dragging; `tests/inspector-resize.spec.ts`: `opening, dragging and expanding reflow the workspace, restore retains the dragged width`, `separator keyboard bounds and reduced motion remain usable on narrow windows`, `close immediately disposes pending content while an empty inert shell collapses`, `pointer cancellation and route disposal end dragging without late detail revival`. |
 | Workloads overview: `workloads-overview/overview.tsx`, `overview-statuses.tsx`, `overview-workload-status.tsx` | `WorkloadsOverview.tsx` shows seven status donuts from Rust `connection/transport.rs` LISTs and `resources.rs` projection. Namespace and Refresh restart scoped reads. Category links open their resource tables; event links resolve identity through Rust detail relationships. | Loaded/zero/loading/partial/stale/permission/error remain separate. `tests/workloads-overview.spec.ts`: `uses real loaded counts and never turns unknown Running metadata green`, `bounds pagination and isolates per-kind permission errors`, `refresh retains stale inventory on failure and empty results remain explicit`, `cancels the exact pending read on namespace change and ignores late completion`. |
 | Custom resources: `custom-resource-definitions/view.tsx`, `details.tsx`; `custom-resources/view.tsx`, `discovered-custom-resources.injectable.ts` | Definitions remains available. `CustomResourcesProvider.tsx` lazily discovers group/kind destinations; `CustomResourceTable.tsx` displays metadata-only instances. Rust `connection/custom_resources.rs` verifies the named CRD and owns safe paths, metadata negotiation and independent reads/cancellation. No custom-object detail or mutation UI. | See [custom resources](custom-resources.md) for exact bounds and acceptance mapping. Ordinary Definitions retains `connection/crd_fetch_tests.rs` adaptive-fetch regressions. Discovery does not guarantee all definitions in one batch. |
@@ -24,7 +24,7 @@ Electron/Node runtime. No upstream implementation was copied in this documentati
 The overview and custom-resource view/discovery paths above were checked through
 Git at the recorded commit and their source read for this pass. Destination card
 composition, the native picker, centered errors and shortcut priority are local
-Icekube refinements, not claims of copied upstream components.
+Iceon refinements, not claims of copied upstream components.
 
 ## Requested interaction refinements
 
@@ -59,7 +59,7 @@ Upstream behavior reference: the previously agent-verified local Freelens commit
 `packages/core/src/common/k8s-api/kube-object.store.ts`, specifically its
 `subscribe` workflow. This source is outside the renderer-components path prefix
 used in the table above. Subscription is a behavioral reference, not proof that
-Icekube polling equals upstream watches. No upstream implementation was copied.
+Iceon polling equals upstream watches. No upstream implementation was copied.
 
 `src/app/cluster/useAutoRefresh.ts` schedules bounded typed IPC reads. Resource
 tables (`ResourceTablePage.tsx` and `ClusterResources.tsx`, including Nodes and
@@ -180,7 +180,7 @@ in [resource inspector reference](resource-inspector-reference.md) is separate.
 
 ### Current search, theme and toolbar changes
 
-These are Icekube-specific refinements against the same recorded upstream commit,
+These are Iceon-specific refinements against the same recorded upstream commit,
 not copied upstream code or newly established parity:
 
 - `src/app/cluster/useDebouncedSearch.ts` commits controlled drafts after 160 ms.
@@ -217,7 +217,7 @@ not copied upstream code or newly established parity:
   evidence of a connected cluster.
 - The GitHub icon immediately before More calls no-argument
   `project_open_repository` through `src/app/project/api.ts`. Rust
-  `src-tauri/src/project.rs` fixes the target to `https://github.com/yan-ad/icekube`,
+  `src-tauri/src/project.rs` fixes the target to `https://github.com/yan-ad/iceon`,
   without renderer-provided URLs or arbitrary opener access. Browser preview
   disables opening; native failures expose only a safe message. Acceptance:
   `tests/project-repository.spec.ts` and `project.rs` unit tests.
@@ -263,7 +263,7 @@ This documentation pass checked source, not native windows or real clusters.
 `tests/node-search-rendering.spec.ts` addresses the latest CI budget issue by
 removing forced 4x CPU throttling from the normal run, not by skipping/retrying
 tests or raising timeouts. Optional local stress remains available with
-`ICEKUBE_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts`.
+`ICEON_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts`.
 The regression still records all 20 sequential input events against 100 rows,
 checks zero additional table-body renders during the pending draft after its
 initial invalidation, and verifies no draft IPC plus exactly one committed query.
@@ -271,11 +271,11 @@ It is render isolation evidence, not an FPS or shared-runner latency guarantee.
 
 ## Prerelease and CI scope
 
-See [release and installation instructions](releases.md) for `0.0.1-pre.2`.
+See [release and installation instructions](releases.md) for `0.0.1`.
 The unsigned route builds only an Apple Silicon DMG, using ad-hoc signing rather
 than Developer ID or notarization. Updater public key/endpoints are empty; no
 updater manifest, archive or signature is published. Foreground inventory polling
-is independent of application updates, which remain disabled for this prerelease.
+is independent of application updates, which remain disabled for this unsigned release.
 
 CI configures Rust checks on macOS and Linux and four parallel Chromium fixture
 shards on Linux. Rust exports the real detail-contract artifact once; the browser

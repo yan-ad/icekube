@@ -9,10 +9,11 @@ test("native navigation is window scoped, subscribes before readiness, validates
     const listeners = new Map<number, { handler: number; target: unknown }>();
     let index = 0;
     Object.assign(window, {
+      __ICEON_WINDOW_LAYOUT__: { seamless: true, platform: "macos" },
       isTauri: true,
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => listeners.delete(id) },
       __TAURI_INTERNALS__: {
-        metadata: { currentWindow: { label: "icekube-2" }, currentWebview: { label: "icekube-2" } },
+        metadata: { currentWindow: { label: "iceon-2" }, currentWebview: { label: "iceon-2" } },
         transformCallback: (callback: (event: unknown) => void) => { const id = ++index; handlers.set(id, callback); return id; },
         invoke: async (command: string, args: { handler?: number; target?: unknown; eventId?: number }) => {
           calls.push(command);
@@ -36,7 +37,7 @@ test("native navigation is window scoped, subscribes before readiness, validates
     return { actions, calls, targets, update, remaining: listeners.size };
   });
   expect(result.actions).toEqual(["allCategories", "openSearch", "openPreferences", "checkUpdates"]);
-  expect(result.targets).toEqual([{ kind: "WebviewWindow", label: "icekube-2" }]);
+  expect(result.targets).toEqual([{ kind: "WebviewWindow", label: "iceon-2" }]);
   expect(result.calls.indexOf("plugin:event|listen")).toBeLessThan(result.calls.indexOf("native_navigation_ready"));
   expect(result.update.error).toBe("trustNotConfigured");
   expect(result.remaining).toBe(0);
@@ -70,7 +71,7 @@ test("native contracts keep fixed destinations, shared chrome, bounded window la
   expect(navigation).not.toContain(".eval(");
   expect(windows).toContain("1..8");
   expect(windows).toContain("initialization_script(layout_script(SEAMLESS");
-  expect(capabilities.windows).toEqual(["main", ...Array.from({ length: 7 }, (_, i) => `icekube-${i + 1}`)]);
-  expect(project).toContain('const HOMEPAGE_URL: &str = "https://icekube.yan.ad"');
+  expect(capabilities.windows).toEqual(["main", ...Array.from({ length: 7 }, (_, i) => `iceon-${i + 1}`)]);
+  expect(project).toContain('const HOMEPAGE_URL: &str = "https://iceon.yan.ad"');
   expect(capabilities.permissions).not.toContain("opener:default");
 });

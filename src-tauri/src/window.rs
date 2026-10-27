@@ -16,7 +16,7 @@ pub fn create_main_window_handle(app: &AppHandle) -> tauri::Result<WebviewWindow
 fn layout_script(seamless: bool, platform: &'static str) -> serde_json::Result<String> {
     let layout = serde_json::to_string(&WindowLayout { seamless, platform })?;
     Ok(format!(
-        "Object.defineProperty(window, '__ICEKUBE_WINDOW_LAYOUT__', {{ value: Object.freeze({layout}), writable: false, configurable: false }});"
+        "Object.defineProperty(window, '__ICEON_WINDOW_LAYOUT__', {{ value: Object.freeze({layout}), writable: false, configurable: false }});"
     ))
 }
 
@@ -27,7 +27,7 @@ pub fn create_main_window(app: &App) -> tauri::Result<()> {
 
 pub fn new_window(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let label = (1..8)
-        .map(|index| format!("icekube-{index}"))
+        .map(|index| format!("iceon-{index}"))
         .find(|label| app.get_webview_window(label).is_none())
         .ok_or_else(|| std::io::Error::other("The eight-window limit has been reached."))?;
     create_window(app, &label)

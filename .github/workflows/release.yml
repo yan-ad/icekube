@@ -1,4 +1,4 @@
-name: Release Apple Silicon
+name: Release Iceon Apple Silicon
 
 on:
   push:
@@ -79,7 +79,7 @@ jobs:
           args: --target aarch64-apple-darwin --bundles dmg -- --locked
           tagName: ${{ github.ref_name }}
           releaseCommitish: ${{ github.sha }}
-          releaseName: 'Icekube ${{ github.ref_name }}'
+          releaseName: 'Iceon ${{ github.ref_name }}'
           releaseBody: 'Apple Silicon macOS DMG, with signed updater archive and manifest.'
           releaseDraft: true
           prerelease: false

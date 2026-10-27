@@ -22,7 +22,7 @@ export async function cancelHelm(request: HelmCancelRequest): Promise<void> {
   if (result !== undefined && result !== null) throw "invalidResponse";
 }
 export function helmMessage(reason: unknown): string {
-  if (reason === "helmUnavailable") return "Helm is not installed or is not executable on the desktop app's PATH. Install Helm and restart Icekube, then reload.";
+  if (reason === "helmUnavailable") return "Helm is not installed or is not executable on the desktop app's PATH. Install Helm and restart Iceon, then reload.";
   if (reason === "conflict") return "Helm could not read this inventory. Check your local Helm repository configuration or the saved context's access using your trusted CLI, then reload. Helm diagnostic output is withheld because it may contain credentials.";
   return connectionMessage(errorCode(reason));
 }
@@ -79,7 +79,7 @@ export async function cancelHelmInstall(request: HelmInstallCancelRequest): Prom
   if (result !== undefined && result !== null) throw "invalidResponse";
 }
 export function helmInstallMessage(reason: unknown): string {
-  if (reason === "helmUnavailable") return "Helm is unavailable. Install Helm on the desktop app's PATH and restart Icekube.";
+  if (reason === "helmUnavailable") return "Helm is unavailable. Install Helm on the desktop app's PATH and restart Iceon.";
   if (reason === "conflict") return "Helm installation failed. Check the release and repository configuration before retrying. Diagnostic output is withheld.";
   if (reason === "invalidInput") return "Helm rejected the installation input. Check the chart, version, release name and values YAML.";
   return connectionMessage(errorCode(reason));

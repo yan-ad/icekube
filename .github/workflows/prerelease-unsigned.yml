@@ -53,10 +53,12 @@ jobs:
           package = json.loads(Path('package.json').read_text())
           config = json.loads(Path('src-tauri/tauri.conf.json').read_text())
           cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
+          if config.get('productName') != 'Iceon':
+              raise SystemExit('Unsigned bundle paths require productName Iceon')
           lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
-          app_entries = [p for p in lock['package'] if p['name'] == 'icekube' and 'source' not in p]
+          app_entries = [p for p in lock['package'] if p['name'] == cargo['package']['name'] and 'source' not in p]
           if len(app_entries) != 1:
-              raise SystemExit('Expected one local icekube package in Cargo.lock')
+              raise SystemExit('Expected one local application package in Cargo.lock')
           versions = [package['version'], config['version'], cargo['package']['version'], app_entries[0]['version']]
           if any(version != tag for version in versions):
               raise SystemExit('Tag must match all application manifest and Cargo.lock versions')
@@ -65,8 +67,8 @@ jobs:
           head = git('rev-parse', 'HEAD')
           if git('rev-parse', f'refs/tags/{tag}^{{commit}}') != head:
               raise SystemExit('Tag and checked-out commit must agree')
-          if os.environ['RELEASE_EVENT'] == 'push' and head != os.environ['RELEASE_COMMIT']:
-              raise SystemExit('Tag and Actions push commit must agree')
+          if head != os.environ['RELEASE_COMMIT']:
+              raise SystemExit('Tag and reusable CI commit must agree; dispatch from the tag or same commit')
           git('diff', '--exit-code')
           git('diff', '--cached', '--exit-code')
           PY
@@ -99,37 +101,85 @@ jobs:
           bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
           staging=$(mktemp -d)
           trap 'rm -rf "$staging"' EXIT
-          ditto "$bundle/macos/IceKube.app" "$staging/IceKube.app"
+          ditto "$bundle/macos/Iceon.app" "$staging/Iceon.app"
           ln -s /Applications "$staging/Applications"
           mkdir -p "$bundle/dmg"
-          hdiutil create -volname IceKube -srcfolder "$staging" -ov -format UDZO \
-            "$bundle/dmg/IceKube_${RELEASE_TAG}_aarch64.dmg"
-      - name: Verify bundle and prepare checksums
+          hdiutil create -volname Iceon -srcfolder "$staging" -ov -format UDZO \
+            "$bundle/dmg/Iceon_${RELEASE_TAG}_aarch64.dmg"
+      - name: Verify bundle metadata, signature, architecture and updater absence
+        env:
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
-          codesign --verify --deep --strict "$bundle/macos/IceKube.app"
-          codesign -dv --verbose=4 "$bundle/macos/IceKube.app" 2>&1 | grep -F 'Signature=adhoc'
-          test "$(lipo -archs "$bundle/macos/IceKube.app/Contents/MacOS/icekube")" = arm64
+          codesign --verify --deep --strict "$bundle/macos/Iceon.app"
+          codesign -dv --verbose=4 "$bundle/macos/Iceon.app" 2>&1 | grep -F 'Signature=adhoc'
+          test "$(lipo -archs "$bundle/macos/Iceon.app/Contents/MacOS/iceon")" = arm64
           python3 - <<'PY'
-          import json, plistlib
+          import json, os, plistlib, shutil
           from pathlib import Path
           bundle = Path('src-tauri/target/aarch64-apple-darwin/release/bundle')
-          with (bundle / 'macos/IceKube.app/Contents/Info.plist').open('rb') as f:
+          config = json.loads(Path('src-tauri/tauri.conf.json').read_text())
+          with (bundle / 'macos/Iceon.app/Contents/Info.plist').open('rb') as f:
               plist = plistlib.load(f)
-          version = json.loads(Path('package.json').read_text())['version']
-          if plist['CFBundleShortVersionString'] != version:
-              raise SystemExit('Bundled application version differs from the prerelease')
-          if list(bundle.rglob('latest.json')) or list(bundle.rglob('*.sig')) or list(bundle.rglob('*.app.tar.gz')):
-              raise SystemExit('Unsigned prereleases must not produce updater artifacts')
+          version = config['version']
+          # Tauri uses the complete SemVer for both keys unless bundleVersion overrides it.
+          expected_build = config.get('bundle', {}).get('macOS', {}).get('bundleVersion', version)
+          expected = {'CFBundleShortVersionString': version, 'CFBundleVersion': expected_build,
+                      'CFBundleIdentifier': config['identifier'], 'CFBundleExecutable': 'iceon',
+                      'CFBundleName': config['productName']}
+          for key, value in expected.items():
+              if plist.get(key) != value:
+                  raise SystemExit(f'{key} differs from configured value: {plist.get(key)!r} != {value!r}')
+          if 'CFBundleDisplayName' in plist and plist['CFBundleDisplayName'] != config['productName']:
+              raise SystemExit('CFBundleDisplayName must be absent or match productName')
+          if any(list(bundle.rglob(pattern)) for pattern in ['latest.json', '*.sig', '*.app.tar.gz']):
+              raise SystemExit('Unsigned release must not produce updater artifacts')
           dmgs = list((bundle / 'dmg').glob('*.dmg'))
           if len(dmgs) != 1:
               raise SystemExit('Expected exactly one Apple Silicon DMG')
-          Path('release-assets').mkdir()
-          import shutil
-          shutil.copy2(dmgs[0], Path('release-assets') / dmgs[0].name)
+          assets = Path('release-assets')
+          assets.mkdir()
+          shutil.copy2(dmgs[0], assets / dmgs[0].name)
           PY
-          hdiutil verify release-assets/*.dmg
-          (cd release-assets && shasum -a 256 ./*.dmg > SHASUMS256.txt)
+          dmg=(release-assets/*.dmg)
+          hdiutil verify "${dmg[0]}"
+          mount_dir=$(mktemp -d)
+          mount_dir=$(cd "$mount_dir" && pwd -P)
+          cleanup() {
+            status=$?
+            trap - EXIT
+            if mount | grep -Fq " on $mount_dir ("; then
+              # Spotlight can briefly hold a newly mounted image; never force-detach it.
+              for attempt in 1 2 3; do
+                if hdiutil detach "$mount_dir"; then
+                  break
+                fi
+                sleep 2
+              done
+            fi
+            if mount | grep -Fq " on $mount_dir ("; then
+              echo 'Failed to detach release DMG after three attempts' >&2
+              status=1
+            else
+              rmdir "$mount_dir" || status=$?
+            fi
+            exit "$status"
+          }
+          trap cleanup EXIT
+          hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmg[0]}"
+          app="$mount_dir/Iceon.app"
+          test -d "$app"
+          test ! -L "$app"
+          codesign --verify --deep --strict "$app"
+          codesign -dv --verbose=4 "$app" 2>&1 | grep -F 'Signature=adhoc'
+          test "$(lipo -archs "$app/Contents/MacOS/iceon")" = arm64
+          # Compare metadata, executable and signed resource manifest to the audited source bundle.
+          for relative in Contents/Info.plist Contents/MacOS/iceon Contents/_CodeSignature/CodeResources; do
+            cmp "$bundle/macos/Iceon.app/$relative" "$app/$relative"
+          done
+          test -L "$mount_dir/Applications"
+          test "$(readlink "$mount_dir/Applications")" = /Applications
+          (cd release-assets && shasum -a 256 ./*.dmg > SHASUMS256.txt && shasum -a 256 -c SHASUMS256.txt)
       - name: Create exact-tag draft, verify assets, then publish prerelease
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -142,18 +192,18 @@ jobs:
           This DMG is for Apple Silicon Macs only. It is ad-hoc signed, not Developer ID signed or notarized. macOS Gatekeeper may block it. No Intel, Linux or Windows installer is included. Automatic updates are disabled; no updater manifest or signature is published.
 
           1. Download the DMG and SHASUMS256.txt from this exact release. Check the downloaded DMG with `shasum -a 256 -c SHASUMS256.txt` in the download directory. Checksums detect corruption, not publisher identity.
-          2. Open the DMG and drag IceKube.app into Applications.
+          2. Open the DMG and drag Iceon.app into Applications.
           3. Only if you trust this repository and this downloaded release, remove quarantine from this installed app, then open it:
 
           ```sh
-          xattr -dr com.apple.quarantine /Applications/IceKube.app
-          open /Applications/IceKube.app
+          xattr -dr com.apple.quarantine /Applications/Iceon.app
+          open /Applications/Iceon.app
           ```
 
           Do not disable Gatekeeper globally or remove quarantine from an untrusted download. This is an early prerelease; use it only with clusters and credentials you intend to expose to the app.
           NOTES
           gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft \
-            --prerelease --latest=false --title "IceKube $RELEASE_TAG (unsigned)" \
+            --prerelease --latest=false --title "Iceon $RELEASE_TAG (unsigned)" \
             --notes-file release-notes.md
           python3 - <<'PY'
           import json, os, subprocess

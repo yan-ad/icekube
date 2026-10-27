@@ -11,7 +11,7 @@ export type NativeContextTarget =
   | { type: "forward"; id: string };
 export type NativeContextMenuRequest = SessionRequest & { target: NativeContextTarget; actions: readonly RowAction[] };
 export type NativeContextMenuHandle = { supported: boolean; dispose: () => void };
-export const NATIVE_CONTEXT_MENU_EVENT = "icekube://row-context-menu";
+export const NATIVE_CONTEXT_MENU_EVENT = "iceon://row-context-menu";
 const lifetimeMs = 30_000;
 let activeDispose: (() => void) | undefined;
 

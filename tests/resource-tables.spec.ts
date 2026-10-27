@@ -58,7 +58,7 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
   await page.setViewportSize({ width, height: 900 });
   if (width === 390) await page.getByRole("table", { name: "Resource Quotas", exact: true }).evaluate(element => { element.style.zoom = "1.25"; });
   const overlay = page.getByRole("group", { name: "Resource actions", exact: true });
-  const viewport = page.locator("[data-icekube-table-viewport]");
+  const viewport = page.locator("[data-iceon-table-viewport]");
   const create = overlay.getByRole("button", { name: /Create/, exact: false });
   const remove = overlay.getByRole("button", { name: "Delete selected resources", exact: true });
   await expect(create).toBeVisible(); await expect(remove).toHaveCount(0);
@@ -207,7 +207,7 @@ async function navigate(page: Page, section: string) {
 async function fixture(page: Page, options: Controls & { legacyPreference?: boolean; section?: string } = {}) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript(({ options, views }) => {
-    if (options.legacyPreference !== undefined) localStorage.setItem("icekube.resource-tables.v1", String(options.legacyPreference));
+    if (options.legacyPreference !== undefined) localStorage.setItem("iceon.resource-tables.v1", String(options.legacyPreference));
     let session = 0;
     const calls: Call[] = [];
     const control = { ...options };
@@ -495,7 +495,7 @@ test("resource tables default on and navigation preserves the lease", async ({ p
   await navigate(page, "services"); await ready(page, "Services");
   await navigate(page, "pods"); await ready(page);
   expect(await calls(page, "cluster_connect")).toEqual(connections);
-  expect(await page.evaluate(() => localStorage.getItem("icekube.resource-tables.v1"))).toBeNull();
+  expect(await page.evaluate(() => localStorage.getItem("iceon.resource-tables.v1"))).toBeNull();
 });
 
 test("resource tables ignore a false legacy preference through navigation and reload", async ({ page }) => {
@@ -506,7 +506,7 @@ test("resource tables ignore a false legacy preference through navigation and re
   expect(await calls(page, "cluster_connect")).toEqual(connections);
   await page.reload(); await ready(page, "Services");
   await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("icekube.resource-tables.v1"))).toBe("false");
+  expect(await page.evaluate(() => localStorage.getItem("iceon.resource-tables.v1"))).toBe("false");
 });
 
 for (const [failure, message, section] of [

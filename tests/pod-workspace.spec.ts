@@ -182,7 +182,7 @@ async function fixture(page: Page, options: Controls = {}) {
       __selectPodRowAction: (action: string) => {
         if (!menuRequest?.actions.includes(action)) throw new Error(`Unavailable row action: ${action}`);
         const payload = { clusterId: menuRequest.clusterId, sessionId: menuRequest.sessionId, requestId: menuRequest.requestId, action };
-        for (const [id, handler] of [...listeners]) callbacks.get(handler)?.({ event: "icekube://row-context-menu", id, payload });
+        for (const [id, handler] of [...listeners]) callbacks.get(handler)?.({ event: "iceon://row-context-menu", id, payload });
         menuRequest = null;
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => listeners.delete(id) },

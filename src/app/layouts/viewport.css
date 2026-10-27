@@ -7,7 +7,7 @@ body,
 
 /* Astryx's inline-only scroll hook strips overflow from plugin inline styles.
    Target its outer viewport, not the unbounded data-scroll-content child. */
-[data-icekube-table-viewport] {
+[data-iceon-table-viewport] {
   min-width: 0;
   min-height: 0;
   overflow: auto;

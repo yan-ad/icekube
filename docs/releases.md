@@ -1,87 +1,87 @@
-# Unsigned prereleases
+# Iceon unsigned releases
 
-The first prerelease is `0.0.1-pre.2`, without a `v` prefix. The repository is
-[yan-ad/icekube](https://github.com/yan-ad/icekube). This route does not require
-Apple Developer credentials or Tauri updater signing secrets.
+The stable unsigned release is **`0.0.1`**, without a `v` prefix, in the existing
+[yan-ad/iceon](https://github.com/yan-ad/iceon) repository. The displayed product
+is Iceon, packaged as `Iceon.app`; its internal executable stays `iceon` and
+its bundle identifier stays `ad.yan.iceon`. No Apple Developer or Tauri updater
+signing secrets are required for this route.
 
-## Checks and publication
+## Stable publication gate
 
-`.github/workflows/ci.yml` runs on pushes to `super`, pull requests, manual runs,
-and reusable workflow calls. Rust formatting, locked tests and Clippy run on
-`macos-15` and `ubuntu-24.04`. Frontend builds and Chromium fixture tests run on
-Ubuntu in four test-level shards, with two browser workers per shard. Tests use
-fixtures and mocked IPC, not a real cluster or kubeconfig. All tests remain in the
-release gate; this is not a reduced smoke suite.
+`.github/workflows/release-unsigned.yml` runs for the exact `0.0.1` tag push.
+It also supports manual dispatch with an optional existing `tag` input. When
+using dispatch, select that tag or the same commit as the workflow ref: the tag
+commit, checked-out HEAD and Actions `github.sha` must all agree. The reusable
+CI checks always run for the Actions commit; a different target tag is rejected.
+The route rejects `v0.0.1`, prereleases, build metadata and noncanonical versions.
+It never creates, moves or force-pushes a tag.
 
-The Linux Rust job exports the real 41-kind detail contract as a same-commit
-artifact. Browser shards consume that artifact rather than compiling Rust or
-installing native GTK/WebKit build dependencies. A missing or mismatched artifact
-fails the contract test. Local runs can still generate the contract using Cargo.
+The full `.github/workflows/ci.yml` gates packaging: Rust formatting, locked tests
+and Clippy on macOS and Linux, followed by the frontend build and all four Chromium
+fixture shards. Browser fixtures consume the real same-commit Rust 41-kind detail
+contract. These tests use mocked IPC, not a real kubeconfig or cluster. A failed
+or cancelled required check prevents publication.
 
-Each shard emits test-by-test progress and a blob report, retains failure traces,
-and has an eight-minute Playwright deadline inside a ten-minute Actions test-step
-limit. Setup steps are separately bounded and the entire shard job is limited to
-20 minutes. These are failure ceilings, not promised execution times. The four
-shards currently contain 166, 166, 166 and 165 tests, without omissions or duplicates.
+The release job checks all application manifest versions and the dynamically
+resolved local Cargo.lock package against the tag. Product branding is not used
+as a Rust package name. It requires the tracked `.github/release-unsigned.json`
+overlay: ad-hoc signing (`-`), updater artifacts off, empty updater key and endpoints.
+The signed-stable workflow remains separate and still requires all its secrets.
 
-`.github/workflows/prerelease-unsigned.yml` runs on tag pushes matching
-`*-pre.*`. It reuses the full CI workflow, then requires canonical
-`X.Y.Z-pre.N` tags, matching application manifest/lock versions, and an exact
-checked-out tag commit. `0.0.1-pre.2` is accepted; `v0.0.1-pre.2` is not.
+An ARM64 `macos-15` runner installs frozen Bun dependencies and builds only the
+Apple Silicon app with Cargo `--locked`. No Apple or updater secrets are passed;
+notarization is skipped. The DMG is created with `hdiutil`, without Finder or
+AppleScript. Verification covers product name, both version fields, bundle ID,
+internal executable, ARM64 architecture, ad-hoc signature and updater absence.
+The DMG is verified and mounted read-only. Its app's signature and architecture
+are checked, its plist/executable/signed-resource manifest compared against the
+built app, and its Applications symlink required to point to `/Applications`.
 
-After those checks, an ARM64 `macos-15` runner builds an Apple Silicon DMG with
-Cargo `--locked` and frozen Bun dependencies. `.github/release-unsigned.json`
-uses macOS ad-hoc signing (`-`), disables updater artifact generation, and clears
-the updater public key and endpoints. No Apple or updater signing secrets are
-passed to the build; notarization is skipped. Ad-hoc signing is not Developer ID
-signing or Apple notarization. The existing Rust updater fails closed when the
-public key is empty, so automatic updates remain disabled.
+Only `Iceon_0.0.1_aarch64.dmg` and `SHASUMS256.txt` are uploaded. The workflow
+creates an exact-tag draft with the tracked [0.0.1 notes](../CHANGELOG.md),
+downloads the uploaded files, compares their SHA-256 hashes against the verified
+local bytes and checks the checksum file. Only then does it publish with
+`draft=false`, `prerelease=false` and mark it latest. GitHub's source archives
+are independent. No `latest.json`, updater archive or updater signature is
+published. A failed upload/verification can leave a draft; do not overwrite a
+published release or retarget a published tag. Fixes require a new version and
+a reviewed extension of the exact-tag workflow allowlist.
 
-The job verifies the app's ad-hoc signature, architecture and version, verifies
-the DMG, and generates `SHASUMS256.txt`. It creates an exact-tag draft containing
-only the DMG and checksum file, downloads and checks those uploaded files, then
-publishes it as a **prerelease**, explicitly **not latest**. GitHub also provides
-its normal source archives. A failure before publication can leave a draft.
-There is no `latest.json`, updater archive or updater signature.
+All jobs default to `contents: read`; only publication has `contents: write`.
+The automatic Actions token is not an Apple/updater signing secret. No release
+asset URL supplied by an input or remote manifest is used for downloading files.
 
-Publication is automatic after an authorized operator pushes the reviewed
-release commit and exact tag. This document does not itself create commits or
-tags. Do not retarget or force-push a published tag. The workflow refuses to
-clobber an existing release; inspect a failed draft before deciding how to recover.
-Source changes after publication require a new version and tag.
+## Install on Apple Silicon
 
-## Install on an Apple Silicon Mac
+Download the DMG and `SHASUMS256.txt` from the
+[exact stable release](https://github.com/yan-ad/iceon/releases/tag/0.0.1).
+Run `shasum -a 256 -c SHASUMS256.txt` in the download directory. A checksum detects
+corruption, not publisher identity. Open the DMG and drag `Iceon.app` into
+`/Applications`.
 
-1. Download the DMG and `SHASUMS256.txt` from the
-   [exact prerelease](https://github.com/yan-ad/icekube/releases/tag/0.0.1-pre.2).
-   In their download directory, run:
+This app is **ad-hoc signed, not Developer ID signed or notarized**. macOS may
+block it. Only if you trust the repository and this downloaded release:
 
-   ```sh
-   shasum -a 256 -c SHASUMS256.txt
-   ```
+```sh
+xattr -dr com.apple.quarantine /Applications/Iceon.app
+open /Applications/Iceon.app
+```
 
-   A matching checksum detects corruption. It does not authenticate the publisher.
-2. Open the DMG and drag `IceKube.app` to `/Applications`.
-3. macOS may block this non-notarized app. **Only if you trust this repository and
-   this downloaded release**, remove quarantine from this installed app and open it:
+Do not disable Gatekeeper globally. Do not remove quarantine from untrusted
+downloads. No Intel, Universal, Linux or Windows installer is included. Automatic
+updates are disabled. Native installation, Gatekeeper behavior, file pickers,
+window controls and live-cluster workflows still require a real Apple Silicon
+smoke test; CI bundle checks do not establish those results.
 
-   ```sh
-   xattr -dr com.apple.quarantine /Applications/IceKube.app
-   open /Applications/IceKube.app
-   ```
+## Other routes
 
-Do not disable Gatekeeper globally or remove quarantine from an untrusted download.
-No Intel, Universal, Linux or Windows installer is published by this workflow.
-This is an early prerelease; connect only to clusters and credentials you intend
-the app to use. Gatekeeper behavior and installation still require a real
-Apple Silicon Mac smoke test; CI bundle checks are not that smoke test.
-
-## Signed stable releases
-
-The existing [signed release instructions](releasing.md) and `release.yml` remain
-separate. Their `v*` trigger excludes hyphenated prerelease tags, their manifest
-validation accepts only stable versions, and Apple/updater signing secrets remain
-mandatory. Do not use `cargo xtask release` for unsigned prereleases: that tool
-intentionally accepts only stable versions and creates `vX.Y.Z` tags. Returning
-from the current prerelease manifests to the signed-stable route requires a
-reviewed stable-version update before using that stable-only tooling.
+- [Dry run](release-dry-run.md): manual, full-CI packaging rehearsal, read-only
+  permissions, seven-day Actions evidence only, no release or tag creation.
+- `.github/workflows/prerelease-unsigned.yml`: canonical `X.Y.Z-pre.N` tags without
+  `v`, full CI, matching versions and same-commit checkout. Current builds use
+  `Iceon.app` and internal `iceon`. It publishes a prerelease, explicitly not
+  latest. Historical `0.0.1-pre.2` assets retain their original names; the new
+  display name does not rename historical assets or tags.
+- [Signed stable route](releasing.md): existing stable `v*` tags and stable-only
+  `cargo xtask release` tooling. Developer ID, notarization and updater secrets
+  remain mandatory. Do not use that tool for the unsigned `0.0.1` tag.

@@ -75,11 +75,10 @@ test("leaf direct links survive reload and back/forward reopens a collapsed ance
   await onlyReadRequests(page);
 });
 
-test("every reference group exposes its children with resource tables or destination directories", async ({ page }) => {
-  await fixture(page);
-  const nav = navigation(page);
-  for (const group of clusterSections) {
-    if (!("children" in group)) continue;
+for (const group of clusterSections.filter((section) => "children" in section)) {
+  test(`${group.label}: exposes its children with resource tables or destination directories`, async ({ page }) => {
+    await fixture(page);
+    const nav = navigation(page);
     await nav.getByRole("button", { name: `Expand ${group.label}`, exact: true }).click();
     for (const child of group.children) {
       await nav.getByRole("link", { name: child.label, exact: true }).click();
@@ -94,9 +93,9 @@ test("every reference group exposes its children with resource tables or destina
       await expect(nav.getByRole("link", { name: child.label, exact: true })).toHaveAttribute("aria-current", "page");
     }
     await nav.getByRole("button", { name: `Collapse ${group.label}`, exact: true }).click();
-  }
-  await onlyReadRequests(page);
-});
+    await onlyReadRequests(page);
+  });
+}
 
 test("narrow drawer keeps disclosures open but closes on leaf activation", async ({ page }) => {
   await fixture(page, "overview", true);

@@ -14,7 +14,7 @@ export function AppSearch({ isOpen, onOpenChange }: { isOpen: boolean; onOpenCha
 
   return (
     <CommandPalette
-      label="Search Icekube"
+      label="Search Iceon"
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       searchSource={searchSource}

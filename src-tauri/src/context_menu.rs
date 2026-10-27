@@ -13,7 +13,7 @@ use tauri::{
 };
 use tokio_util::sync::CancellationToken;
 
-const EVENT: &str = "icekube://row-context-menu";
+const EVENT: &str = "iceon://row-context-menu";
 const LIFETIME: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq, Eq, Hash)]

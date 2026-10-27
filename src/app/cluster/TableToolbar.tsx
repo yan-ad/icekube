@@ -31,7 +31,7 @@ export function TableActionOverlay({ children, label }: { children: ReactNode; l
 export function tableViewport<T extends Record<string, unknown>>(): TablePlugin<T> {
   return {
     transformScrollWrapper: props => ({ ...props, htmlProps: { ...props.htmlProps,
-      "data-icekube-table-viewport": "",
+      "data-iceon-table-viewport": "",
       tabIndex: 0,
       // Scrollable clearance lets the final row rise above the floating actions.
       style: { ...props.htmlProps?.style, flex: "1 1 auto", minHeight: 0, minWidth: 0, paddingBottom: "calc(var(--spacing-10) * 2 + var(--spacing-4))", scrollPaddingBottom: "calc(var(--spacing-10) * 2 + var(--spacing-4))" },

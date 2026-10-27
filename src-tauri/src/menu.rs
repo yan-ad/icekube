@@ -14,7 +14,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
     let app_menu = submenus
         .first()
         .ok_or_else(|| std::io::Error::other("missing application menu"))?;
-    app_menu.set_text("IceKube")?;
+    app_menu.set_text("Iceon")?;
     let original_about = app_menu
         .items()?
         .into_iter()
@@ -23,9 +23,9 @@ pub fn install(app: &App) -> tauri::Result<()> {
     app_menu.remove(&original_about)?;
     app_menu.prepend(&PredefinedMenuItem::about(
         app,
-        Some("About IceKube"),
+        Some("About Iceon"),
         Some(AboutMetadata {
-            name: Some("IceKube".into()),
+            name: Some("Iceon".into()),
             version: Some(app.package_info().version.to_string()),
             authors: Some(vec!["Yanuar".into()]),
             credits: Some("Created by Yanuar".into()),
@@ -60,7 +60,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
         &MenuItem::with_id(
             app,
             "native-search",
-            "Search Icekube",
+            "Search Iceon",
             true,
             Some("CmdOrCtrl+K"),
         )?,

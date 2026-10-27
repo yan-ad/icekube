@@ -8,7 +8,7 @@ export function RestartUpdateButton() {
     return null;
   }
   return <HStack gap={2} vAlign="center">
-    <Button label="Restart to Update" size="sm" isLoading={busy || snapshot.phase === "restarting"} isDisabled={busy} onClick={() => void restart()} tooltip={`Install version ${snapshot.version} and restart Icekube`} />
+    <Button label="Restart to Update" size="sm" isLoading={busy || snapshot.phase === "restarting"} isDisabled={busy} onClick={() => void restart()} tooltip={`Install version ${snapshot.version} and restart Iceon`} />
     {error && <output role="alert" aria-label="Update error">{error}</output>}
   </HStack>;
 }

@@ -31,11 +31,11 @@ async function fixture(page: Page, section: string) {
       node: kind === "nodes" ? { roles: [], taints: 0, version: null, internalIps: [], schedulable: true, diskAllocatable: null, metricsTimestamp: null, cpu: usage, memory: usage, conditions: [] } : null });
     const emit = (payload: Request, late = false) => {
       const entries = late ? retired : [...listeners].map(([id, value]) => ({ id, ...value }));
-      for (const { id, event, handler } of entries) if (event === "icekube://row-context-menu") callbacks.get(handler)?.({ event, id, payload });
+      for (const { id, event, handler } of entries) if (event === "iceon://row-context-menu") callbacks.get(handler)?.({ event, id, payload });
     };
     Object.assign(window, { isTauri: true, __rowCalls: calls, __rowControls: controls, __rowUnexpected: unexpected, __rowOrder: order,
       __rowEmit: emit, __rowRelease: () => { controls.holdShow = false; controls.holdListen = false; pending.splice(0).forEach(resolve => resolve()); },
-      __rowListeners: () => [...listeners.values()].filter(value => value.event === "icekube://row-context-menu").length,
+      __rowListeners: () => [...listeners.values()].filter(value => value.event === "iceon://row-context-menu").length,
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => {
         const listener = listeners.get(id); if (listener) retired.push({ id, ...listener }); listeners.delete(id);
       } },

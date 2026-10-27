@@ -17,11 +17,12 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
       isTauri: !options.browser,
       __prefCalls: calls,
       ...(options.nativeMenu ? {
-        __ICEKUBE_WINDOW_LAYOUT__: { seamless: true, platform: "macos" },
+        __ICEON_WINDOW_LAYOUT__: { seamless: true, platform: "macos" },
       } : {}),
       __openNativePreferences: () => {
         for (const [id, handler] of listeners) {
-          callbacks.get(handler)?.({ event: "icekube://open-preferences", id, payload: null });
+          callbacks.get(handler)?.({ event: "iceon://open-preferences", id, payload: null });
+
         }
       },
       __TAURI_EVENT_PLUGIN_INTERNALS__: {
@@ -37,7 +38,7 @@ async function fixture(page: Page, options: { initial?: Preferences; saveFail?: 
         invoke: async (command: string, args?: { request?: unknown; event?: string; handler?: number; eventId?: number }) => {
           calls.push({ command, request: args?.request });
           if (command === "plugin:event|listen") {
-            if (!["icekube://open-preferences", "icekube://native-navigation"].includes(args?.event ?? "") || typeof args?.handler !== "number") {
+            if (!["iceon://open-preferences", "iceon://native-navigation"].includes(args?.event ?? "") || typeof args?.handler !== "number") {
               throw new Error("Unexpected native event subscription");
             }
             const id = ++nextId;
@@ -218,4 +219,20 @@ test("terminal theme option uses app wording without reference-app branding", as
   await dialog.getByRole("combobox", { name: "Terminal theme" }).click();
   await expect(page.getByRole("option", { name: "Match app theme", exact: true })).toBeVisible();
   await expect(page.getByText(/freelens/i)).toHaveCount(0);
+});
+
+test("last page restoration defaults off and is saved only after confirmation", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/");
+  await page.getByRole("button", { name: "Preferences", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Preferences" });
+  const setting = dialog.getByRole("switch", { name: "Restore last page" });
+  await expect(setting).not.toBeChecked();
+  await setting.click();
+  expect((await page.evaluate(() => (window as unknown as { __prefCalls: Call[] }).__prefCalls)).some(c => c.command === "preferences_save")).toBe(false);
+  await dialog.getByRole("button", { name: "Save changes", exact: true }).click();
+  await expect.poll(async () => {
+    const calls = await page.evaluate(() => (window as unknown as { __prefCalls: Call[] }).__prefCalls);
+    return (calls.find(c => c.command === "preferences_save")?.request as { preferences: Preferences } | undefined)?.preferences.app.restoreLastPage;
+  }).toBe(true);
 });

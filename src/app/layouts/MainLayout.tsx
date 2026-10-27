@@ -28,7 +28,7 @@ export default function MainLayout() {
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
   const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try { return localStorage.getItem("icekube.sidebar-collapsed.v1") === "true"; }
+    try { return localStorage.getItem("iceon.sidebar-collapsed.v1") === "true"; }
     catch { return false; }
   });
   const [workspaceCollapse, setWorkspaceCollapse] = useState<{ clusterId: string; collapsed: boolean } | null>(null);
@@ -38,7 +38,7 @@ export default function MainLayout() {
     else setSidebarCollapsed((previous) => !previous);
   }
   useEffect(() => {
-    try { localStorage.setItem("icekube.sidebar-collapsed.v1", String(isSidebarCollapsed)); }
+    try { localStorage.setItem("iceon.sidebar-collapsed.v1", String(isSidebarCollapsed)); }
     catch { /* Collapse remains available when preference storage is blocked. */ }
   }, [isSidebarCollapsed]);
   useEffect(() => { setWorkspaceCollapse(null); }, [clusterId]);

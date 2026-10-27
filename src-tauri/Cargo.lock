@@ -1786,8 +1786,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "icekube"
-version = "0.0.1-pre.2"
+name = "iceon"
+version = "0.0.1"
 dependencies = [
  "base64 0.22.1",
  "fs2",

@@ -6,7 +6,7 @@ Project-specific guidance for AI coding agents.
 
 - Read `DESIGN.md` before UI, navigation, native-window, or architecture changes.
 - Build a Kubernetes desktop workspace with Freelens-like user workflows using
-  Icekube's existing Astryx design. Freelens is a behavioral reference, not an
+  Iceon's existing Astryx design. Freelens is a behavioral reference, not an
   instruction to copy Electron/Node architecture or claim feature parity.
 - For each reference workflow, record the upstream version/source, expected
   interaction, Rust owner, UI states, and acceptance test. Preserve relevant
@@ -65,7 +65,7 @@ Project-specific guidance for AI coding agents.
   Do not suppress real loading, empty, or error states to make the UI look clean.
 - All Categories replaces General and shows both entity kinds, not a setup page.
   Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
-  checkout, not `icekube`; record the commit before implementing another workflow.
+  checkout, not `iceon`; record the commit before implementing another workflow.
 - Catalog import stays metadata-only until authentication/connection lifecycle
   support is separately approved. Default-file discovery is built in and
   reads only `~/.kube/config` on catalog load/Refresh,
@@ -80,7 +80,7 @@ Project-specific guidance for AI coding agents.
   Use Astryx neutral status badges (explicit exception to the count-only rule).
   Per-record random hex colors are Rust-generated data persisted in SQLite, not
   renderer-generated colors or theme palette overrides; preserve them across reloads.
-- `seamless` is an Icekube window mode, not an upstream Astryx prop/variant.
+- `seamless` is an Iceon window mode, not an upstream Astryx prop/variant.
   `src-tauri/src/window.rs` owns the flag, native window construction, and initial
   layout metadata; `WindowFrame` owns device insets and `WindowToolbar` owns
   native-control clearance, drag space, and controls in the existing toolbar row.

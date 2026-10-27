@@ -36,13 +36,13 @@ jobs:
           from pathlib import Path
           package = json.loads(Path('package.json').read_text())
           config = json.loads(Path('src-tauri/tauri.conf.json').read_text())
-          if config.get('productName') != 'IceKube':
-              raise SystemExit('Dry-run bundle paths require productName to be exactly IceKube')
+          if config.get('productName') != 'Iceon':
+              raise SystemExit('Dry-run bundle paths require productName to be exactly Iceon')
           cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
           lock = tomllib.loads(Path('src-tauri/Cargo.lock').read_text())
-          local = [p for p in lock['package'] if p['name'] == 'icekube' and 'source' not in p]
+          local = [p for p in lock['package'] if p['name'] == cargo['package']['name'] and 'source' not in p]
           if len(local) != 1:
-              raise SystemExit('Expected one local icekube package in Cargo.lock')
+              raise SystemExit('Expected one local application package in Cargo.lock')
           version = package['version']
           number = r'(?:0|[1-9][0-9]*)'
           identifier = rf'(?:{number}|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)'
@@ -87,31 +87,31 @@ jobs:
           bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
           staging=$(mktemp -d)
           trap 'rm -rf "$staging"' EXIT
-          ditto "$bundle/macos/IceKube.app" "$staging/IceKube.app"
+          ditto "$bundle/macos/Iceon.app" "$staging/Iceon.app"
           ln -s /Applications "$staging/Applications"
           mkdir -p "$bundle/dmg"
-          hdiutil create -volname IceKube -srcfolder "$staging" -ov -format UDZO \
-            "$bundle/dmg/IceKube_dry-run_aarch64.dmg"
+          hdiutil create -volname Iceon -srcfolder "$staging" -ov -format UDZO \
+            "$bundle/dmg/Iceon_dry-run_aarch64.dmg"
       - name: Verify bundle metadata, signature, architecture and updater absence
         env:
           CHECKED_COMMIT: ${{ github.sha }}
         run: |
           bundle=src-tauri/target/aarch64-apple-darwin/release/bundle
-          codesign --verify --deep --strict "$bundle/macos/IceKube.app"
-          codesign -dv --verbose=4 "$bundle/macos/IceKube.app" 2>&1 | grep -F 'Signature=adhoc'
-          test "$(lipo -archs "$bundle/macos/IceKube.app/Contents/MacOS/icekube")" = arm64
+          codesign --verify --deep --strict "$bundle/macos/Iceon.app"
+          codesign -dv --verbose=4 "$bundle/macos/Iceon.app" 2>&1 | grep -F 'Signature=adhoc'
+          test "$(lipo -archs "$bundle/macos/Iceon.app/Contents/MacOS/iceon")" = arm64
           python3 - <<'PY'
           import json, os, plistlib, shutil
           from pathlib import Path
           bundle = Path('src-tauri/target/aarch64-apple-darwin/release/bundle')
           config = json.loads(Path('src-tauri/tauri.conf.json').read_text())
-          with (bundle / 'macos/IceKube.app/Contents/Info.plist').open('rb') as f:
+          with (bundle / 'macos/Iceon.app/Contents/Info.plist').open('rb') as f:
               plist = plistlib.load(f)
           version = config['version']
           # Tauri uses the complete SemVer for both keys unless bundleVersion overrides it.
           expected_build = config.get('bundle', {}).get('macOS', {}).get('bundleVersion', version)
           expected = {'CFBundleShortVersionString': version, 'CFBundleVersion': expected_build,
-                      'CFBundleIdentifier': config['identifier'], 'CFBundleExecutable': 'icekube',
+                      'CFBundleIdentifier': config['identifier'], 'CFBundleExecutable': 'iceon',
                       'CFBundleName': config['productName']}
           for key, value in expected.items():
               if plist.get(key) != value:
@@ -126,7 +126,7 @@ jobs:
           assets = Path('dry-run-assets')
           assets.mkdir()
           shutil.copy2(dmgs[0], assets / dmgs[0].name)
-          shutil.copy2(bundle / 'macos/IceKube.app/Contents/Info.plist', assets / 'Info.plist')
+          shutil.copy2(bundle / 'macos/Iceon.app/Contents/Info.plist', assets / 'Info.plist')
           (assets / 'build.json').write_text(json.dumps({'commit': os.environ['CHECKED_COMMIT'],
               'version': version, 'architecture': 'arm64', 'signature': 'ad-hoc',
               'notarized': False, 'updaterArtifacts': False}, indent=2) + '\n')
@@ -157,15 +157,15 @@ jobs:
           }
           trap cleanup EXIT
           hdiutil attach -readonly -nobrowse -mountpoint "$mount_dir" "${dmg[0]}"
-          app="$mount_dir/IceKube.app"
+          app="$mount_dir/Iceon.app"
           test -d "$app"
           test ! -L "$app"
           codesign --verify --deep --strict "$app"
           codesign -dv --verbose=4 "$app" 2>&1 | grep -F 'Signature=adhoc'
-          test "$(lipo -archs "$app/Contents/MacOS/icekube")" = arm64
+          test "$(lipo -archs "$app/Contents/MacOS/iceon")" = arm64
           # Compare metadata, executable and signed resource manifest to the audited source bundle.
-          for relative in Contents/Info.plist Contents/MacOS/icekube Contents/_CodeSignature/CodeResources; do
-            cmp "$bundle/macos/IceKube.app/$relative" "$app/$relative"
+          for relative in Contents/Info.plist Contents/MacOS/iceon Contents/_CodeSignature/CodeResources; do
+            cmp "$bundle/macos/Iceon.app/$relative" "$app/$relative"
           done
           test -L "$mount_dir/Applications"
           test "$(readlink "$mount_dir/Applications")" = /Applications

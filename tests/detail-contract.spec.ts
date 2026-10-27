@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 
 test("Rust detail projections for every resource kind satisfy the renderer contract", async ({ page }) => {
-  const artifactPath = process.env.ICEKUBE_DETAIL_CONTRACT;
+  const artifactPath = process.env.ICEON_DETAIL_CONTRACT;
   let cases;
   if (artifactPath) {
     const artifact = JSON.parse(readFileSync(artifactPath, "utf8"));

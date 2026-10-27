@@ -1,10 +1,10 @@
-# Icekube design
+# Iceon design
 
 ## Product and objective
 
-Icekube is a desktop Kubernetes workspace for developers and operators. Freelens
+Iceon is a desktop Kubernetes workspace for developers and operators. Freelens
 is the reference for user-visible workflows, not the architecture or a promise of
-complete compatibility. Keep Icekube's Astryx interface rather than copying
+complete compatibility. Keep Iceon's Astryx interface rather than copying
 Freelens's styling or Electron implementation.
 
 The objective is to discover clusters, connect deliberately, inspect resources,
@@ -81,7 +81,7 @@ unused starter CSS, not design authority. The active brand theme lives in
     Empty space between actions is draggable in native seamless mode.
     The GitHub icon immediately before More invokes Rust `project_open_repository`
     with no renderer URL argument. `src-tauri/src/project.rs` opens only
-    `https://github.com/yan-ad/icekube`; browser preview disables the action and
+    `https://github.com/yan-ad/iceon`; browser preview disables the action and
     native failures return a safe error. This does not broaden arbitrary opener access.
 3. **Single sidebar:** No separate app rail, Home button, or Welcome destination.
    `/` redirects to `/catalog`. The first toolbar control collapses/expands the
@@ -223,7 +223,7 @@ the app shell's toolbar. Pages never add their own title-bar margin or spacer.
 **Ownership:** `src-tauri/src/window.rs` owns the `SEAMLESS` flag (currently true),
 native construction, and platform metadata. `tauri.conf.json` keeps the main
 window's dimensions and `create: false` so Rust creates it exactly once.
-The initialization script publishes frozen `__ICEKUBE_WINDOW_LAYOUT__` metadata
+The initialization script publishes frozen `__ICEON_WINDOW_LAYOUT__` metadata
 before React mounts. This metadata is a rendering hint, not a security boundary.
 `MainLayout` passes it to the app-owned `WindowFrame` for device insets;
 `AppToolbar` passes it to `WindowToolbar` for native-control clearance and actions.
@@ -249,7 +249,7 @@ fullscreen offset. Interactive controls must never be drag targets. Failed
 window actions produce an accessible error instead of an unhandled rejection.
 Only the required window-control capabilities are granted to the main window.
 
-On macOS, the native **IceKube > Preferences…** menu item (⌘,) focuses the main
+On macOS, the native **Iceon > Preferences…** menu item (⌘,) focuses the main
 window and opens the existing Preferences dialog through a main-webview-scoped
 Tauri event. Rust owns menu construction and preserves the default macOS menu
 actions. The renderer releases its listener on disposal; browser preview never
@@ -272,7 +272,7 @@ and authorization regardless of UI state. Streams have bounded buffers and an
 explicit cancellation/disposal path. Never send kubeconfig contents, tokens, or
 private keys to the renderer merely to display connection status.
 
-The old `icekube.pinned-pages.v1` UI preference is no longer read or written;
+The old `iceon.pinned-pages.v1` UI preference is no longer read or written;
 existing category pins do not migrate into item pins. Pinned cluster/link identities
 are stored through Rust-managed domain storage. localStorage is reserved for non-sensitive UI preferences, not
 credentials or cluster domain state.
@@ -403,7 +403,7 @@ not persisted into Catalog's metadata snapshot.
 Behavior reference remains local Freelens commit
 `cd07118f843c4a69f937a319a37a7c12ef2c92d8`:
 `common/cluster/cluster.ts` separates connection/accessibility state and
-`common/cluster/list-namespaces.injectable.ts` lists namespace names. Icekube keeps
+`common/cluster/list-namespaces.injectable.ts` lists namespace names. Iceon keeps
 those interactions but uses Rust instead of Electron/Node; no code was copied.
 Acceptance: `connection/tests.rs`, `connection/lifecycle_tests.rs`, and
 `tests/cluster-connection.spec.ts` cover exact scope, bounded responses, independent
@@ -451,7 +451,7 @@ continuation). These fixture obligations are not a current passing-suite claim.
 
 ### Prerelease distribution
 
-The `0.0.1-pre.2` distribution is Apple Silicon only, ad-hoc signed, not Developer
+The `0.0.1` distribution is Apple Silicon only, ad-hoc signed, not Developer
 ID signed or notarized. Its updater key/endpoints are empty and no updater manifest
 or signing artifacts are published; automatic inventory reads do not imply automatic
 application updates. See [release instructions](docs/releases.md) for trusted-app
@@ -555,7 +555,7 @@ outside the scrolling viewport and above the Pod dock. Delete is disabled withou
 selection or while inventory is loading/failed. Confirmation captures exact targets
 and shows cluster, context and namespace/name identities. There is no destructive
 action on checkbox activation or dialog open. Unlike Freelens's parallel Promise.all
-removal, Icekube submits at most one mutation at a time, at most the 100 displayed
+removal, Iceon submits at most one mutation at a time, at most the 100 displayed
 resources, and retains per-item success/failure results. Accepted targets are
 deselected as each response arrives; failed targets remain selected if still visible.
 Stopping a partially completed batch retains those known results alongside the
@@ -677,7 +677,7 @@ replacement, disconnect, or teardown. The workspace port-forward table retains
 honest stopped/error states and does not treat a failed refresh as an empty list.
 
 Behavior-only reference: local `/Volumes/Data/Kerjaa/freelens`, commit
-`088d08513c8c149365dd802c588b9b0b90c6293e`; no upstream source was copied. Icekube
+`088d08513c8c149365dd802c588b9b0b90c6293e`; no upstream source was copied. Iceon
 owners are `connection/resources.rs` and `connection/pod_sync.rs` for typed LIST/WATCH
 projection, `connection/pods.rs` for protected details/YAML, `connection/pod_runtime.rs`
 for logs/exec/attach/forwards, `connection/helm.rs` for bounded Helm subprocess
@@ -701,7 +701,7 @@ workflow contract; they do not establish real-cluster or native OS behavior.
 
 Behavior-only reference: local `/Users/user1/Kerjaa/freelens`,
 `v1.10.3-533-gcd07118f`, commit `cd07118f843c4a69f937a319a37a7c12ef2c92d8`.
-No upstream source code was copied. `icekube` is not the reference checkout.
+No upstream source code was copied. `iceon` is not the reference checkout.
 
 | Workflow/source under `packages/core/src/` | Expected interaction / Rust owner | UI states / acceptance |
 | --- | --- | --- |
@@ -711,7 +711,7 @@ No upstream source code was copied. `icekube` is not the reference checkout.
 | `common/catalog-entities/kubernetes-cluster.ts` (`onRun`), `renderer/components/layout/sidebar.tsx`, `sidebar-cluster.tsx`, `common/sidebar-menu-items-starting-order.ts` | Cluster-ID route, scoped inset navigation, temporary Catalog collapse; Rust owns the session lease and bounded client/resource requests | Loading, disconnected, connecting, connected, permission/transport failure, stale resource data, missing cluster; `tests/catalog-activation.spec.ts` and `tests/cluster-connection.spec.ts` |
 | `common/catalog-entities/web-link.ts` (`onRun`) | Open the selected saved link externally; `CatalogEngine::open_web_link_with` and Rust `OpenerExt` replace upstream `window.open` | Success/error without route change; Rust `catalog/open_tests.rs` validates saved IDs/URLs and injected opener, browser activation tests verify IPC-only handoff |
 
-Default-path discovery and the six-column table/colors are Icekube requirements,
+Default-path discovery and the six-column table/colors are Iceon requirements,
 not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/
 color fixtures and browser built-in discovery, warning, column/icon, and reload tests.
 Catalog import does not authenticate or mutate Kubernetes objects; connection,
@@ -785,4 +785,4 @@ cluster as a test without explicit approval.
 
 Reference behavior must be checked against an identified upstream version when
 implementing a workflow. These links describe reference material, not an
-Icekube compatibility guarantee.
+Iceon compatibility guarantee.

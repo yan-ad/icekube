@@ -48,7 +48,7 @@ export function PreferencesProvider({ children }: { children: ReactNode }) {
     if (!isTauri() || getWindowLayout().platform !== "macos") return;
 
     let disposed = false;
-    const subscription = listen<void>("icekube://open-preferences", () => {
+    const subscription = listen<void>("iceon://open-preferences", () => {
       if (!disposed) setIsOpen(true);
     }, { target: { kind: "WebviewWindow", label: "main" } });
 

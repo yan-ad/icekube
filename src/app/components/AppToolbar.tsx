@@ -178,8 +178,8 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         aria-keyshortcuts="Control+k Meta+k"
       />
       {status && <HStack className="cluster-connection-status"><StatusBadge status={status} variant={status === "Connection error" ? "error" : undefined} /></HStack>}
-      <IconButton label="Open Icekube on GitHub" className="toolbar-github-action"
-        tooltip={projectAvailable ? "Open Icekube on GitHub" : "GitHub repository opens in the desktop app only"}
+      <IconButton label="Open Iceon on GitHub" className="toolbar-github-action"
+        tooltip={projectAvailable ? "Open Iceon on GitHub" : "GitHub repository opens in the desktop app only"}
         aria-description={!projectAvailable ? "GitHub repository opens in the desktop app only" : undefined}
         variant="ghost" icon={<Icon icon={IconBrandGithub} />}
         isDisabled={!projectAvailable || repositoryBusy} onClick={() => void openRepository()} />

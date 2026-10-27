@@ -1,7 +1,7 @@
 use serde::Serialize;
 
-const REPOSITORY_URL: &str = "https://github.com/yan-ad/icekube";
-const HOMEPAGE_URL: &str = "https://icekube.yan.ad";
+const REPOSITORY_URL: &str = "https://github.com/yan-ad/iceon";
+const HOMEPAGE_URL: &str = "https://iceon.yan.ad";
 
 #[tauri::command]
 pub async fn project_open_homepage(app: tauri::AppHandle) -> Result<(), ProjectError> {
@@ -41,7 +41,7 @@ mod tests {
             Ok::<_, ()>(())
         })
         .unwrap();
-        assert_eq!(calls, ["https://icekube.yan.ad"]);
+        assert_eq!(calls, ["https://iceon.yan.ad"]);
         assert_eq!(
             open_homepage_with(|_| Err("private diagnostic")),
             Err(ProjectError::OpenFailed)
@@ -58,7 +58,7 @@ mod tests {
             }),
             Ok(())
         );
-        assert_eq!(calls, ["https://github.com/yan-ad/icekube"]);
+        assert_eq!(calls, ["https://github.com/yan-ad/iceon"]);
         let url = url::Url::parse(REPOSITORY_URL).unwrap();
         assert_eq!(url.scheme(), "https");
         assert_eq!(url.host_str(), Some("github.com"));

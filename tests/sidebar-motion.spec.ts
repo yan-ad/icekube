@@ -32,7 +32,7 @@ test("Catalog width transitions preserve its preference across workspace entry a
   await catalog.getByRole("link", { name: "All Categories", exact: true }).click();
   await expect(catalog).toHaveAttribute("data-collapsed", "false");
   await expect(page.locator(".cluster-sidebar-motion")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("icekube.sidebar-collapsed.v1"))).toBe("false");
+  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
 });
 
 test("reduced motion disables navigation transitions and collapsed groups stay inert", async ({ page }) => {

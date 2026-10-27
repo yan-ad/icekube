@@ -1,16 +1,16 @@
 {
-  "name": "icekube",
+  "name": "iceon",
   "private": true,
-  "version": "0.0.1-pre.2",
+  "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "dev:inspect": "ICEKUBE_REACT_DEVTOOLS=1 vite",
+    "dev:inspect": "ICEON_REACT_DEVTOOLS=1 vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "tauri": "tauri",
-    "tauri:inspect": "ICEKUBE_REACT_DEVTOOLS=1 tauri dev",
+    "tauri:inspect": "ICEON_REACT_DEVTOOLS=1 tauri dev",
     "devtools": "HOST=127.0.0.1 PORT=8097 REACT_DEVTOOLS_PORT=8097 react-devtools"
   },
   "dependencies": {

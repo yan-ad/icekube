@@ -298,7 +298,7 @@ export default function CatalogPage() {
             <LayoutContent>
               <VStack gap={3}>
                 <Text as="p">
-                  Remove this item and its pin from Icekube's local catalog
+                  Remove this item and its pin from Iceon's local catalog
                   only? The kubeconfig, cluster, and website will not be
                   changed.
                 </Text>

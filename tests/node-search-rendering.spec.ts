@@ -50,9 +50,9 @@ test("Nodes retains its dense table without rendering it for each draft characte
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toBeVisible();
   // Use browser time, not the host clock: CI setup can take several seconds.
   await page.clock.pauseAt(new Date(epoch.getTime() + 60_000));
-  // Optional local stress run: ICEKUBE_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts
+  // Optional local stress run: ICEON_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts
   // CI checks render isolation, not a shared runner's artificial CPU budget.
-  const cpuRate = Number(process.env.ICEKUBE_NODE_SEARCH_CPU_RATE ?? 1);
+  const cpuRate = Number(process.env.ICEON_NODE_SEARCH_CPU_RATE ?? 1);
   expect(Number.isFinite(cpuRate) && cpuRate >= 1).toBe(true);
   if (cpuRate > 1) {
     const cdp = await context.newCDPSession(page);

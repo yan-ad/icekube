@@ -49,7 +49,7 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
   await expect(page.getByRole("button", { name: "Switch cluster", exact: true })).toContainText("Development");
   await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("icekube.sidebar-collapsed.v1"))).toBe("false");
+  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await expect(inset).toBeVisible();
   await expect(inset.getByRole("link", { name: "Nodes", exact: true })).toBeVisible();
@@ -145,7 +145,7 @@ test("workspace sidebar expansion is temporary and history preserves section sco
   await page.keyboard.press("Enter");
   await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
   await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("icekube.sidebar-collapsed.v1"))).toBe("false");
+  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
   await page.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Nodes", exact: true }).click();
   await page.getByRole("button", { name: "Go back", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-one$/);

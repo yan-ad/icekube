@@ -1,4 +1,9 @@
-# Releasing Icekube for Apple Silicon
+# Signed Iceon releases for Apple Silicon
+
+For the unsigned stable `0.0.1` release, use [the separate unsigned route](releases.md),
+not `cargo xtask release`. The signed route below does not skip missing secrets.
+The product is Iceon, with Rust package/executable `iceon`, bundle identifier
+`ad.yan.iceon`, and the `yan-ad/iceon` repository.
 
 This pipeline publishes **macOS aarch64 only**. The install artifact is a DMG. The additional `.app.tar.gz`, `.app.tar.gz.sig`, and `latest.json` assets are required by Tauri's updater, not additional platform installers. No Intel, Universal, Linux or Windows release is built.
 
@@ -6,9 +11,9 @@ This pipeline publishes **macOS aarch64 only**. The install artifact is a DMG. T
 
 1. Commit the release tooling and the Rust updater integration before releasing. Configure `bundle.createUpdaterArtifacts: true`, the real updater public key content in `plugins.updater.pubkey`, and this endpoint in `src-tauri/tauri.conf.json`:
 
-   `https://github.com/yan-ad/icekube/releases/latest/download/latest.json`
+   `https://github.com/yan-ad/iceon/releases/latest/download/latest.json`
 
-   This is the repository's existing `origin`, despite the Icekube application name. Do not rename the release repository without deliberately migrating both the tooling and updater configuration. Actual xtask publication refuses other remote URLs.
+   This is the Iceon release repository. Do not rename the release repository without deliberately migrating both the tooling and updater configuration. Actual xtask publication refuses other remote URLs.
 2. Generate the Tauri updater signing key yourself using the official signer instructions. Keep an encrypted backup outside this repository. Do not commit private keys, passwords, certificates or real kubeconfigs. A replacement private key cannot update existing installs that trust the old public key without a planned key migration. This task did not generate or read any signing credentials.
 3. Obtain a **Developer ID Application** certificate and export its private key as a password-protected `.p12`. Base64-encode the `.p12` for `APPLE_CERTIFICATE`. An Apple Development or ad-hoc identity is not a substitute for a notarized distribution identity.
 4. Add these repository secrets (or adapt the workflow to an explicitly protected GitHub Environment):

@@ -10,9 +10,9 @@ export default defineConfig(({ command }) => ({
     react(),
     tailwind(),
     {
-      name: "icekube-react-devtools",
+      name: "iceon-react-devtools",
       transformIndexHtml(html) {
-        if (command !== "serve" || process.env.ICEKUBE_REACT_DEVTOOLS !== "1") {
+        if (command !== "serve" || process.env.ICEON_REACT_DEVTOOLS !== "1") {
           return html;
         }
 

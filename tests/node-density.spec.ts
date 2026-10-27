@@ -58,7 +58,7 @@ const cell = async (page: Page, index: number, label: string) => {
   return row(page, index).getByRole("cell").nth(labels.findIndex(text => text.trim() === label));
 };
 const conditions = (page: Page, index: number) => row(page, index).getByRole("cell").filter({ has: page.getByRole("button", { name: /\+\d+ conditions/ }) });
-const viewport = (page: Page) => page.locator("[data-icekube-table-viewport]").filter({ has: grid(page) });
+const viewport = (page: Page) => page.locator("[data-iceon-table-viewport]").filter({ has: grid(page) });
 
 test("35 conditions keep single-line compact rows, visible initial names and bounded badges", async ({ page }) => {
   await fixture(page);

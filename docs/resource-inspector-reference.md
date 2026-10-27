@@ -4,7 +4,7 @@
 
 Local `/Users/user1/Kerjaa/freelens` HEAD was verified as `cd07118f843c4a69f937a319a37a7c12ef2c92d8`, described by Git as `v1.10.3-533-gcd07118f`. Read sources under `packages/core/src/renderer/components/`: `kube-object-details/kube-object-details.tsx`, `drawer/drawer.tsx`, `custom-resource-definitions/view.tsx`, `custom-resource-definitions/details.tsx`, and `custom-resources/details.tsx`. They establish the object-details drawer and CRD reference workflows, not a completed per-kind parity comparison.
 
-The inventory below is verified against Icekube source, not against Freelens. Icekube uses upstream inspector workflows as behavioral reference only, not Electron/Node implementation code or a parity claim.
+The inventory below is verified against Iceon source, not against Freelens. Iceon uses upstream inspector workflows as behavioral reference only, not Electron/Node implementation code or a parity claim.
 
 ## Ownership and contract
 
@@ -62,7 +62,7 @@ passing results or native/real-cluster verification.
 
 ## Kind-specific facts actually projected
 
-All rows below refer to the named match arm in the exact Icekube source path `src-tauri/src/connection/detail_facts.rs`. All non-sensitive kinds may also receive `/status/conditions` type, status, reason and last-transition facts, never condition messages. Explicit scalar fields missing or rejected by sanitization become `Not reported`; array fields that are missing, invalid or empty may produce no section.
+All rows below refer to the named match arm in the exact Iceon source path `src-tauri/src/connection/detail_facts.rs`. All non-sensitive kinds may also receive `/status/conditions` type, status, reason and last-transition facts, never condition messages. Explicit scalar fields missing or rejected by sanitization become `Not reported`; array fields that are missing, invalid or empty may produce no section.
 
 | Resource kind(s) | Supported facts | Important omissions / interpretation limits |
 | --- | --- | --- |

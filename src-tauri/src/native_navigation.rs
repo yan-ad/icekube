@@ -4,8 +4,8 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::TrayIconBuilder;
 use tauri::{App, AppHandle, Emitter, EventTarget, Manager, WebviewWindow};
 
-pub const EVENT: &str = "icekube://native-navigation";
-const TRAY_ID: &str = "icekube-navigation";
+pub const EVENT: &str = "iceon://native-navigation";
+const TRAY_ID: &str = "iceon-navigation";
 
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -105,7 +105,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
         .clone();
     TrayIconBuilder::with_id(TRAY_ID)
         .icon(icon)
-        .tooltip("IceKube")
+        .tooltip("Iceon")
         .menu(&menu)
         .on_menu_event(|app, event| {
             let result = match event.id().as_ref() {

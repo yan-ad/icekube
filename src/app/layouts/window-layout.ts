@@ -5,12 +5,12 @@ export type WindowLayout = Readonly<{
 
 declare global {
   interface Window {
-    readonly __ICEKUBE_WINDOW_LAYOUT__?: WindowLayout;
+    readonly __ICEON_WINDOW_LAYOUT__?: WindowLayout;
   }
 }
 
 export function getWindowLayout(): WindowLayout {
   return typeof window === "undefined"
     ? { seamless: false, platform: "browser" }
-    : window.__ICEKUBE_WINDOW_LAYOUT__ ?? { seamless: false, platform: "browser" };
+    : window.__ICEON_WINDOW_LAYOUT__ ?? { seamless: false, platform: "browser" };
 }

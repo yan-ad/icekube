@@ -8,7 +8,7 @@ export default function NotFoundPage() {
   const navigate = useNavigate();
   return <VStack padding={6} gap={4}>
     <Heading level={1}>Page not found</Heading>
-    <Text>This destination is not part of Icekube.</Text>
+    <Text>This destination is not part of Iceon.</Text>
     <Button label="Go to Catalog" onClick={() => void navigate({ to: "/catalog" })} />
   </VStack>;
 }

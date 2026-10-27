@@ -183,7 +183,7 @@ test("sorts options and selecting one immediately scopes the server request and 
 });
 
 test("does not restore the retired Resource tables switch or use its localStorage preference", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("icekube.resource-tables.v1", "false"));
+  await page.addInitScript(() => localStorage.setItem("iceon.resource-tables.v1", "false"));
   await fixture(page); await connected(page);
   await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
   expect(await calls(page, "namespaces")).toHaveLength(1);

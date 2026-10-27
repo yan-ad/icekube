@@ -269,10 +269,10 @@ fn verify_updater(root: &Path) -> Result<()> {
     }
     if updater["endpoints"]
         != serde_json::json!([
-            "https://github.com/yan-ad/icekube/releases/latest/download/latest.json"
+            "https://github.com/yan-ad/iceon/releases/latest/download/latest.json"
         ])
     {
-        return Err("updater endpoint must match yan-ad/icekube GitHub Releases".into());
+        return Err("updater endpoint must match yan-ad/iceon GitHub Releases".into());
     }
     Ok(())
 }
@@ -423,15 +423,15 @@ fn release(root: &Path, o: &Options) -> Result<()> {
     verify_updater(root)?;
     let url = git(root, &["remote", "get-url", &o.remote])?;
     if ![
-        "git@github.com:yan-ad/icekube.git",
-        "https://github.com/yan-ad/icekube.git",
-        "https://github.com/yan-ad/icekube",
-        "ssh://git@github.com/yan-ad/icekube.git",
+        "git@github.com:yan-ad/iceon.git",
+        "https://github.com/yan-ad/iceon.git",
+        "https://github.com/yan-ad/iceon",
+        "ssh://git@github.com/yan-ad/iceon.git",
     ]
     .contains(&url.as_str())
     {
         return Err(
-            "actual publication is restricted to the configured yan-ad/icekube repository".into(),
+            "actual publication is restricted to the configured yan-ad/iceon repository".into(),
         );
     }
     git(
@@ -540,7 +540,7 @@ fn release(root: &Path, o: &Options) -> Result<()> {
     }
     git(
         root,
-        &["tag", "-a", &tag, "-m", &format!("Icekube {tag}"), "HEAD"],
+        &["tag", "-a", &tag, "-m", &format!("Iceon {tag}"), "HEAD"],
     )?;
     let commit = git(root, &["rev-parse", "HEAD"])?;
     git(root, &["push", "--atomic", &o.remote, &format!("{commit}:refs/heads/{}", o.branch), &format!("refs/tags/{tag}:refs/tags/{tag}")])

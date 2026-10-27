@@ -96,7 +96,7 @@ jobs:
       matrix:
         shard: [1, 2, 3, 4]
     env:
-      ICEKUBE_DETAIL_CONTRACT: .ci-fixtures/detail-contract.json
+      ICEON_DETAIL_CONTRACT: .ci-fixtures/detail-contract.json
     steps:
       - uses: actions/checkout@v4
         with:

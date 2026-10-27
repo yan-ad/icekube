@@ -25,7 +25,7 @@ async function fixture(page: Page, control: Controls = {}) {
         if (command === "plugin:event|listen") { menuHandler = args?.handler ?? 0; return menuHandler; }
         if (command === "plugin:event|unlisten") return null;
         if (command === "row_context_menu_show") {
-          handlers.get(menuHandler)?.({ event: "icekube://row-context-menu", id: menuHandler,
+          handlers.get(menuHandler)?.({ event: "iceon://row-context-menu", id: menuHandler,
             payload: { clusterId: request.clusterId, sessionId: request.sessionId, requestId: request.requestId, action: "details" } });
           return null;
         }

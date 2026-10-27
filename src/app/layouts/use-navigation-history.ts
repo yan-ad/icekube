@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useRouterState } from "@tanstack/react-router";
 
-const HISTORY_KEY = "icekube.history-limit.v1";
+const HISTORY_KEY = "iceon.history-limit.v1";
 
 export function useNavigationHistory() {
   const router = useRouter();
