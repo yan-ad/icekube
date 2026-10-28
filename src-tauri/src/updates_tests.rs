@@ -1,5 +1,57 @@
 use super::*;
 use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[test]
+fn updater_transport_constructs_in_a_fresh_process_without_network() {
+    const CHILD: &str = "ICEON_TLS_STARTUP_TEST_CHILD";
+    if let Some(mode) = std::env::var_os(CHILD) {
+        assert!(rustls::crypto::CryptoProvider::get_default().is_none());
+        if mode == "uninitialized" {
+            let _ = reqwest::Client::builder()
+                .https_only(true)
+                .no_proxy()
+                .build();
+            panic!("negative control unexpectedly constructed an uninitialized client");
+        }
+        let negative = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "updates::tests::updater_transport_constructs_in_a_fresh_process_without_network",
+                "--nocapture",
+            ])
+            .env(CHILD, "uninitialized")
+            .output()
+            .unwrap();
+        assert!(!negative.status.success());
+        assert!(
+            String::from_utf8_lossy(&negative.stderr)
+                .contains("No rustls crypto provider is configured"),
+            "negative control did not reproduce the published dependency failure: {}",
+            String::from_utf8_lossy(&negative.stderr)
+        );
+        // Exercise the real transport constructor, not the fake update provider.
+        assert!(client(None).is_ok());
+        assert!(rustls::crypto::CryptoProvider::get_default().is_some());
+        assert!(client(Some(&validate_proxy("http://127.0.0.1:9").unwrap())).is_ok());
+        return;
+    }
+    let output = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--exact",
+            "updates::tests::updater_transport_constructs_in_a_fresh_process_without_network",
+            "--nocapture",
+        ])
+        .env(CHILD, "1")
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "Fresh updater transport process failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stdout).contains("1 passed"));
+}
+
 struct Fake {
     calls: AtomicUsize,
     delay: Duration,

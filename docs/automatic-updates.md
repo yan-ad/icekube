@@ -9,7 +9,7 @@ it does not fetch packages, handle signing secrets or install files.
 ## Bootstrap and trust
 
 0.0.1 and 0.0.2 shipped with no updater trust key and automatic updates disabled.
-Install 0.0.3 manually once using the [platform installer](releases.md). This
+Install 0.0.4 manually once using the [platform installer](releases.md). This
 cannot be enabled retroactively in those installed binaries. After bootstrap,
 subsequent verified stable updates install automatically when safe; there is no
 separate manual installation step after staging.
@@ -20,6 +20,29 @@ matching private key stays in the GitHub Actions signing secret, never the
 renderer, repository or release assets. Missing trust configuration disables
 updates. There is no unsigned fallback and no automatic key replacement.
 Losing the signing key requires an explicit trust-migration/bootstrap plan.
+
+## TLS startup initialization
+
+Iceon explicitly initializes rustls's ring provider before constructing the
+Tauri builder or spawning startup work. The bounded updater HTTP constructor
+also ensures a provider is available. The selected process provider is immutable;
+repeated calls preserve an existing provider rather than replacing it.
+
+This is required by reqwest's `rustls-no-provider` feature, even when rustls was
+compiled with ring. Published 0.0.3 omitted this initialization before its first
+updater request. A fresh process could panic during HTTP client construction;
+the release profile's `panic = "abort"` turns that into SIGABRT on a Tokio worker.
+The concurrent main-thread tray stack is not evidence that the tray caused it.
+The fix is included in 0.0.4 and does not change already-published 0.0.3
+installers. Affected 0.0.3 installations need the patch installer manually because
+the startup abort occurs before automatic updating can run.
+
+`updates::tests::updater_transport_constructs_in_a_fresh_process_without_network`
+checks both an uninitialized negative control and the actual fixed HTTP client
+constructor in independent subprocesses. It sends no requests and opens no app,
+kubeconfig or credentials. A separate startup-order assertion ensures provider
+initialization remains before Tauri setup. These tests are not native GUI smoke
+tests, and this fix does not relax certificate validation or updater signatures.
 
 The feed itself is not a separately signed document. Rust selects a newer stable
 SemVer without prerelease/build metadata, requires the selected raw URL to match

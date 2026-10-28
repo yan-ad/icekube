@@ -1,6 +1,6 @@
 [package]
 name = "iceon"
-version = "0.0.3"
+version = "0.0.4"
 description = "Iceon Kubernetes desktop workspace"
 authors = ["Yanuar"]
 edition = "2024"

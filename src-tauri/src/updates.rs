@@ -543,6 +543,7 @@ fn asset_allowed(url: &Url, version: &str, target: Target) -> bool {
             })
 }
 fn client(proxy: Option<&Url>) -> Result<reqwest::Client, UpdateError> {
+    crate::tls::initialize();
     let mut builder = reqwest::Client::builder()
         .https_only(true)
         .no_proxy()

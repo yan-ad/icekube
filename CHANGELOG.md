@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.0.4
+
+### Fixed
+
+- Fix a startup SIGABRT in supported release builds, reported on macOS 27.0.1.
+  The updater could construct reqwest's HTTPS client before a rustls crypto
+  provider was initialized. Release-mode panic handling then aborted the app on
+  a Tokio worker. Iceon now initializes the ring provider before Tauri startup
+  and also ensures initialization in the updater transport constructor.
+- Add fresh-process negative and positive regression controls using the actual
+  HTTP client constructor, plus concurrent initialization and startup-order tests.
+  These checks make no network requests and do not launch the native app.
+- Keep certificate verification, pinned updater signatures, signed-version
+  enforcement, icons, colors, and existing Kubernetes behavior unchanged.
+
+### Installation and verification
+
+If 0.0.3 crashes immediately, install 0.0.4 manually: the affected build aborts
+before its automatic updater can retrieve a patch. Versions 0.0.1/0.0.2 also
+require manual bootstrap because they shipped without the updater verification
+key. Supported working builds continue to use signed GitHub update assets.
+
+Apple Silicon macOS DMG and Windows x86 setup.exe packages are gated by full CI,
+platform builds, signature/version verification, and uploaded-byte checks. The
+app is not Apple notarized or Windows Authenticode signed. Only for a trusted
+macOS download installed in `/Applications`, use:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Iceon.app
+```
+
+Do not disable Gatekeeper or SmartScreen. Native installation and live-cluster
+smoke tests are not claimed. See [installation](docs/releases.md) and
+[automatic updates](docs/automatic-updates.md).
+
 ## 0.0.3
 
 ### Included changes
