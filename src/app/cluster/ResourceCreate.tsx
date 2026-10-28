@@ -11,6 +11,8 @@ import { useCatalog } from "../catalog/CatalogProvider";
 import { nextReadId, type ResourceKind, type SessionRequest } from "./api";
 import { cancelResourceCreate, createMessage, createResource, creationNamespaced, type CreateCancelRequest, type CreateResult } from "./createApi";
 import { resourceCreation } from "./resourceViews";
+import { usePermissionChecks } from "./PermissionProvider";
+import { NamespaceSelector } from "./NamespaceScope";
 
 type Props = SessionRequest & { kind: ResourceKind; namespace?: string; label?: string; onCreated: () => void; inline?: boolean; onNotice?: (notice: string) => void };
 const uncertainty = "Creation may already have reached the API server. Cancellation does not roll it back. Refresh the inventory and check the resource before retrying.";
@@ -24,11 +26,14 @@ function ScopedResourceCreate(props: Props) {
   const [open, setOpen] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const label = props.label ?? `Create ${resourceCreation[props.kind].kind}`;
+  const chooseNamespace = creationNamespaced(props.kind) && !props.namespace;
+  const check = { kind: props.kind, namespace: props.namespace || null, action: chooseNamespace ? "list" as const : "create" as const };
+  const permissions = usePermissionChecks([check]);
   return <>
     {!props.onNotice && notice && <Text role="status">{notice}</Text>}
-    <IconButton label={label} tooltip={label} icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
+    {permissions.decision(check) === "allowed" && <IconButton label={label} tooltip={label} icon={<Icon icon={IconPlus} />} variant="primary" size="lg" elevation="med"
       style={props.inline ? { pointerEvents: "auto", borderRadius: "var(--radius-container)" } : { position: "absolute", right: "var(--spacing-4)", bottom: "var(--spacing-4)", borderRadius: "var(--radius-container)" }}
-      isDisabled={!cluster} onClick={() => { setNotice(null); setOpen(true); }} />
+      isDisabled={!cluster} onClick={() => { if (permissions.decision(check) === "allowed") { setNotice(null); setOpen(true); } }} />}
     {open && cluster && <CreateEditor {...props} label={label} clusterName={cluster.name} contextName={cluster.contextName}
       onClose={(sent) => { setOpen(false); if (sent) { setNotice(uncertainty); props.onNotice?.(uncertainty); } }} onCreated={() => {
         const message = `${resourceCreation[props.kind].kind} created. Refreshing inventory…`;
@@ -41,6 +46,10 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
 }) {
   const info = resourceCreation[kind];
   const namespaced = creationNamespaced(kind);
+  const [targetNamespace, setTargetNamespace] = useState(namespace || "default");
+  const check = { kind, namespace: namespaced ? targetNamespace : null, action: "create" as const };
+  const permissions = usePermissionChecks([check]);
+  const allowed = () => permissions.decision(check) === "allowed";
   const [yaml, setYaml] = useState(() => `apiVersion: ${info.apiVersion}\nkind: ${info.kind}\nmetadata:\n  name: \"\"\n${namespaced && namespace ? `  namespace: ${namespace}\n` : ""}`);
   const [validated, setValidated] = useState<CreateResult | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,13 +75,13 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
     onClose(sent.current);
   };
   const submit = async (dryRun: boolean) => {
-    if (!alive.current || active.current || !dryRun && !validated) return;
+    if (!alive.current || active.current || !allowed() || !dryRun && !validated) return;
     const request = { clusterId, sessionId, kind, readId: nextReadId() };
     active.current = request;
     setBusy(true); setError(null);
     if (!dryRun) sent.current = true;
     try {
-      const result = await createResource({ ...request, namespace: namespaced ? namespace || null : null, yaml, dryRun });
+      const result = await createResource({ ...request, namespace: namespaced ? targetNamespace : null, yaml, dryRun });
       if (!alive.current || active.current !== request) return;
       if (dryRun) setValidated(result);
       else {
@@ -95,7 +104,8 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
       <VStack gap={1} aria-label="Creation target">
         <Text>Cluster: {clusterName}</Text><Text>Cluster ID: {clusterId}</Text><Text>Context: {contextName}</Text>
         <Text>Kind: {info.kind} ({info.apiVersion})</Text>
-        <Text>Namespace: {validated ? validated.namespace ?? "Cluster-scoped" : namespaced ? namespace || "From manifest; default if omitted" : "Cluster-scoped"}</Text>
+        <Text>Namespace: {validated ? validated.namespace ?? "Cluster-scoped" : namespaced ? targetNamespace : "Cluster-scoped"}</Text>
+        {namespaced && !namespace && !validated && <NamespaceSelector value={targetNamespace} allowAll={false} onChange={value => { if (!busy && value) { setTargetNamespace(value); setValidated(null); } }} />}
         {validated && <Text>Name: {validated.name}</Text>}
       </VStack>
       {validated ? <Text>Server dry-run passed. Confirm creation of this exact resource. Manifest contents are hidden during confirmation.</Text> : <>
@@ -104,11 +114,12 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
           onChange={value => { if (!active.current) { setYaml(value); setValidated(null); setError(null); } }} />
       </>}
       {error && <Text role="alert">{error}</Text>}
+      {!allowed() && <Text role="status">{permissions.loading ? "Checking create access…" : permissions.decision(check) === "denied" ? "Creation is not allowed in this namespace." : "Access unverified. Creation is disabled until access is verified."}</Text>}
       {(uncertain || busy && sent.current) && <Text role="status">{uncertainty}</Text>}
       <HStack gap={2} wrap="wrap">
         <Button label={busy ? "Cancel request" : "Cancel"} variant="ghost" onClick={close} />
         {validated && <Button label="Edit YAML" variant="secondary" isDisabled={busy} onClick={() => setValidated(null)} />}
-        <Button label={validated ? `Create ${info.kind}` : "Validate YAML"} isLoading={busy} isDisabled={!yaml.trim()}
+        <Button label={validated ? `Create ${info.kind}` : "Validate YAML"} isLoading={busy} isDisabled={!yaml.trim() || !allowed()}
           onClick={() => void submit(!validated)} />
       </HStack>
     </VStack>

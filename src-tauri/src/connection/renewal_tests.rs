@@ -48,6 +48,38 @@ async fn concurrent_expired_reads_install_one_fresh_generation_without_network()
 }
 
 #[tokio::test]
+async fn renewal_and_wrapper_construction_invalidate_only_the_owning_engine() {
+    use super::super::permissions::{AuthorizationEpoch, authorized_client};
+    let (_first_root, _, first, _, _) = super::super::tests::fixture();
+    let (_second_root, _, second, _, _) = super::super::tests::fixture();
+    let first_epoch = AuthorizationEpoch::capture(&first.authentication_generation);
+    let second_epoch = AuthorizationEpoch::capture(&second.authentication_generation);
+    let _wrapped = wrap(
+        client(StatusCode::OK, Arc::new(AtomicUsize::new(0))),
+        Kubeconfig::default(),
+        PathBuf::new(),
+        TaskTracker::new(),
+        CancellationToken::new(),
+        second.authentication_generation.clone(),
+    );
+    assert_eq!(first_epoch.validate(), Ok(()));
+    assert_eq!(second_epoch.validate(), Err(ConnectionError::StaleSession));
+    let second_epoch = AuthorizationEpoch::capture(&second.authentication_generation);
+    let root = tempfile::tempdir().unwrap();
+    let path = root.path().join("token");
+    std::fs::write(&path, "fixture-token").unwrap();
+    let mut renewing = lease(source(path.to_str().unwrap()), Some(jiff::Timestamp::now()));
+    renewing.authentication_generation = first.authentication_generation.clone();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let guarded = authorized_client(client(StatusCode::OK, calls.clone()), first_epoch.clone());
+    renewing.client(None).await.unwrap();
+    assert_eq!(first_epoch.validate(), Err(ConnectionError::StaleSession));
+    assert_eq!(second_epoch.validate(), Ok(()));
+    assert!(guarded.send(Request::new(Body::empty())).await.is_err());
+    assert_eq!(calls.load(Ordering::SeqCst), 0);
+}
+
+#[tokio::test]
 async fn unauthorized_read_refreshes_once_and_does_not_replay_if_refresh_fails() {
     let calls = Arc::new(AtomicUsize::new(0));
     let lease = lease(source("/nonexistent-synthetic-token-file"), None);
@@ -83,6 +115,7 @@ fn lease(source: Kubeconfig, expiry: Option<jiff::Timestamp>) -> Lease {
         base: PathBuf::new(),
         tasks: TaskTracker::new(),
         cancel: CancellationToken::new(),
+        authentication_generation: Arc::new(std::sync::atomic::AtomicU64::new(1)),
     }
 }
 #[test]

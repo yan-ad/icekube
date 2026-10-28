@@ -24,6 +24,7 @@ pub(super) async fn build_client(
         admission,
         auth_tasks,
         tokio_util::sync::CancellationToken::new(),
+        Arc::new(std::sync::atomic::AtomicU64::new(1)),
     )
     .await
 }
@@ -33,6 +34,7 @@ pub(super) async fn build_client_owned(
     admission: Arc<tokio::sync::Semaphore>,
     auth_tasks: tokio_util::task::TaskTracker,
     cancel: tokio_util::sync::CancellationToken,
+    authentication_generation: super::permissions::AuthenticationGeneration,
 ) -> Result<Client> {
     let context = target.context_name.clone();
     let base = target
@@ -56,7 +58,12 @@ pub(super) async fn build_client_owned(
     let client = materialize(config, context, expiry).await?;
     if renewable {
         Ok(super::renewal::wrap(
-            client, source, base, auth_tasks, cancel,
+            client,
+            source,
+            base,
+            auth_tasks,
+            cancel,
+            authentication_generation,
         ))
     } else {
         Ok(client)

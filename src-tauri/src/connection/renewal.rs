@@ -13,12 +13,16 @@ struct State {
     generation: u64,
     failure: Option<(tokio::time::Instant, ConnectionError)>,
 }
+pub(super) fn authorization_error(error: ConnectionError) -> tower::BoxError {
+    box_error(error)
+}
 struct Lease {
     state: Mutex<State>,
     source: Kubeconfig,
     base: PathBuf,
     tasks: TaskTracker,
     cancel: CancellationToken,
+    authentication_generation: super::permissions::AuthenticationGeneration,
 }
 
 pub(super) fn wrap(
@@ -27,7 +31,9 @@ pub(super) fn wrap(
     base: PathBuf,
     tasks: TaskTracker,
     cancel: CancellationToken,
+    authentication_generation: super::permissions::AuthenticationGeneration,
 ) -> Client {
+    super::permissions::invalidate_authentication(&authentication_generation);
     let namespace = client.default_namespace().to_owned();
     let lease = Arc::new(Lease {
         state: Mutex::new(State {
@@ -39,6 +45,7 @@ pub(super) fn wrap(
         base,
         tasks,
         cancel,
+        authentication_generation,
     });
     // The outer client has no fixed deadline: the lease checks its current inner client.
     Client::new(
@@ -88,6 +95,7 @@ impl Lease {
             Ok(client) => {
                 state.client = client;
                 state.generation += 1;
+                super::permissions::invalidate_authentication(&self.authentication_generation);
                 state.failure = None;
                 Ok((state.client.clone(), state.generation))
             }
@@ -122,6 +130,12 @@ impl Lease {
         // GET upgrades may establish exec/attach/forward sessions. Never replay them.
         let retry = replay(&request);
         let (client, generation) = self.client(None).await.map_err(box_error)?;
+        if let Some(epoch) = request
+            .extensions()
+            .get::<super::permissions::AuthorizationEpoch>()
+        {
+            epoch.validate().map_err(box_error)?;
+        }
         let response = client.send(request).await?;
         if response.status() != http::StatusCode::UNAUTHORIZED {
             return Ok(response);
@@ -131,6 +145,12 @@ impl Lease {
         };
         drop(response);
         let (client, _) = self.client(Some(generation)).await.map_err(box_error)?;
+        if let Some(epoch) = retry
+            .extensions()
+            .get::<super::permissions::AuthorizationEpoch>()
+        {
+            epoch.validate().map_err(box_error)?;
+        }
         client.send(retry).await.map_err(Into::into)
     }
 }

@@ -5,6 +5,14 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     Object.assign(window, { isTauri: true, __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
       if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: ["one", "two"].map(id => ({ id, name: `Development ${id}`, contextName: `${id}-context`, source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: true })) };
+      if (command === "cluster_permissions_review") {
+        const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+        const checkedAt = Date.now();
+        return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+          authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+          items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+      }
+      if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
       if (command === "cluster_session_open" || command === "cluster_connect") return { ...args?.request, sessionId: "fixture-session", contextName: "one-context", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
       if (command === "cluster_resources" && ["nodes", "events"].includes(String(args?.request.kind))) return { ...args?.request, namespace: null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: 1793000000000 };
       if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;

@@ -9,6 +9,7 @@ import { clusterSections } from "./navigation";
 import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Button } from "@astryxdesign/core/Button";
 import { useCustomResources, customDiscoveryMessage } from "./CustomResourcesProvider";
+import { useNavigationPermissions } from "./PermissionProvider";
 
 export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", isExiting = false }: {
   clusterId: string;
@@ -18,6 +19,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
 }) {
   const { section = "overview", definition } = useSearch({ strict: false }) as { section?: string; definition?: string };
   const custom = useCustomResources();
+  const permissions = useNavigationPermissions();
   const definitions = custom.snapshot?.clusterId === clusterId ? custom.snapshot : null;
   const { snapshot, loading, available, error } = useCatalog();
   const cluster = snapshot?.clusters.find((item) => item.id === clusterId);
@@ -30,9 +32,9 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
   }, [clusterId, section, selectedParent]);
   const customExpanded = !(collapsed["custom-resources"] ?? selectedParent !== "custom-resources");
   useEffect(() => {
-    if (customExpanded && !isExiting) custom.request(clusterId);
+    if (customExpanded && !isExiting && permissions.visible("custom-resources") && !permissions.loading) custom.request(clusterId);
     return () => { if (customExpanded && !isExiting) custom.request(null); };
-  }, [clusterId, customExpanded, isExiting, custom.request]);
+  }, [clusterId, customExpanded, isExiting, custom.request, permissions.loading, permissions.visible("custom-resources")]);
   const groups = [...new Set(definitions?.items.map(item => item.group) ?? [])];
 
   return (
@@ -42,7 +44,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
       </VStack>}
       {cluster && <>
         <SideNavSection title="Workspace">
-          {clusterSections.map((item) => "children" in item ? (
+          {clusterSections.filter(item => "children" in item ? item.children.some(child => permissions.visible(child.id)) : permissions.visible(item.id)).map((item) => "children" in item ? (
             <NavLink key={item.id} to="/cluster/$clusterId" params={{ clusterId }}
               search={{ section: item.id }} label={item.label} icon={item.icon}
               isSelected={!isExiting && section === item.id} onClick={onNavigate}
@@ -50,7 +52,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
                 isCollapsed: collapsed[item.id] ?? selectedParent !== item.id,
                 onCollapsedChange: (isCollapsed) => setCollapsed((previous) => ({ ...previous, [item.id]: isCollapsed })),
               }}>
-              {item.children.map((child) => <NavLink key={child.id} to="/cluster/$clusterId" params={{ clusterId }}
+              {item.children.filter(child => permissions.visible(child.id)).map((child) => <NavLink key={child.id} to="/cluster/$clusterId" params={{ clusterId }}
                 search={{ section: child.id }} label={child.label} isSelected={!isExiting && section === child.id}
                 onClick={onNavigate} />)}
               {item.id === "custom-resources" && <>

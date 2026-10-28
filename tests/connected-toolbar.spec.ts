@@ -59,6 +59,14 @@ async function connectedMacWindow(page: Page) {
             revision: 1, discoveryError: null, webLinks: [],
             clusters: [{ id: "one", name: "Toolbar fixture", contextName: "fixture-context", source: "kubeconfig", status: "disconnected", pinned: true, labels: ["file=/fixtures/config"], color: "#476BA1" }],
           };
+          if (command === "cluster_permissions_review") {
+            const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+            const checkedAt = Date.now();
+            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+              authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+              items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+          }
+          if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
           if (command === "cluster_session_open") return snapshot;
           if (command === "cluster_connect") return { ...snapshot, status: "connected", apiVersion: "v1.34.1" };
           if (command === "cluster_resources" && ["nodes", "events"].includes(String(request.kind))) return { ...request, namespace: null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: 1793000000000 };

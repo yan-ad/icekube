@@ -1,4 +1,5 @@
-use super::{ConnectionEngine, ConnectionError, Result, SessionRequest};
+use super::permissions::{PermissionAction, PermissionCheck};
+use super::{ConnectionEngine, ConnectionError, ResourceKind, Result, SessionRequest};
 use http::{Method, Request};
 use http_body_util::BodyExt;
 use kube::{Client, client::Body};
@@ -50,6 +51,15 @@ pub struct PodDetails {
     pub conditions: Vec<PodCondition>,
     pub yaml: String,
     pub events: Vec<PodEvent>,
+    pub events_state: PodEventsState,
+}
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PodEventsState {
+    Complete,
+    Denied,
+    Unavailable,
+    Partial,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -208,17 +218,34 @@ impl ConnectionEngine {
                 "/api/v1/namespaces/{}/events?fieldSelector=involvedObject.uid%3D{}&limit=100&timeoutSeconds=10",
                 request.namespace, uid
             );
-            // Event failure is explicit: never publish an apparently complete detail with missing events.
-            let events = send_json(
-                &client,
-                &cancel,
-                Method::GET,
-                &path,
-                None,
-                "application/json",
+            let events = tokio::time::timeout(
+                std::time::Duration::from_secs(3),
+                send_json(
+                    &client,
+                    &cancel,
+                    Method::GET,
+                    &path,
+                    None,
+                    "application/json",
+                ),
             )
-            .await?;
-            let details = project(&pod, &events, request)?;
+            .await
+            .unwrap_or(Err(ConnectionError::Timeout));
+            let mut details = project(&pod, &json!({"items":[]}), request.clone())?;
+            match events {
+                Ok(events) => match project(&pod, &events, request) {
+                    Ok(projected) => details = projected,
+                    Err(ConnectionError::LimitExceeded) => {
+                        details.events_state = PodEventsState::Partial
+                    }
+                    Err(_) => details.events_state = PodEventsState::Unavailable,
+                },
+                Err(ConnectionError::PermissionDenied) => {
+                    details.events_state = PodEventsState::Denied
+                }
+                Err(ConnectionError::StaleSession) => return Err(ConnectionError::StaleSession),
+                Err(_) => details.events_state = PodEventsState::Unavailable,
+            }
             self.check_pod_session(&session)?;
             Ok(details)
         };
@@ -240,12 +267,58 @@ impl ConnectionEngine {
         {
             return Err(ConnectionError::LimitExceeded);
         }
+        if let Some(yaml) = &request.yaml {
+            let edited: Value =
+                serde_yaml_ng::from_str(yaml).map_err(|_| ConnectionError::InvalidInput)?;
+            if edited["apiVersion"] != "v1"
+                || edited["kind"] != "Pod"
+                || edited.pointer("/metadata/name").and_then(Value::as_str)
+                    != Some(request.pod.name.as_str())
+                || edited
+                    .pointer("/metadata/namespace")
+                    .and_then(Value::as_str)
+                    != Some(request.pod.namespace.as_str())
+                || edited.pointer("/metadata/uid").and_then(Value::as_str)
+                    != request.pod.uid.as_deref()
+                || edited
+                    .pointer("/metadata/resourceVersion")
+                    .and_then(Value::as_str)
+                    != Some(request.resource_version.as_str())
+            {
+                return Err(ConnectionError::InvalidInput);
+            }
+        }
         let session = request.pod.session();
+        let action = match request.action {
+            PodAction::Delete | PodAction::ForceDelete => PermissionAction::Delete,
+            PodAction::Finalize => PermissionAction::Patch,
+            PodAction::Replace => PermissionAction::Update,
+        };
+        let authorization = self
+            .require_permissions(
+                &session,
+                &[
+                    PermissionCheck {
+                        kind: ResourceKind::Pods,
+                        action: PermissionAction::Get,
+                        namespace: Some(request.pod.namespace.clone()),
+                        name: Some(request.pod.name.clone()),
+                    },
+                    PermissionCheck {
+                        kind: ResourceKind::Pods,
+                        action,
+                        namespace: Some(request.pod.namespace.clone()),
+                        name: Some(request.pod.name.clone()),
+                    },
+                ],
+            )
+            .await?;
         let _permit = self
             .workers
             .try_acquire()
             .map_err(|_| ConnectionError::Busy)?;
         let (client, cancel) = self.pod_client(&session)?;
+        let client = super::permissions::authorized_client(client, authorization);
         let operation = async {
             let path = request.pod.path();
             let current = send_json(
@@ -629,6 +702,7 @@ fn project(pod: &Value, events: &Value, request: PodRequest) -> Result<PodDetail
         conditions,
         yaml,
         events,
+        events_state: PodEventsState::Complete,
     })
 }
 

@@ -10,16 +10,19 @@ import { hasDeleteIdentity, resourceRowKey } from "./deleteApi";
 import type { ResourceReference } from "./detailApi";
 import { showNativeContextMenu, type NativeContextTarget, type RowAction } from "./nativeContextMenu";
 import type { PodMode } from "./podApi";
+import { usePermissions } from "./PermissionProvider";
+import { permissionCheck, type PermissionCheck, type PermissionAction } from "./permissionsApi";
 
 const labels: Record<RowAction, string> = { details: "Details", edit: "Edit YAML", logs: "Logs", shell: "Shell", attach: "Attach", forward: "Port forward", delete: "Delete…", stop: "Stop", remove: "Remove", install: "Install…" };
 export type RowMenuAction = { action: RowAction; disabled?: boolean };
 type Options<T> = SessionRequest & { rows: T[]; scope: string; rowKey: (item: T) => string; rowLabel: (item: T) => string;
-  target: (item: T) => NativeContextTarget; actions: (item: T) => RowMenuAction[]; onAction: (item: T, action: RowAction) => void };
+  target: (item: T) => NativeContextTarget; actions: (item: T) => RowMenuAction[]; onAction: (item: T, action: RowAction) => void;
+  beforeOpen?: (item: T, signal: AbortSignal) => Promise<void> };
 
 /** Row transforms preserve table semantics; the browser menu is anchored to the Actions cell. */
 export function useRowContextMenu<T extends Record<string, unknown>>(options: Options<T>): TablePlugin<T> {
   const rowsFingerprint = useMemo(() => JSON.stringify(options.rows), [options.rows]);
-  const actionFingerprint = useMemo(() => JSON.stringify(options.rows.map(item => options.actions(item))), [options.rows, options.actions]);
+  const actionFingerprint = useMemo(() => options.beforeOpen ? "review-on-open" : JSON.stringify(options.rows.map(item => options.actions(item))), [options.rows, options.actions, options.beforeOpen]);
   const fingerprint = useMemo(() => ({ clusterId: options.clusterId, sessionId: options.sessionId, scope: options.scope, rowsFingerprint,
     actionFingerprint }), [options.clusterId, options.sessionId, options.scope, rowsFingerprint, actionFingerprint]);
   const latest = useRef(options);
@@ -35,12 +38,15 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
     return () => { active.current?.abort(); active.current = null; };
   }, [fingerprint]);
   function close() { active.current?.abort(); active.current = null; setFallback(null); }
-  function open(item: T) {
+
+  async function open(item: T) {
     const options = latest.current;
     close(); setError(null);
     const controller = new AbortController();
     active.current = controller;
     const captured = structuredClone(item);
+    if (options.beforeOpen) await options.beforeOpen(captured, controller.signal);
+    if (controller.signal.aborted || current.current !== fingerprint) return;
     const actions = options.actions(captured).map(action => ({ ...action }));
     const run = (action: RowAction) => {
       if (controller.signal.aborted || current.current !== fingerprint || !actions.some(entry => entry.action === action && !entry.disabled)) return;
@@ -88,19 +94,38 @@ export function useResourceRowMenu(options: SessionRequest & { rows: ResourceIte
   const identity = useMemo(() => ({}), [options.clusterId, options.sessionId, options.scope, options.kind, options.unavailable, options.rows]);
   const [deletion, setDeletion] = useState<{ identity: typeof identity; item: ResourceItem } | null>(null);
   const hasPodActions = !!options.openPod;
+  const permissions = usePermissions();
+  const check = (item: ResourceItem, action: PermissionAction) => permissionCheck({ kind: options.kind, namespace: item.namespace, name: item.name, action });
+  const can = (item: ResourceItem, action: PermissionAction) => permissions.decision(check(item, "get")) === "allowed" && permissions.decision(check(item, action)) === "allowed";
+  const podAction = { edit: "update", logs: "logs", shell: "exec", attach: "attach", forward: "portForward" } as const;
   const actions = useCallback((item: ResourceItem): RowMenuAction[] => [
-    { action: "details" },
-    ...(hasPodActions ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid })) : []),
-    { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) },
-  ], [hasPodActions, options.unavailable]);
+    { action: "details", disabled: permissions.decision(check(item, "get")) === "denied" },
+    ...(hasPodActions ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid || !can(item, podAction[action]) })) : []),
+    { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) || !can(item, "delete") },
+  ], [hasPodActions, options.unavailable, options.kind, permissions]);
   const plugin = useRowContextMenu({ ...options, scope: JSON.stringify([options.scope, options.kind]), rowKey: resourceRowKey, rowLabel: item => item.name,
     target: item => ({ type: "resource", reference: { kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid } }),
     actions,
+    beforeOpen: (item, signal) => reviewRowPermissions(permissions, [check(item, "get"), check(item, "delete"), ...(hasPodActions ? Object.values(podAction).map(action => check(item, action)) : [])], signal),
     onAction: (item, action) => {
+      if (actions(item).find(entry => entry.action === action)?.disabled) return;
       if (action === "delete") setDeletion({ identity, item });
       else if (options.openPod) options.openPod(item, action as PodMode);
       else if (action === "details") options.openResource({ kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid });
     },
   });
   return { plugin, contextTarget: deletion?.identity === identity ? deletion.item : null, onContextClose: () => setDeletion(null) };
+}
+
+// Review only the requested row, not every row during table rendering.
+function reviewRowPermissions(store: ReturnType<typeof usePermissions>, checks: PermissionCheck[], signal: AbortSignal): Promise<void> {
+  return new Promise(resolve => {
+    const release = store.request(checks);
+    let unsubscribe = () => {};
+    const finish = () => { release(); unsubscribe(); signal.removeEventListener("abort", finish); resolve(); };
+    const ready = () => { if (!store.loading(checks)) finish(); };
+    unsubscribe = store.subscribe(ready);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish(); else ready();
+  });
 }

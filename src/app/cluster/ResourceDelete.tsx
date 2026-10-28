@@ -10,6 +10,7 @@ import { useCatalog } from "../catalog/CatalogProvider";
 import { nextReadId, type ResourceItem, type ResourceKind, type SessionRequest } from "./api";
 import { cancelResourceDelete, deleteMessage, deleteResource, hasDeleteIdentity, resourceRowKey, type DeleteCancelRequest, type DeleteTarget } from "./deleteApi";
 import { resourceCreation } from "./resourceViews";
+import { usePermissionChecks } from "./PermissionProvider";
 
 type Props = SessionRequest & { kind: ResourceKind; selected: ResourceItem[]; disabled: boolean;
   onAccepted: (keys: Set<string>) => void; onRefresh: () => void; onNotice: (notice: string) => void;
@@ -21,6 +22,9 @@ export function ResourceDelete(props: Props) {
   const { snapshot } = useCatalog();
   const cluster = snapshot?.clusters.find(item => item.id === props.clusterId);
   const [confirmation, setConfirmation] = useState<{ targets: DeleteTarget[]; contextTarget?: ResourceItem } | null>(null);
+  const targets = props.contextTarget ? [props.contextTarget] : props.selected;
+  const permissions = usePermissionChecks(targets.flatMap(target => (["get", "delete"] as const).map(action => ({ kind: props.kind, namespace: target.namespace, name: target.name, action }))));
+  const permitted = targets.length > 0 && targets.every(target => (["get", "delete"] as const).every(action => permissions.decision({ kind: props.kind, namespace: target.namespace, name: target.name, action }) === "allowed"));
   const consumedContext = useRef<ResourceItem | null>(null);
   useLayoutEffect(() => {
     const target = props.contextTarget;
@@ -33,7 +37,7 @@ export function ResourceDelete(props: Props) {
   return <>
     {props.selected.length > 0 && <IconButton label="Delete selected resources" tooltip={`Delete selected resources (${props.selected.length})`}
       icon={<Icon icon={IconTrash} />} size="lg" variant="secondary" elevation="med"
-      style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster}
+      style={{ pointerEvents: "auto", borderRadius: "var(--radius-container)" }} isDisabled={props.disabled || !cluster || !permitted}
       onClick={() => setConfirmation({ targets: props.selected.filter(hasDeleteIdentity).map(({ name, namespace, uid, resourceVersion }) => ({ name, namespace, uid, resourceVersion })) })} />}
     {confirmation && cluster && <DeleteConfirmation {...props} targets={confirmation.targets}
       invalidated={!!confirmation.contextTarget && props.contextTarget !== confirmation.contextTarget}
@@ -47,8 +51,10 @@ function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, 
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const [progress, setProgress] = useState<Outcome[]>([]);
   const completed = useRef<Outcome[]>([]);
+  const permissions = usePermissionChecks(targets.flatMap(target => (["get", "delete"] as const).map(action => ({ kind, namespace: target.namespace, name: target.name, action }))));
+  const permitted = () => targets.length > 0 && targets.every(target => (["get", "delete"] as const).every(action => permissions.decision({ kind, namespace: target.namespace, name: target.name, action }) === "allowed"));
   const unavailable = useRef(disabled || invalidated);
-  unavailable.current = disabled || invalidated;
+  unavailable.current = disabled || invalidated || !permitted();
   const alive = useRef(false);
   const running = useRef(false);
   const active = useRef<DeleteCancelRequest | null>(null);
@@ -84,7 +90,7 @@ function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, 
     setBusy(true);
     const results: Outcome[] = [];
     for (const target of targets) {
-      if (!alive.current || unavailable.current) return;
+      if (!alive.current || unavailable.current || !permitted()) { running.current = false; setBusy(false); return; }
       const key = resourceRowKey({ ...target, status: "", createdAt: null, columns: {}, node: null });
       const label = target.namespace ? `${target.namespace}/${target.name}` : target.name;
       let request: DeleteCancelRequest | null = null;
@@ -123,13 +129,14 @@ function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, 
         <Text type="supporting">UID and resource-version checks reject replaced or changed resources. Normal grace periods and finalizers are respected.</Text>
       </>}
       {busy && <Text role="status">Submitting deletions one at a time. Stopping does not roll back submitted requests.</Text>}
+      {!permitted() && <Text role="status">Deletion requires verified get and delete access for every selected resource.</Text>}
       {progress.length > 0 && <VStack gap={2} aria-label="Deletion results">
         <Text role="status">{progress.filter(result => result.state !== "failed").length} accepted or deleted; {progress.filter(result => result.state === "failed").length} failed. {busy ? "Submitting remaining resources…" : "Refreshing inventory…"}</Text>
         {progress.map(result => <Text key={result.key} role={result.state === "failed" ? "alert" : "status"}>{result.label}: {result.message}</Text>)}
       </VStack>}
       <HStack gap={2} wrap="wrap">
         <Button label={busy ? "Stop deleting" : outcomes ? "Close" : "Cancel"} variant="ghost" onClick={close} />
-        {!outcomes && <Button label={`Delete ${targets.length} resource${targets.length === 1 ? "" : "s"}`} variant="secondary" isDisabled={disabled} isLoading={busy} onClick={() => void submit()} />}
+        {!outcomes && <Button label={`Delete ${targets.length} resource${targets.length === 1 ? "" : "s"}`} variant="secondary" isDisabled={disabled || !permitted()} isLoading={busy} onClick={() => void submit()} />}
       </HStack>
     </VStack>
   </Dialog>;

@@ -11,7 +11,9 @@ and open Pod logs or a shell without leaving the workspace.
 The goal is a familiar daily workspace where you can understand what is running,
 investigate a problem, and take the next action without constantly switching tools.
 
-[Download Iceon 0.0.1](https://github.com/yan-ad/iceon/releases/tag/0.0.1)
+[Iceon 0.0.2 release](https://github.com/yan-ad/iceon/releases/tag/0.0.2)
+(pending CI and publication). The existing
+[0.0.1 download](https://github.com/yan-ad/iceon/releases/tag/0.0.1) is unchanged.
 
 ## What you can do today
 
@@ -23,6 +25,12 @@ investigate a problem, and take the next action without constantly switching too
   Available actions depend on the cluster's permissions and the selected resource.
 - Create resources from YAML and review supported resource deletions before
   submitting them. Resource creation includes a server dry-run and confirmation.
+- Review permission-aware navigation and scoped actions. Access Control > Users
+  manages namespace-scoped ServiceAccounts and template-based grants with
+  exact-rule review, server dry-run, and confirmed create, edit, or delete.
+  This is not human identity-provider account CRUD and does not export tokens
+  or credentials. The combined 0.0.2 changes are awaiting release validation;
+  see [permission management](docs/permission-management.md).
 - Browse Helm charts and releases, and install charts.
   Helm workflows require an optional local Helm binary.
 - Browse custom-resource definitions and read metadata-only custom-resource
@@ -38,8 +46,9 @@ is not presented as a fresh or complete view of the cluster.
 
 ## Install on macOS
 
-The 0.0.1 download is for **Apple Silicon Macs only**. Intel Macs, Windows, and
-Linux installers are not included in this release.
+The planned 0.0.2 download is for **Apple Silicon Macs only**, containing
+`Iceon.app`. Publication is pending full CI and packaging checks. Intel Macs,
+Windows, and Linux installers are not included in this release.
 
 The app uses ad-hoc signing. It is not Developer ID signed or Apple notarized,
 so macOS may block it on first launch.
@@ -74,3 +83,14 @@ For development, see the [project guide](AGENTS.md), [design direction](DESIGN.m
 and [workspace behavior reference](docs/workspace-ui-reference.md).
 The project uses [Tauri](https://tauri.app/) and [Astryx](https://astryx.atmeta.com/),
 with [Freelens](https://github.com/freelensapp/freelens) as a workflow reference.
+
+## Credits
+
+Inspired by Permission Manager by SIGHUP (BSD-3-Clause).
+[Permission Manager](https://github.com/sighupio/permission-manager), reviewed at
+[`fb6f65e161ac792ab290ffe680d6420caf834a43`](https://github.com/sighupio/permission-manager/tree/fb6f65e161ac792ab290ffe680d6420caf834a43),
+is a workflow reference, not a bundled service. Its root
+[license](https://github.com/sighupio/permission-manager/blob/fb6f65e161ac792ab290ffe680d6420caf834a43/LICENSE.md)
+states `Copyright (c) 2020, SIGHUP`. No upstream source, assets, or manifests were
+ported for this workflow; Iceon's implementation is original code under its
+existing GPL v3 license. This credit does not relicense Iceon or imply endorsement.

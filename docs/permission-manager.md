@@ -1,6 +1,13 @@
 # Iceon permission management and RBAC design
 
-**Status:** proposed design, awaiting approval. No application code or Kubernetes permissions are changed by this document.
+**Status:** approved direction; 0.0.2 implementation in progress. This document
+retains the original research and broader phased design, not a shipped-feature
+inventory. The current approved slice includes permission-aware workspace behavior
+and actual managed ServiceAccount creation, assignment editing and deletion in
+Users. It is not limited to an observed-subject directory. See
+[permission management](permission-management.md) for the current contract and
+verification limits. Future full RBAC editors and credential lifecycle phases
+remain separate; documentation does not itself change cluster permissions.
 
 ## 1. Objective and scope
 
@@ -59,7 +66,8 @@ The review used source and official Kubernetes documentation. The reference appl
 
 Current integration points are `src-tauri/src/connection.rs`, `connection/transport.rs`, `connection/renewal.rs`, `connection/{pods,pod_runtime,pod_sync,create,delete,custom_resources}.rs`, `src/app/cluster/{ClusterSidebar,DestinationGrid,RowContextMenu,ResourceActions,ResourceInspector,PodDock,NamespaceScope,WorkspaceRefresh}.tsx`, and `src-tauri/src/context_menu.rs`.
 
-Source observations, not future promises:
+Historical source observations at the initial research baseline (before the
+0.0.2 work), not a statement that the following gaps remain unchanged:
 
 - Rust owns Kubernetes clients, credentials, operations, subprocesses, cancellation and persistence; React owns presentation and typed IPC.
 - A successful `/version` probe means Connected, not authorization to read every resource.
@@ -97,7 +105,9 @@ Keep authorizer reasons/evaluation messages inside Rust unless deliberately sani
 
 ## 5. Proposed Rust engine and typed contract
 
-All names and limits in this section are **proposed**, not existing APIs.
+Names and limits below are the original design sketch. They are not a claim that
+every proposed API or budget is implemented. The current implementation map is in
+[permission management](permission-management.md).
 
 ### Ownership
 
@@ -317,7 +327,7 @@ Do not copy upstream's long-lived token-Secret creation, send token values in no
 
 If approved later, recognize the upstream prefixes and `Permissionmanageruser` records read-only when already installed. Show their provenance and actual native bindings; label the CRD as that application's registry, not the cluster's complete user directory. Never migrate, overwrite, delete or claim ownership by prefix alone. Mutating interoperability needs a distinct plan, object UID/version checks, preservation of unrelated subjects, explicit user confirmation and retained licensing notices.
 
-## 10. Proposed module ownership
+## 10. Original proposed module ownership
 
 | Proposed owner / existing integration | Responsibility |
 | --- | --- |
@@ -338,18 +348,23 @@ No Go service, Node backend/sidecar, renderer Kubernetes library, broad Tauri ca
 
 | Phase | Deliverable | Exit criteria |
 | --- | --- | --- |
-| 0, current task | Pinned upstream audit and this design | Review authority, namespace behavior, unknown-state policy and administration scope. No application behavior change. |
+| 0, research baseline | Pinned upstream audit and this design | Review authority, namespace behavior, unknown-state policy and administration scope. Research itself changes no application behavior. |
 | 1 | Rust SSAR/epoch/cache service and exact action registry | Wire-level subresource method tests; stale/renewal/cancellation tests; fixed budgets; no startup storm. |
 | 2 | Permission-aware navigation, routes, namespace fallback and all implemented read/action entry points | Known-denied hidden consistently; unknown not mislabeled; exact backend guards; partial overview/details; no denied background reads. |
 | 3 | Read-only policy/subject inspection and optional templates | Safe bounded complete/partial views, no privileged service/CRD requirement, no inferred universal user directory. |
-| 4 | Separately approved Role/Binding administration | Exact dry-run, plan digest, confirmation, conflict protection, subject preservation, bind/escalate handling and partial-result recovery. |
+| 4 | Managed ServiceAccount assignments approved for 0.0.2; broader Role/Binding editors remain future work | Exact dry-run, plan digest, confirmation, conflict protection, subject preservation, bind/escalate handling and partial-result recovery. |
 | 5 | Optional interoperability or credential lifecycle | Separate threat model/approval, upstream ownership/provenance checks and no long-lived token default. |
 
-Recommended first implementation, **after design approval**: phases 1–2 for fixed resources and namespace fallback; then read-only Access Control. Full management is the destination, but token issuance, impersonation and automated migration are not prerequisites or implicit permissions.
+Phases 1–2 and the managed ServiceAccount assignment slice are now approved and
+in progress. Read-only subject inspection alone does not satisfy the approved
+Users workflow. Full management remains a broader destination; token issuance,
+impersonation and automated migration are not prerequisites or implicit permissions.
 
 ## 12. Acceptance-test design
 
-Use existing mocked IPC/transport and synthetic credentials only. Every test below is proposed; none was executed as RBAC implementation evidence in this task.
+Use existing mocked IPC/transport and synthetic credentials only. The list below
+is the original acceptance-test design, not executed evidence. Current suites and
+pending verification are listed in [permission management](permission-management.md).
 
 ### Authorization engine
 
@@ -391,9 +406,9 @@ Use existing mocked IPC/transport and synthetic credentials only. Every test bel
 
 Likely suites to extend: `tests/{cluster-navigation,namespace-selector,resource-create,resource-delete,row-context-menu,native-context-menu,resource-inspector,pod-workspace,custom-resources,workspace-overview,workloads-overview,route-restoration,toolbar-cluster-switch}.spec.ts` and Rust `connection/{lifecycle_tests,renewal_tests,pod_sync_tests,pod_runtime_tests,create_tests,delete_tests,custom_resources/tests}.rs`. Use synthetic fixtures, not real kubeconfigs or auth plugins.
 
-## 13. Decisions for review before implementation
+## 13. Approved direction and remaining review boundaries
 
-Proposed defaults, rather than requests to implement now:
+Approved defaults for the scoped implementation (broader phases remain future work):
 
 1. Kubernetes self-access results are authoritative for UI capability observations; templates are presets only.
 2. Hide fresh known-denied entries/actions; provide clear pending/unknown/expired states instead of pretending denial.
@@ -404,7 +419,10 @@ Proposed defaults, rather than requests to implement now:
 7. Preserve current single-lease ownership until independently scoped multiwindow connections are separately designed and tested.
 8. Treat numeric budgets in this document as initial design targets, not benchmarked guarantees.
 
-**Implementation is intentionally deferred until this design is approved.**
+**Implementation is in progress.** The approved Users workflow includes managed
+ServiceAccounts with disabled token automount, existing templates, exact-rule
+review, server dry-run and confirmed apply/edit/delete. Credential issuance and
+full arbitrary Role/Binding editing are not included in that approval.
 
 ## 14. Kubernetes references and verification limits
 
@@ -419,4 +437,9 @@ Authoritative documentation reviewed alongside the pinned upstream source:
 
 These documentation URLs are moving references and may describe newer features than a connected cluster supports. Negotiate actual API availability and validate baseline behavior against supported server versions. The inspected Permission Manager revision is pinned; it is a behavior/reference source, not a drop-in security dependency.
 
-This deliverable consists of the reference clone and this design file. It does not claim executed authorization tests, native UI validation, full upstream parity, a new release, or any change to current live-cluster permissions. Existing unrelated authentication-helper work in the Iceon working tree is preserved, not part of this RBAC design implementation.
+The original research used the reference clone and this design file without
+running Permission Manager. The 0.0.2 implementation is now in progress; combined
+validation is pending. Neither document claims native UI validation, full upstream
+parity, a published 0.0.2 installer or live-cluster verification. The macOS helper
+resolution fix in `69ec0c2938fa3be1a1af9b98e28117ba1dd4c080` is separately included
+in the unreleased changelog, not evidence of RBAC correctness.

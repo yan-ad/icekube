@@ -1,3 +1,4 @@
+use super::permissions::{PermissionAction, PermissionCheck};
 use super::{
     ConnectionEngine, ConnectionError, ResourceKind, Result, SessionRequest, validate_credentials,
     validate_read_id,
@@ -295,6 +296,17 @@ impl ConnectionEngine {
         validate_read_id(request.read_id)?;
         let identity = request.session();
         super::validate_request(&identity)?;
+        let authorization = self
+            .require_permissions(
+                &identity,
+                &[PermissionCheck {
+                    kind: request.kind,
+                    action: PermissionAction::Create,
+                    namespace: namespace.clone(),
+                    name: None,
+                }],
+            )
+            .await?;
         let _permit = self
             .workers
             .try_acquire()
@@ -328,6 +340,7 @@ impl ConnectionEngine {
             slot.cancel = Some(cancel.clone());
             (client, cancel)
         };
+        let client = super::permissions::authorized_client(client, authorization);
         let result = super::bounded(
             &cancel,
             create_transport(&client, &request, namespace.as_deref(), value, &cancel),

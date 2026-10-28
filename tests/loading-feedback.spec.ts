@@ -8,7 +8,15 @@ async function fixture(page: Page) {
     Object.assign(window, {
       isTauri: true,
       __TAURI_INTERNALS__: {
-        invoke: async (command: string) => {
+        invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
+          if (command === "cluster_permissions_review") {
+            const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+            const checkedAt = Date.now();
+            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+              authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+              items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+          }
+          if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
           if (command !== "catalog_list") throw "unsupported";
           await new Promise<void>(resolve => { target.__finishCatalog = resolve; });
           if (target.__failCatalog) throw "storeCorrupt";

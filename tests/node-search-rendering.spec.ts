@@ -25,6 +25,14 @@ test("Nodes retains its dense table without rendering it for each draft characte
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, any> }) => {
         const request = args?.request ?? {};
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "fixture", contextName: "fixture", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };
+        if (command === "cluster_permissions_review") {
+          const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+          const checkedAt = Date.now();
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+            authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+            items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: "one", sessionId: request.sessionId ?? "lease", contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };
         if (command === "cluster_resources") {
           queries.push(request.query ?? null);
@@ -49,7 +57,7 @@ test("Nodes retains its dense table without rendering it for each draft characte
   await grid.getByRole("checkbox").nth(1).click();
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toBeVisible();
   // Use browser time, not the host clock: CI setup can take several seconds.
-  await page.clock.pauseAt(new Date(epoch.getTime() + 60_000));
+  await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1_000)));
   // Optional local stress run: ICEON_NODE_SEARCH_CPU_RATE=4 bun run test:e2e tests/node-search-rendering.spec.ts
   // CI checks render isolation, not a shared runner's artificial CPU budget.
   const cpuRate = Number(process.env.ICEON_NODE_SEARCH_CPU_RATE ?? 1);

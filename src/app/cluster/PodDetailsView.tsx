@@ -8,6 +8,7 @@ import { YamlEditor } from "../components/YamlEditor";
 import { ResourceRelationLink } from "./ResourceInspector";
 import { StatusBadge } from "./StatusBadge";
 import type { PodDetails, PodMode, PodMutation } from "./podApi";
+import { usePermissionChecks } from "./PermissionProvider";
 
 type Props = {
   details: PodDetails;
@@ -30,6 +31,13 @@ function podAge(createdAt: string | null) {
 
 export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen, onAction }: Props) {
   const [yaml, setYaml] = useState(details.yaml);
+  const permissions = usePermissionChecks([
+    { kind: "pods", namespace: details.namespace, name: details.name, action: "get" },
+    { kind: "pods", namespace: details.namespace, name: details.name, action: "update" },
+    { kind: "pods", namespace: details.namespace, name: details.name, action: "patch" },
+    { kind: "pods", namespace: details.namespace, name: details.name, action: "delete" },
+  ]);
+  const allowed = (action: "get" | "update" | "patch" | "delete") => permissions.decision({ kind: "pods", namespace: details.namespace, name: details.name, action }) === "allowed";
   return <VStack gap={5} padding={4} style={{ minWidth: 0, flexShrink: 0, overflowWrap: "anywhere" }}>
     <VStack gap={2}>
       {!embedded && <Heading level={2} wordBreak="break-all">{details.name}</Heading>}
@@ -38,10 +46,10 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
         {details.deletionTimestamp && <StatusBadge status="Terminating" />}
       </HStack>
       {!embedded && <HStack gap={2} wrap="wrap">
-        <Button label="Logs" variant="ghost" onClick={() => onOpen("logs")} />
-        <Button label="Shell" variant="ghost" onClick={() => onOpen("shell")} />
-        <Button label="Attach" variant="ghost" onClick={() => onOpen("attach")} />
-        <Button label="Port forward" variant="ghost" onClick={() => onOpen("forward")} />
+        <Button label="Logs" variant="ghost" isDisabled={permissions.loading || !allowed("get")} onClick={() => onOpen("logs")} />
+        <Button label="Shell" variant="ghost" isDisabled={permissions.loading || !allowed("get")} onClick={() => onOpen("shell")} />
+        <Button label="Attach" variant="ghost" isDisabled={permissions.loading || !allowed("get")} onClick={() => onOpen("attach")} />
+        <Button label="Port forward" variant="ghost" isDisabled={permissions.loading || !allowed("get")} onClick={() => onOpen("forward")} />
       </HStack>}
     </VStack>
 
@@ -111,10 +119,11 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
       <Heading level={3}>YAML</Heading>
       <YamlEditor label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit} rows={14} />
       <HStack gap={2} wrap="wrap">
-        {edit ? <Button label="Save YAML" onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" onClick={onEdit} />}
-        <Button label="Delete" variant="ghost" onClick={() => onAction("delete")} />
-        <Button label="Force delete" variant="ghost" onClick={() => onAction("forceDelete")} />
-        {details.deletionTimestamp && <Button label="Finalize" variant="ghost" onClick={() => onAction("finalize")} />}
+        {edit ? <Button label="Save YAML" isDisabled={permissions.loading || !allowed("update") && !allowed("patch")} onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" isDisabled={permissions.loading || !allowed("update") && !allowed("patch")} onClick={onEdit} />}
+        <Button label="Delete" variant="ghost" isDisabled={permissions.loading || !allowed("delete")} onClick={() => onAction("delete")} />
+        <Button label="Force delete" variant="ghost" isDisabled={permissions.loading || !allowed("delete")} onClick={() => onAction("forceDelete")} />
+        {details.deletionTimestamp && <Button label="Finalize" variant="ghost" isDisabled={permissions.loading || !allowed("patch")} onClick={() => onAction("finalize")} />}
+        {!permissions.loading && !allowed("get") && <Text role="status">Access denied for this Pod.</Text>}
       </HStack>
     </VStack>
   </VStack>;

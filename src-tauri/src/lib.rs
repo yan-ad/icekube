@@ -36,6 +36,49 @@ async fn catalog_operation(
 }
 
 #[tauri::command]
+async fn cluster_rbac_management_snapshot(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac_management::ManagementRequest,
+) -> Result<connection::rbac_management::ManagementSnapshot, connection::ConnectionError> {
+    engine.rbac_management_snapshot(request).await
+}
+#[tauri::command]
+async fn cluster_rbac_user_plan(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac_management::PlanRequest,
+) -> Result<connection::rbac_management::UserPlan, connection::ConnectionError> {
+    engine.rbac_user_plan(request).await
+}
+#[tauri::command]
+async fn cluster_rbac_user_apply(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac_management::ApplyRequest,
+) -> Result<connection::rbac_management::ApplyResponse, connection::ConnectionError> {
+    engine.rbac_user_apply(request).await
+}
+#[tauri::command]
+fn cluster_rbac_management_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac_management::CancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_rbac_management(request)
+}
+#[tauri::command]
+async fn cluster_rbac_users(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac::RbacUsersRequest,
+) -> Result<connection::rbac::RbacUsersResponse, connection::ConnectionError> {
+    engine.rbac_users(request).await
+}
+#[tauri::command]
+fn cluster_rbac_users_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::rbac::RbacUsersRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_rbac_users(request)
+}
+
+#[tauri::command]
 async fn route_history_get(
     engine: tauri::State<'_, Arc<preferences::PreferencesEngine>>,
 ) -> Result<Option<route_history::SavedRoute>, preferences::PreferencesError> {
@@ -207,11 +250,11 @@ fn cluster_pod_forward_stop(
 }
 
 #[tauri::command]
-fn cluster_pod_sync_open(
+async fn cluster_pod_sync_open(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::ResourceRequest,
 ) -> Result<connection::pod_sync::PodSyncSnapshot, connection::ConnectionError> {
-    connections.pod_sync_open(request)
+    connections.pod_sync_open(request).await
 }
 
 #[tauri::command]
@@ -273,6 +316,30 @@ async fn cluster_resources(
     request: connection::ResourceRequest,
 ) -> Result<connection::ResourcePage, connection::ConnectionError> {
     connections.resources(request).await
+}
+
+#[tauri::command]
+async fn cluster_permissions_review(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::permissions::ReviewRequest,
+) -> Result<connection::permissions::ReviewResponse, connection::ConnectionError> {
+    connections.review_permissions(request).await
+}
+
+#[tauri::command]
+fn cluster_permissions_cancel(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::permissions::ReviewRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.cancel_permissions(request)
+}
+
+#[tauri::command]
+fn cluster_permissions_refresh(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<(), connection::ConnectionError> {
+    connections.refresh_permissions(request)
 }
 
 #[tauri::command]
@@ -511,11 +578,20 @@ pub fn run() {
             cluster_disconnect,
             cluster_connection_status,
             cluster_resources,
+            cluster_permissions_review,
+            cluster_permissions_cancel,
+            cluster_permissions_refresh,
             cluster_resources_cancel,
             cluster_resource_detail,
             cluster_custom_resources,
             cluster_custom_resources_cancel,
             cluster_custom_resource_definitions,
+            cluster_rbac_users,
+            cluster_rbac_users_cancel,
+            cluster_rbac_management_snapshot,
+            cluster_rbac_user_plan,
+            cluster_rbac_user_apply,
+            cluster_rbac_management_cancel,
             cluster_custom_resource_definitions_cancel,
             cluster_resource_detail_cancel,
             cluster_resource_create,

@@ -34,6 +34,14 @@ async function fixture(page: Page, width = 1563) {
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
         ] };
+        if (command === "cluster_permissions_review") {
+          const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+          const checkedAt = Date.now();
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+            authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+            items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "cluster_session_open" || command === "cluster_connect") return {
           clusterId: request.clusterId, sessionId: request.sessionId ?? "lease-density", contextName: "dev",
           status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null,

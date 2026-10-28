@@ -13,6 +13,10 @@ async function fixture(page: Page, control: Controls = {}) {
         transformCallback: () => 1, unregisterCallback() {},
         invoke: async (command: string, args?: { request?: Record<string, unknown> }) => {
           const request = args?.request ?? {}; calls.push({ command, ...structuredClone(request) });
+          if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId,
+            authorizationEpoch: String(request.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+            items: (request.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
+          if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
           if (command === "plugin:event|listen") return 1;
           if (command === "plugin:event|unlisten" || command.endsWith("_cancel") || command === "cluster_disconnect") return null;
           if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };

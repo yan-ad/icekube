@@ -7,6 +7,46 @@ fn scope() -> SessionRequest {
     }
 }
 
+#[tokio::test]
+async fn denied_startups_do_not_allocate_runtime_slots_or_bind_listeners() {
+    for mode in [
+        PodStreamMode::Logs,
+        PodStreamMode::Shell,
+        PodStreamMode::Attach,
+    ] {
+        let (_root, _, engine, id, _) = crate::connection::tests::fixture();
+        let reviews = Arc::new(Mutex::new(Vec::new()));
+        let opened = crate::connection::tests::connected(
+            &engine,
+            id,
+            crate::connection::tests::denied_permission_client(reviews, Some(false)),
+        )
+        .await;
+        let scope = crate::connection::tests::identity(&opened);
+        let mut request = start_request(&scope);
+        request.mode = mode;
+        assert!(matches!(
+            engine.pod_stream_open(request).await,
+            Err(ConnectionError::PermissionDenied)
+        ));
+        assert!(matches!(
+            engine.pod_forward_start(forward_request(&scope)).await,
+            Err(ConnectionError::PermissionDenied)
+        ));
+        assert_eq!(
+            engine.pod_runtime.stream_slots.available_permits(),
+            STREAM_LIMIT
+        );
+        assert_eq!(
+            engine.pod_runtime.forward_slots.available_permits(),
+            FORWARD_LIMIT
+        );
+        let registry = engine.pod_runtime.registry.lock().unwrap();
+        assert!(registry.streams.is_empty());
+        assert!(registry.forwards.is_empty());
+    }
+}
+
 fn state(cancel: CancellationToken) -> StreamState {
     StreamState {
         scope: scope(),
@@ -217,7 +257,8 @@ async fn runtime_engine(
         .open(super::super::OpenRequest { cluster_id: id })
         .await
         .unwrap();
-    engine.session.lock().unwrap().as_mut().unwrap().client = Some(client);
+    engine.session.lock().unwrap().as_mut().unwrap().client =
+        Some(crate::connection::tests::allow_permission_reviews(client));
     (root, engine, crate::connection::tests::identity(&opened))
 }
 fn pod_body() -> Vec<u8> {

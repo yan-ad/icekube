@@ -12,6 +12,14 @@ async function fixture(page: Page, section = "overview", narrow = false) {
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev-context", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: false },
         ] };
+        if (command === "cluster_permissions_review") {
+          const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+          const checkedAt = Date.now();
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+            authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+            items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
         if (["cluster_disconnect", "cluster_resources_cancel", "helm_cancel"].includes(command)) return;
         if (command === "cluster_connect") return { ...args?.request, contextName: "dev-context", status: "connected", apiVersion: "v1.35.8", error: null };
@@ -33,7 +41,7 @@ async function fixture(page: Page, section = "overview", narrow = false) {
 const navigation = (page: Page) => page.getByRole("navigation", { name: "Cluster navigation", exact: true });
 async function onlyReadRequests(page: Page) {
   const calls = await page.evaluate(() => (window as unknown as { __navigationCalls: string[] }).__navigationCalls);
-  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect", "cluster_connect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_custom_resource_definitions", "cluster_custom_resource_definitions_cancel"].includes(command))).toBe(true);
+  expect(calls.every((command) => ["catalog_list", "cluster_session_open", "cluster_disconnect", "cluster_connect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_custom_resource_definitions", "cluster_custom_resource_definitions_cancel", "cluster_permissions_review", "cluster_permissions_cancel", "cluster_permissions_refresh"].includes(command))).toBe(true);
 }
 
 test("disclosures expand and collapse by keyboard without navigation; children have real destinations", async ({ page }) => {
@@ -88,6 +96,7 @@ for (const group of clusterSections.filter((section) => "children" in section)) 
       const tableName = child.id === "helm-charts" ? "Helm Charts" : child.id === "helm-releases" ? "Helm Releases"
         : child.id === "port-forwarding" ? "Port forwards" : view?.label ?? `${child.label} destinations`;
       if (child.id === "workloads-overview") await expect(page.getByRole("heading", { name: "Workloads overview", exact: true })).toBeVisible();
+      else if (child.id === "users") await expect(page.getByRole("heading", { name: "Choose a user namespace", exact: true })).toBeVisible();
       else if (tableName.endsWith(" destinations")) await expect(page.getByRole("navigation", { name: tableName, exact: true })).toBeVisible();
       else await expect(page.getByRole("table", { name: tableName, exact: true })).toBeVisible();
       await expect(nav.getByRole("link", { name: child.label, exact: true })).toHaveAttribute("aria-current", "page");

@@ -17,6 +17,9 @@ import { podDetail, podForwardList, podForwardStart, podForwardStop, podMessage,
 import { PodDetailsView } from "./PodDetailsView";
 import { TerminalView } from "./TerminalView";
 import { useResourceInspector } from "./ResourceInspector";
+import { usePermissionChecks } from "./PermissionProvider";
+import { ReadOnlyNotice } from "./ReadOnlyNotice";
+import type { PermissionAction } from "./permissionsApi";
 
 type Tab = { id: string; pod: PodRequest; mode: PodMode };
 const modeIcons = { details: IconFileText, edit: IconFileText, logs: IconList, shell: IconTerminal2, attach: IconTerminal2, forward: IconPlug };
@@ -101,13 +104,31 @@ export function PodDock() {
   </VStack>;
   return dock.outlet ? createPortal(panel, dock.outlet) : panel;
 }
-export function PodTab({ tab, visible, embedded = false, refreshRevision = 0, onLoadingChange }: { tab: Tab; visible: boolean; embedded?: boolean; refreshRevision?: number; onLoadingChange?: (loading: boolean) => void }) {
+type PodTabProps = { tab: Tab; visible: boolean; embedded?: boolean; refreshRevision?: number; onLoadingChange?: (loading: boolean) => void };
+const modePermission = { logs: "logs", shell: "exec", attach: "attach", forward: "portForward" } as const;
+export function PodTab(props: PodTabProps) {
+  const { tab, onLoadingChange } = props;
+  const operation = tab.mode in modePermission ? modePermission[tab.mode as keyof typeof modePermission] : null;
+  const check = (action: PermissionAction) => ({ kind: "pods" as const, namespace: tab.pod.namespace, name: tab.pod.name, action });
+  const permissions = usePermissionChecks([check("get"), ...(operation ? [check(operation)] : [])]);
+  const blocked = permissions.loading || permissions.decision(check("get")) === "denied" || !!operation && (permissions.decision(check("get")) !== "allowed" || permissions.decision(check(operation)) !== "allowed");
+  useEffect(() => { if (blocked) onLoadingChange?.(permissions.loading); }, [blocked, permissions.loading, onLoadingChange]);
+  if (permissions.loading) return <ContentLoading label="Checking access…" />;
+  if (permissions.decision(check("get")) === "denied" || operation && permissions.decision(check(operation)) === "denied") return <Text role="status">Access denied. Your Kubernetes permissions do not allow this Pod operation.</Text>;
+  if (blocked) return <ReadOnlyNotice unverified />;
+  return <>{permissions.decision(check("get")) === "unknown" && <ReadOnlyNotice unverified />}<AuthorizedPodTab {...props} /></>;
+}
+function AuthorizedPodTab({ tab, visible, embedded = false, refreshRevision = 0, onLoadingChange }: PodTabProps) {
   const { openPod, onMutation } = usePodDock();
   const [details, setDetails] = useState<PodDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
   const [confirm, setConfirm] = useState<{ action: PodMutation; yaml?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  const mutationAction = confirm?.action === "replace" ? "update" : confirm?.action === "finalize" ? "patch" : "delete";
+  const mutationCheck = (action: PermissionAction) => ({ kind: "pods" as const, namespace: tab.pod.namespace, name: tab.pod.name, action });
+  const permissions = usePermissionChecks(confirm ? [mutationCheck("get"), mutationCheck(mutationAction)] : []);
+  const canMutate = !!confirm && permissions.decision(mutationCheck("get")) === "allowed" && permissions.decision(mutationCheck(mutationAction)) === "allowed";
   const [loading, setLoading] = useState(true);
   useEffect(() => { onLoadingChange?.(loading || busy); }, [loading, busy, onLoadingChange]);
   const alive = useRef(false);
@@ -118,7 +139,7 @@ export function PodTab({ tab, visible, embedded = false, refreshRevision = 0, on
     return () => { disposed = true; };
   }, [tab.pod, revision, refreshRevision]);
   async function mutate() {
-    if (!details || !confirm || busy) return;
+    if (!details || !confirm || busy || !canMutate) return;
     setBusy(true); setError(null);
     try { await podMutate(details, confirm.action, confirm.yaml); if (!alive.current) return; setConfirm(null); onMutation?.(); setRevision(r => r + 1); }
     catch (e) { if (alive.current) setError(podMessage(e)); } finally { if (alive.current) setBusy(false); }
@@ -130,7 +151,7 @@ export function PodTab({ tab, visible, embedded = false, refreshRevision = 0, on
     {error && <Text role="alert">{details ? "Retained details may be stale. " : ""}{error}</Text>}
     <ContentLoading label="Loading Pod…" refreshing active={loading && !!details} />
     {!details ? error ? <Text as="p">Pod details unavailable.</Text> : <ContentLoading label="Loading Pod…" /> : tab.mode === "logs" || tab.mode === "shell" || tab.mode === "attach" ? <StreamPanel details={details} mode={tab.mode} visible={visible} reload={reload} /> : tab.mode === "forward" ? <ForwardPanel details={details} /> : <PodDetailsView key={details.resourceVersion} details={details} edit={tab.mode === "edit"} embedded={embedded} onEdit={() => openPod({ ...tab.pod, uid: details.uid }, "edit")} onOpen={mode => openPod({ ...tab.pod, uid: details.uid }, mode)} onAction={(action, yaml) => setConfirm({ action, yaml })} />}
-    <Dialog isOpen={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} purpose={busy ? "required" : "form"}><Layout header={<DialogHeader title={`${confirm?.action === "replace" ? "Save YAML for" : confirm?.action ?? "Update"} ${tab.pod.name}?`} />} content={<LayoutContent><VStack gap={3}><Text as="p">Cluster: {tab.pod.clusterId}. Namespace: {tab.pod.namespace}. Pod: {tab.pod.name}. UID: {details?.uid}. Resource version: {details?.resourceVersion}.</Text><Text as="p">{confirm?.action === "forceDelete" ? "Danger: force deletion removes the API record without waiting for the process to stop. The workload may continue running." : confirm?.action === "finalize" ? "Danger: removing finalizers bypasses cleanup and may leave resources behind. Only continue if you understand the finalizer's purpose." : confirm?.action === "replace" ? "This updates the live Pod. Protected server fields are preserved by the engine; immutable edits may be rejected." : "This deletes the live Pod. A workload controller may create a replacement."}</Text>{error && <Text role="alert">{error}</Text>}</VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2}><Button label="Cancel" variant="ghost" isDisabled={busy} onClick={() => setConfirm(null)} /><Button label={busy ? "Working…" : "Confirm mutation"} isDisabled={busy} onClick={() => void mutate()} /></HStack></LayoutFooter>} /></Dialog>
+    <Dialog isOpen={confirm !== null} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} purpose={busy ? "required" : "form"}><Layout header={<DialogHeader title={`${confirm?.action === "replace" ? "Save YAML for" : confirm?.action ?? "Update"} ${tab.pod.name}?`} />} content={<LayoutContent><VStack gap={3}><Text as="p">Cluster: {tab.pod.clusterId}. Namespace: {tab.pod.namespace}. Pod: {tab.pod.name}. UID: {details?.uid}. Resource version: {details?.resourceVersion}.</Text><Text as="p">{confirm?.action === "forceDelete" ? "Danger: force deletion removes the API record without waiting for the process to stop. The workload may continue running." : confirm?.action === "finalize" ? "Danger: removing finalizers bypasses cleanup and may leave resources behind. Only continue if you understand the finalizer's purpose." : confirm?.action === "replace" ? "This updates the live Pod. Protected server fields are preserved by the engine; immutable edits may be rejected." : "This deletes the live Pod. A workload controller may create a replacement."}</Text>{error && <Text role="alert">{error}</Text>}</VStack></LayoutContent>} footer={<LayoutFooter><HStack gap={2}><Button label="Cancel" variant="ghost" isDisabled={busy} onClick={() => setConfirm(null)} /><Button label={busy ? "Working…" : "Confirm mutation"} isDisabled={busy || !canMutate} onClick={() => void mutate()} /></HStack></LayoutFooter>} /></Dialog>
   </VStack>;
 }
 function StreamPanel({ details, mode, visible, reload }: { details: PodDetails; mode: "logs" | "shell" | "attach"; visible: boolean; reload: ReactNode }) {

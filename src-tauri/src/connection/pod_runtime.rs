@@ -1,4 +1,8 @@
 use super::{ConnectionEngine, ConnectionError, Result, SessionRequest};
+use super::{
+    ResourceKind,
+    permissions::{PermissionAction, PermissionCheck},
+};
 use futures::{AsyncReadExt as FuturesReadExt, SinkExt};
 use k8s_openapi::api::core::v1::Pod;
 use kube::{
@@ -483,10 +487,29 @@ impl ConnectionEngine {
             return Err(ConnectionError::InvalidInput);
         }
         shell_command(request.shell.as_deref())?;
+        if self.pod_runtime.stream_slots.available_permits() == 0 {
+            return Err(ConnectionError::LimitExceeded);
+        }
         let scope = SessionRequest {
             cluster_id: request.cluster_id.clone(),
             session_id: request.session_id.clone(),
         };
+        let action = match request.mode {
+            PodStreamMode::Logs => PermissionAction::Logs,
+            PodStreamMode::Shell => PermissionAction::Exec,
+            PodStreamMode::Attach => PermissionAction::Attach,
+        };
+        let authorization = self
+            .require_permissions(
+                &scope,
+                &[PermissionCheck {
+                    kind: ResourceKind::Pods,
+                    action,
+                    namespace: Some(request.namespace.clone()),
+                    name: Some(request.name.clone()),
+                }],
+            )
+            .await?;
         let slot_permit = self
             .pod_runtime
             .stream_slots
@@ -498,6 +521,7 @@ impl ConnectionEngine {
             .try_acquire()
             .map_err(|_| ConnectionError::Busy)?;
         let (client, cancel) = self.pod_client(&scope)?;
+        let client = super::permissions::authorized_client(client, authorization);
         let api = Api::<Pod>::namespaced(client, &request.namespace);
         operation(&cancel, verify_process(&api, &request, &cancel)).await?;
         self.check_pod_session(&scope)?;
@@ -631,10 +655,24 @@ impl ConnectionEngine {
     pub async fn pod_forward_start(&self, request: PodForwardRequest) -> Result<PodForward> {
         validate_target(&request.namespace, &request.name, &request.uid)?;
         validate_port(request.remote_port)?;
+        if self.pod_runtime.forward_slots.available_permits() == 0 {
+            return Err(ConnectionError::LimitExceeded);
+        }
         let scope = SessionRequest {
             cluster_id: request.cluster_id.clone(),
             session_id: request.session_id.clone(),
         };
+        let authorization = self
+            .require_permissions(
+                &scope,
+                &[PermissionCheck {
+                    kind: ResourceKind::Pods,
+                    action: PermissionAction::PortForward,
+                    namespace: Some(request.namespace.clone()),
+                    name: Some(request.name.clone()),
+                }],
+            )
+            .await?;
         let slot_permit = self
             .pod_runtime
             .forward_slots
@@ -646,6 +684,7 @@ impl ConnectionEngine {
             .try_acquire()
             .map_err(|_| ConnectionError::Busy)?;
         let (client, cancel) = self.pod_client(&scope)?;
+        let client = super::permissions::authorized_client(client, authorization);
         let api = Api::<Pod>::namespaced(client, &request.namespace);
         operation(
             &cancel,

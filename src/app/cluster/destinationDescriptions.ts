@@ -48,6 +48,7 @@ export const destinationDescriptions = {
   "helm-charts": "Chart packages available from configured Helm repositories.",
   "helm-releases": "Installed chart releases, revisions, and deployment state.",
   "service-accounts": "Namespaced identities used by Pods and controllers.",
+  users: "Observed users, groups, service accounts, and their bounded RBAC assignments.",
   "cluster-roles": "Permission rules that can be assigned across the cluster.",
   roles: "Permission rules scoped to a namespace.",
   "cluster-role-bindings": "Cluster-wide assignments of roles to identities.",

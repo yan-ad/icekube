@@ -44,6 +44,11 @@ async function fixture(page: Page, section: string) {
         unregisterCallback: (id: number) => callbacks.delete(id),
         invoke: async (command: string, args?: Request) => {
           const r = { ...args?.request }; calls.push({ command, request: r }); order.push(command);
+          if (command === "cluster_permissions_cancel") return null;
+          if (command === "cluster_permissions_review") {
+            const request = args!.request as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
+            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+          }
           if (command === "plugin:event|listen") {
             if (controls.holdListen) await new Promise<void>(resolve => pending.push(resolve));
             const id = ++next; listeners.set(id, { event: args!.event, handler: args!.handler }); return id;

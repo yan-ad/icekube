@@ -80,6 +80,11 @@ async function fixture(page: Page, controls: Controls = {}, cluster = "one", sec
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args?: { request: Request }) => {
           const request = { ...args?.request };
+          if (command === "cluster_permissions_cancel") return null;
+          if (command === "cluster_permissions_review") {
+            const review = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
+            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId, authorizationEpoch: `fixture-epoch-${review.sessionId}`, revision: review.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+          }
           calls.push({ command, request });
           if (command === "catalog_list") return {
             revision: 1, discoveryError: null, webLinks: [], clusters: clusters

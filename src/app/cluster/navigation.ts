@@ -51,6 +51,7 @@ const clusterChildren = {
     { id: "helm-releases", label: "Releases" },
   ],
   "access-control": [
+    { id: "users", label: "Users" },
     { id: "service-accounts", label: "Service Accounts" },
     { id: "cluster-roles", label: "Cluster Roles" },
     { id: "roles", label: "Roles" },

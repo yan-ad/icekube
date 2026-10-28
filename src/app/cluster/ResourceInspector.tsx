@@ -15,6 +15,8 @@ import { resourceViews } from "./resourceViews";
 import { PodTab, usePodDock } from "./PodDock";
 import { StatusBadge, NodeConditionBadge } from "./StatusBadge";
 import { clusterDestinations } from "./navigation";
+import { PermissionGate } from "./PermissionGate";
+import { usePermissionChecks } from "./PermissionProvider";
 
 export type ResourceSummary = { title: string; facts: { label: string; value: string }[]; status?: string };
 type Selection = { type: "resource"; reference: ResourceReference; edit: boolean; relatedColumn?: string; serial: number }
@@ -138,6 +140,8 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
   const resize = (next: number) => { setExpanded(false); setWidth(Math.max(minimum, Math.min(75, next))); };
   const title = selection?.type === "summary" ? selection.summary.title : selection ? selection.reference.name : "Resource details";
   const podReference = selection?.type === "resource" && selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ? selection.reference : null;
+  const podChecks = usePermissionChecks(podReference && isOpen ? (["get", "logs", "exec", "attach", "portForward"] as const).map(action => ({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action })) : []);
+  const podAllowed = (action: "get" | "logs" | "exec" | "attach" | "portForward") => !!podReference && podChecks.decision({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action }) === "allowed";
   return <VStack as="aside" role={isOpen ? "region" : undefined} aria-label={isOpen ? "Resource details" : undefined}
     aria-hidden={!isOpen} inert={!isOpen} ref={panel} tabIndex={isOpen ? -1 : undefined} gap={0}
     className="resource-inspector" data-open={isOpen} data-dragging={dragging} data-expanded={expanded}
@@ -163,9 +167,9 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
     <HStack padding={2} gap={2} vAlign="center" hAlign="between" className="resource-inspector-header">
       <Text role="heading" aria-level={2} size="sm" weight="semibold" maxLines={1} className="resource-inspector-title">{title}</Text>
       <HStack gap={1} wrap="wrap" className="resource-inspector-actions">
-        {podReference && ([{ mode: "logs", label: "Logs", icon: IconList }, { mode: "shell", label: "Shell", icon: IconTerminal2 }, { mode: "attach", label: "Attach", icon: IconLogin }, { mode: "forward", label: "Port forward", icon: IconPlug }] as const).map(action =>
-          <IconButton key={action.mode} label={action.label} tooltip={action.label} icon={<Icon icon={action.icon} />} size="sm" variant="ghost" isDisabled={loading || !podReference.uid}
-            onClick={() => openPod({ namespace: podReference.namespace!, name: podReference.name, uid: podReference.uid ?? undefined }, action.mode)} />)}
+        {podReference && ([{ mode: "logs", permission: "logs", label: "Logs", icon: IconList }, { mode: "shell", permission: "exec", label: "Shell", icon: IconTerminal2 }, { mode: "attach", permission: "attach", label: "Attach", icon: IconLogin }, { mode: "forward", permission: "portForward", label: "Port forward", icon: IconPlug }] as const).filter(action => podChecks.decision({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action: action.permission }) !== "denied" && podChecks.decision({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action: "get" }) !== "denied").map(action =>
+          <IconButton key={action.mode} label={action.label} tooltip={action.label} icon={<Icon icon={action.icon} />} size="sm" variant="ghost" isDisabled={loading || !podReference.uid || !podAllowed("get") || !podAllowed(action.permission)}
+            onClick={() => { if (podAllowed("get") && podAllowed(action.permission)) openPod({ namespace: podReference.namespace!, name: podReference.name, uid: podReference.uid ?? undefined }, action.mode); }} />)}
         {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details (Cmd/Ctrl+R)" aria-keyshortcuts="Meta+r Control+r" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
         <IconButton label={expanded ? "Restore inspector width" : "Expand inspector"} tooltip={expanded ? "Restore inspector width" : "Expand inspector"} icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} />} size="sm" variant="ghost" onClick={() => { endDrag(); setExpanded(value => !value); }} />
         <IconButton label="Close inspector" tooltip="Close inspector" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={closeInspector} />
@@ -177,7 +181,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
         <MetadataList label={{ position: "top" }}>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</MetadataList>
       </VStack> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
         <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} revision={revision} onLoadingChange={onLoadingChange} /> :
-        <ResourceDetails key={selection.serial} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} />)}
+        <PermissionGate check={{ kind: selection.reference.kind, namespace: selection.reference.namespace, name: selection.reference.name, action: "get" }}><ResourceDetails key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} /></PermissionGate>)}
     </VStack>
     </>}
   </VStack>;

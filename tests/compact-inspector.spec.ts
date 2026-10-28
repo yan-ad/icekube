@@ -22,6 +22,11 @@ async function fixture(page: Page) {
     Object.assign(window, { isTauri: true, __compactCalls: calls, __TAURI_INTERNALS__: {
       invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
         const request = structuredClone(args?.request ?? {}); calls.push({ command, request });
+        if (command === "cluster_permissions_cancel") return null;
+        if (command === "cluster_permissions_review") {
+          const review = request as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId, authorizationEpoch: `fixture-epoch-${review.sessionId}`, revision: review.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: "one", sessionId: "compact-lease", contextName: "dev", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
         if (["cluster_disconnect", "cluster_resources_cancel", "cluster_pod_mutate", "cluster_pod_stream_close", "cluster_pod_stream_resize", "cluster_pod_stream_write"].includes(command)) return null;

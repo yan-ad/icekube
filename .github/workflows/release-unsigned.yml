@@ -2,11 +2,11 @@ name: Unsigned Iceon stable release
 
 on:
   push:
-    tags: ['0.0.1']
+    tags: ['0.0.2']
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Existing immutable stable tag (0.0.1); dispatch at the same commit'
+        description: 'Existing immutable stable tag (0.0.2); dispatch at the same commit'
         required: false
         type: string
 
@@ -47,8 +47,8 @@ jobs:
           from pathlib import Path
           tag = os.environ['RELEASE_TAG']
           number = r'(?:0|[1-9][0-9]*)'
-          if not re.fullmatch(rf'{number}\.{number}\.{number}', tag) or tag != '0.0.1':
-              raise SystemExit('This route accepts only the canonical stable tag 0.0.1, without v')
+          if not re.fullmatch(rf'{number}\.{number}\.{number}', tag) or tag != '0.0.2':
+              raise SystemExit('This route accepts only the canonical stable tag 0.0.2, without v')
           package = json.loads(Path('package.json').read_text())
           config = json.loads(Path('src-tauri/tauri.conf.json').read_text())
           cargo = tomllib.loads(Path('src-tauri/Cargo.toml').read_text())
@@ -74,8 +74,22 @@ jobs:
               raise SystemExit('Tag, checkout and reusable CI commit must agree; dispatch from the tag or same commit')
           git('diff', '--exit-code')
           git('diff', '--cached', '--exit-code')
-          if not Path('CHANGELOG.md').is_file():
-              raise SystemExit('Tracked stable release notes are required')
+          changelog = Path('CHANGELOG.md').read_text()
+          sections = list(re.finditer(r'^## (.+)$', changelog, re.MULTILINE))
+          headings = []
+          for section in sections:
+              heading = re.fullmatch(rf'({number}\.{number}\.{number})(?: \(pending CI\))?', section[1])
+              if heading is None:
+                  raise SystemExit('Expected canonical stable changelog headings, optionally marked (pending CI)')
+              headings.append(heading[1])
+          if headings.count(tag) != 1:
+              raise SystemExit('Expected exactly one changelog section for the release tag')
+          index = headings.index(tag)
+          end = sections[index + 1].start() if index + 1 < len(sections) else len(changelog)
+          notes = changelog[sections[index].end():end].strip()
+          if not notes:
+              raise SystemExit('Release notes must not be empty')
+          Path('/tmp/iceon-release-notes.md').write_text(notes + '\n')
           PY
       - uses: oven-sh/setup-bun@v2
         with:
@@ -193,7 +207,7 @@ jobs:
         run: |
           gh release create "$RELEASE_TAG" release-assets/* --verify-tag --draft \
             --prerelease=false --latest=false --title "Iceon $RELEASE_TAG (unsigned)" \
-            --notes-file CHANGELOG.md
+            --notes-file /tmp/iceon-release-notes.md
           python3 - <<'PY'
           import hashlib, json, os, subprocess
           from pathlib import Path

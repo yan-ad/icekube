@@ -1,19 +1,26 @@
 # Iceon unsigned releases
 
-The stable unsigned release is **`0.0.1`**, without a `v` prefix, in the existing
+The next stable unsigned release is **`0.0.2`**, without a `v` prefix, in the existing
 [yan-ad/iceon](https://github.com/yan-ad/iceon) repository. The displayed product
 is Iceon, packaged as `Iceon.app`; its internal executable stays `iceon` and
 its bundle identifier stays `ad.yan.iceon`. No Apple Developer or Tauri updater
 signing secrets are required for this route.
 
+Release preparation is pending CI and packaging verification; these instructions
+do not claim that 0.0.2 is already published or natively smoke-tested. The
+published [0.0.1 release](https://github.com/yan-ad/iceon/releases/tag/0.0.1),
+its tag, and its assets remain unchanged. The workflow at that historical tag
+retains its original exact-0.0.1 route; the current workflow authorizes only 0.0.2.
+
 ## Stable publication gate
 
-`.github/workflows/release-unsigned.yml` runs for the exact `0.0.1` tag push.
+`.github/workflows/release-unsigned.yml` runs for the exact `0.0.2` tag push.
 It also supports manual dispatch with an optional existing `tag` input. When
 using dispatch, select that tag or the same commit as the workflow ref: the tag
 commit, checked-out HEAD and Actions `github.sha` must all agree. The reusable
 CI checks always run for the Actions commit; a different target tag is rejected.
-The route rejects `v0.0.1`, prereleases, build metadata and noncanonical versions.
+The route rejects other versions, `v0.0.2`, prereleases, build metadata and
+noncanonical versions.
 It never creates, moves or force-pushes a tag.
 
 The full `.github/workflows/ci.yml` gates packaging: Rust formatting, locked tests
@@ -37,8 +44,10 @@ The DMG is verified and mounted read-only. Its app's signature and architecture
 are checked, its plist/executable/signed-resource manifest compared against the
 built app, and its Applications symlink required to point to `/Applications`.
 
-Only `Iceon_0.0.1_aarch64.dmg` and `SHASUMS256.txt` are uploaded. The workflow
-creates an exact-tag draft with the tracked [0.0.1 notes](../CHANGELOG.md),
+Only `Iceon_0.0.2_aarch64.dmg` and `SHASUMS256.txt` are uploaded. The workflow
+extracts only the matching `## 0.0.2` section from the tracked
+[changelog](../CHANGELOG.md) into `/tmp/iceon-release-notes.md`, not an extra
+release asset. It creates an exact-tag draft with those notes,
 downloads the uploaded files, compares their SHA-256 hashes against the verified
 local bytes and checks the checksum file. Only then does it publish with
 `draft=false`, `prerelease=false` and mark it latest. GitHub's source archives
@@ -53,8 +62,8 @@ asset URL supplied by an input or remote manifest is used for downloading files.
 
 ## Install on Apple Silicon
 
-Download the DMG and `SHASUMS256.txt` from the
-[exact stable release](https://github.com/yan-ad/iceon/releases/tag/0.0.1).
+After publication, download the DMG and `SHASUMS256.txt` from the
+[exact stable release](https://github.com/yan-ad/iceon/releases/tag/0.0.2).
 Run `shasum -a 256 -c SHASUMS256.txt` in the download directory. A checksum detects
 corruption, not publisher identity. Open the DMG and drag `Iceon.app` into
 `/Applications`.
@@ -84,4 +93,4 @@ smoke test; CI bundle checks do not establish those results.
   display name does not rename historical assets or tags.
 - [Signed stable route](releasing.md): existing stable `v*` tags and stable-only
   `cargo xtask release` tooling. Developer ID, notarization and updater secrets
-  remain mandatory. Do not use that tool for the unsigned `0.0.1` tag.
+  remain mandatory. Do not use that tool for the unsigned `0.0.2` tag.

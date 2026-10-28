@@ -22,6 +22,10 @@ async function fixture(page: Page, control: Controls = {}) {
         unregisterCallback: (id: number) => handlers.delete(id),
         invoke: async (command: string, args?: { request: Request; handler?: number }) => {
         const request = structuredClone(args?.request ?? {}); calls.push({ command, request });
+        if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId,
+          authorizationEpoch: String(request.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+          items: (request.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "plugin:event|listen") { menuHandler = args?.handler ?? 0; return menuHandler; }
         if (command === "plugin:event|unlisten") return null;
         if (command === "row_context_menu_show") {

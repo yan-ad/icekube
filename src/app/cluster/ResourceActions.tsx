@@ -4,13 +4,18 @@ import { Text } from "@astryxdesign/core/Text";
 import type { ResourceItem, ResourceKind, SessionRequest } from "./api";
 import { ResourceCreate } from "./ResourceCreate";
 import { ResourceDelete } from "./ResourceDelete";
+import { useResourcePermissions } from "./PermissionProvider";
+import { ReadOnlyNotice } from "./ReadOnlyNotice";
 
 type Props = SessionRequest & { kind: ResourceKind; namespace?: string; createLabel?: string;
   selected: ResourceItem[]; disabled: boolean; onAccepted: (keys: Set<string>) => void; onRefresh: () => void;
   contextTarget?: ResourceItem | null; onContextClose?: () => void };
 export function ResourceActions(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
+  const permissions = useResourcePermissions(props.kind, props.namespace || null);
   return <>
+    {permissions.readOnly && <ReadOnlyNotice readOnly />}
+    {!permissions.loading && !permissions.readOnly && !permissions.can("create") && <Text role="status">Changes require verified access to their target resources.</Text>}
     {notice && <Text role="status">{notice}</Text>}
     <TableActionOverlay label="Resource actions">
       <ResourceDelete {...props} onNotice={setNotice} />

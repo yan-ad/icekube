@@ -59,6 +59,7 @@ const SECTIONS: &[&str] = &[
     "helm-charts",
     "helm-releases",
     "access-control",
+    "users",
     "service-accounts",
     "cluster-roles",
     "roles",

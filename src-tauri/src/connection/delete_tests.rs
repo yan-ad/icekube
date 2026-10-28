@@ -1,6 +1,6 @@
 use super::{
     delete::*,
-    tests::{connected, fixture},
+    tests::{connected_authorized as connected, fixture},
     *,
 };
 use http::{Request, Response};
@@ -23,6 +23,31 @@ fn request(kind: ResourceKind) -> DeleteRequest {
         resource_version: "7".into(),
         read_id: 1,
     }
+}
+
+#[tokio::test]
+async fn delete_denial_stops_before_precondition_get_and_delete() {
+    let (_root, _, engine, id, _) = fixture();
+    let reviews = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let lease = tests::connected(
+        &engine,
+        id,
+        tests::denied_permission_client(reviews.clone(), Some(false)),
+    )
+    .await;
+    let mut r = request(ResourceKind::Pods);
+    r.cluster_id = lease.cluster_id;
+    r.session_id = lease.session_id;
+    assert_eq!(
+        engine.delete(r).await,
+        Err(ConnectionError::PermissionDenied)
+    );
+    let reviews = reviews.lock().unwrap();
+    assert!(!reviews.is_empty());
+    assert_eq!(reviews[0]["verb"], "get");
+    assert_eq!(reviews[0]["resource"], "pods");
+    assert_eq!(reviews[0]["namespace"], "default");
+    assert_eq!(reviews[0]["name"], "sample");
 }
 #[test]
 fn validates_namespaced_and_cluster_scopes() {

@@ -29,6 +29,9 @@ import { CustomResourcesDiscovery } from "./CustomResourcesProvider";
 import { CustomResourceTable } from "./CustomResourceTable";
 import { DestinationGrid } from "./DestinationGrid";
 import { ClusterOverview } from "./ClusterOverview";
+import { PermissionSession } from "./PermissionProvider";
+import { PermissionGate } from "./PermissionGate";
+import { ManagedUsersPage } from "./ManagedUsersPage";
 
 function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: ClusterSummary; section: string; onReopen: () => void; dockOutlet: HTMLElement | null }) {
   const session = useClusterSession(cluster.id);
@@ -46,7 +49,8 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
   const workloadsOverview = section === "workloads-overview";
   const clusterOverview = section === "overview";
   const customInstances = section === "custom-resource-instances";
-  const refreshSection = workloadsOverview || clusterOverview || customInstances ? section : replacement ? section : resourceKind ?? "cluster";
+  const users = section === "users";
+  const refreshSection = workloadsOverview || clusterOverview || customInstances || users ? section : replacement ? section : resourceKind ?? "cluster";
   const category = clusterSections.find((item) => item.id === (section === "workloads-overview" ? "workloads" : section));
   const destinations = !workloadsOverview && category && "children" in category ? category.children.filter((item) => item.id !== "workloads-overview")
     : [];
@@ -59,7 +63,7 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     else void session.connect();
   };
   useRegisterWorkspaceRefresh({ clusterId: cluster.id, section: refreshSection, enabled: !busy, refresh: refreshConnection },
-    !connected || (!resourceKind && !serviceView && !workloadsOverview && !clusterOverview && !customInstances));
+    !connected || (!resourceKind && !serviceView && !workloadsOverview && !clusterOverview && !customInstances && !users));
   useRegisterClusterActions({ clusterId: cluster.id, section: refreshSection, status, items: [
     ...(session.phase === "failed" ? [{ label: "Reopen workspace", run: onReopen }] : []),
     ...(!connected && !busy ? [{ label: "Connect to cluster", run: () => void session.connect() }] : []),
@@ -80,26 +84,27 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
           <MetadataListItem label="Labels">{cluster.labels.length ? cluster.labels.join(", ") : "No labels saved."}</MetadataListItem>
         </MetadataList></LayoutContent>} />
     </Dialog>
-    {connected && <ResourceInspectorProvider key={`${cluster.id}:${connection.sessionId}`} clusterId={cluster.id}>
+    {connected && <PermissionSession key={`${cluster.id}:${connection.sessionId}`} clusterId={cluster.id} sessionId={connection.sessionId}><ResourceInspectorProvider clusterId={cluster.id}>
     <PodDockProvider clusterId={cluster.id} sessionId={connection.sessionId} outlet={dockOutlet}
       onMutation={() => { if (workspaceRefresh.action?.section === "pods") workspaceRefresh.action.refresh(); }}>
     <NamespaceScopeProvider clusterId={cluster.id} sessionId={connection.sessionId}>
-    <CustomResourcesDiscovery clusterId={cluster.id} sessionId={connection.sessionId} active={section.startsWith("custom-resource")} />
+    <PermissionGate quiet check={{ kind: "customResourceDefinitions", action: "list" }}><CustomResourcesDiscovery clusterId={cluster.id} sessionId={connection.sessionId} active={section.startsWith("custom-resource")} /></PermissionGate>
     <ResourceInspectorLayout clusterId={cluster.id} sessionId={connection.sessionId}>
     {clusterOverview && <ClusterOverview clusterId={cluster.id} sessionId={connection.sessionId} />}
-    {section === "custom-resource-instances" && <CustomResourceTable clusterId={cluster.id} sessionId={connection.sessionId} definitionName={definition} />}
+     {users && <ManagedUsersPage clusterId={cluster.id} sessionId={connection.sessionId} />}
+    {section === "custom-resource-instances" && <PermissionGate check={{ kind: "customResourceDefinitions", action: "list" }}><CustomResourceTable clusterId={cluster.id} sessionId={connection.sessionId} definitionName={definition} /></PermissionGate>}
     {workloadsOverview && <WorkloadsOverview clusterId={cluster.id} sessionId={connection.sessionId} />}
     {replacement && (section === "helm-charts" || section === "helm-releases" ?
       <HelmTablePage key={section} clusterId={cluster.id} sessionId={connection.sessionId} view={section === "helm-charts" ? "charts" : "releases"} /> :
       section === "port-forwarding" ? <PortForwardTablePage clusterId={cluster.id} sessionId={connection.sessionId} /> :
-      <ResourceTablePage key={`${cluster.id}:${connection.sessionId}:${section}`} clusterId={cluster.id} sessionId={connection.sessionId} view={replacement} />)}
-    {connected && resourceKind && !replacement && <ClusterResources key={`${cluster.id}:${connection.sessionId}:${resourceKind}`} clusterId={cluster.id} sessionId={connection.sessionId} kind={resourceKind} />}
+      replacement.kind && <ResourceTablePage key={`${cluster.id}:${connection.sessionId}:${section}`} clusterId={cluster.id} sessionId={connection.sessionId} view={replacement} />)}
+    {connected && resourceKind && !replacement && <PermissionGate check={{ kind: resourceKind, action: "list" }}><ClusterResources key={`${cluster.id}:${connection.sessionId}:${resourceKind}`} clusterId={cluster.id} sessionId={connection.sessionId} kind={resourceKind} /></PermissionGate>}
     {destinations.length > 0 && <DestinationGrid clusterId={cluster.id} title={selected?.label ?? "Cluster"} destinations={destinations} />}
     </ResourceInspectorLayout>
     <PodDock />
     </NamespaceScopeProvider>
-    </PodDockProvider></ResourceInspectorProvider>}
-    {connected && selected && !clusterOverview && !workloadsOverview && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}
+    </PodDockProvider></ResourceInspectorProvider></PermissionSession>}
+    {connected && selected && !users && !clusterOverview && !workloadsOverview && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}
   </>;
 }
 

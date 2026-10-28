@@ -13,6 +13,10 @@ async function fixture(page: Page, section: string, count: number, controlledClo
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, any> }) => {
         const r = args?.request ?? {};
         calls.push({ command, request: r });
+        if (command === "cluster_permissions_review") return { clusterId: r.clusterId, sessionId: r.sessionId, readId: r.readId,
+          authorizationEpoch: String(r.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+          items: r.checks.map((check: unknown) => ({ check, decision: "allowed", reason: null })) };
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
         ] };

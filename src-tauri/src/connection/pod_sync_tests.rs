@@ -14,6 +14,29 @@ fn request() -> ResourceRequest {
         group: None,
     }
 }
+
+#[tokio::test]
+async fn denied_live_sync_does_not_register_or_list_pods() {
+    let (_root, _, engine, id, _) = crate::connection::tests::fixture();
+    let reviews = Arc::new(Mutex::new(Vec::new()));
+    let opened = crate::connection::tests::connected(
+        &engine,
+        id,
+        crate::connection::tests::denied_permission_client(reviews.clone(), Some(false)),
+    )
+    .await;
+    let mut r = request();
+    r.cluster_id = opened.cluster_id;
+    r.session_id = opened.session_id;
+    assert!(matches!(
+        engine.pod_sync_open(r).await,
+        Err(ConnectionError::PermissionDenied)
+    ));
+    assert!(engine.pod_sync.registry.lock().unwrap().is_empty());
+    let reviews = reviews.lock().unwrap();
+    assert_eq!(reviews[0]["verb"], "list");
+    assert_eq!(reviews[0]["namespace"], "default");
+}
 #[tokio::test]
 async fn close_sync_accepts_expired_or_missing_client_but_not_another_lease() {
     for expired in [true, false] {
@@ -30,11 +53,12 @@ async fn close_sync_accepts_expired_or_missing_client_but_not_another_lease() {
             }),
             "default",
         );
-        engine.session.lock().unwrap().as_mut().unwrap().client = Some(client);
+        engine.session.lock().unwrap().as_mut().unwrap().client =
+            Some(crate::connection::tests::allow_permission_reviews(client));
         let mut resource = request();
         resource.cluster_id = scope.cluster_id.clone();
         resource.session_id = scope.session_id.clone();
-        let snapshot = engine.pod_sync_open(resource.clone()).unwrap();
+        let snapshot = engine.pod_sync_open(resource.clone()).await.unwrap();
         let mut close = PodSyncRequest {
             cluster_id: scope.cluster_id.clone(),
             session_id: scope.session_id.clone(),

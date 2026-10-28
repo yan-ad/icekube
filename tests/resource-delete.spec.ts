@@ -45,6 +45,11 @@ async function fixture(page: Page, section = "config-maps", options: Controls = 
       __releaseDelete: () => { control.hold = false; pending.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const r = { ...args?.request }; calls.push({ command, request: r });
+        if (command === "cluster_permissions_cancel") return null;
+        if (command === "cluster_permissions_review") {
+          const request = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
+          return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
         if (command === "catalog_connection_states") return [];
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },

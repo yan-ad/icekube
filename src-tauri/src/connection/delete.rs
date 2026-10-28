@@ -1,3 +1,4 @@
+use super::permissions::{PermissionAction, PermissionCheck};
 use super::{
     ConnectionEngine, ConnectionError, ResourceKind, Result, SessionRequest,
     create::{creation_info, plural},
@@ -118,11 +119,30 @@ impl ConnectionEngine {
 
     pub async fn delete(&self, r: DeleteRequest) -> Result<DeleteResult> {
         let namespace = validate(&r)?;
+        let id = identity(&r);
+        let authorization = self
+            .require_permissions(
+                &id,
+                &[
+                    PermissionCheck {
+                        kind: r.kind,
+                        action: PermissionAction::Get,
+                        namespace: namespace.clone(),
+                        name: Some(r.name.clone()),
+                    },
+                    PermissionCheck {
+                        kind: r.kind,
+                        action: PermissionAction::Delete,
+                        namespace: namespace.clone(),
+                        name: Some(r.name.clone()),
+                    },
+                ],
+            )
+            .await?;
         let _permit = self
             .workers
             .try_acquire()
             .map_err(|_| ConnectionError::Busy)?;
-        let id = identity(&r);
         let (client, cancel) = {
             let mut state = self
                 .session
@@ -151,6 +171,7 @@ impl ConnectionEngine {
             slot.cancel = Some(cancel.clone());
             (client, cancel)
         };
+        let client = super::permissions::authorized_client(client, authorization);
         let _guard = CancelOnDrop(cancel.clone());
         let result = super::bounded(
             &cancel,

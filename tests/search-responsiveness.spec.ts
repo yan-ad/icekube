@@ -16,6 +16,10 @@ async function fixture(page: Page, section: string, controlledClock = false) {
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const request = args?.request ?? {};
         calls.push({ command, request });
+        if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId,
+          authorizationEpoch: String(request.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+          items: (request.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: catalog, webLinks: [] };
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId,
           sessionId: request.sessionId ?? `lease-${++lease}`, contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };

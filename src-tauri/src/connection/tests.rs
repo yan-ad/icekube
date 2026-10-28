@@ -98,6 +98,77 @@ pub(super) async fn connected(
         .unwrap()
 }
 
+pub(super) fn allow_permission_reviews(client: Client) -> Client {
+    Client::new(
+        tower::service_fn(move |request: Request<Body>| {
+            let client = client.clone();
+            async move {
+                if request.uri().path() == "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews"
+                {
+                    use http_body_util::BodyExt;
+                    let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                    let value: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+                    return Ok::<_, kube::Error>(Response::new(Body::from(
+                        serde_json::to_vec(&json!({
+                            "apiVersion":"authorization.k8s.io/v1", "kind":"SelfSubjectAccessReview",
+                            "status":{"allowed":true}
+                            ,"spec":value["spec"]
+                        })).unwrap(),
+                    )));
+                }
+                client.send(request).await
+            }
+        }),
+        "default",
+    )
+}
+
+pub(super) async fn connected_authorized(
+    engine: &ConnectionEngine,
+    id: String,
+    client: Client,
+) -> ConnectionSnapshot {
+    connected(engine, id, allow_permission_reviews(client)).await
+}
+
+pub(super) fn denied_permission_client(
+    reviews: Arc<Mutex<Vec<serde_json::Value>>>,
+    allowed: Option<bool>,
+) -> Client {
+    Client::new(
+        tower::service_fn(move |request: Request<Body>| {
+            use http_body_util::BodyExt;
+            let reviews = reviews.clone();
+            async move {
+                if request.uri().path() == "/version" {
+                    return Ok::<_, std::io::Error>(Response::new(Body::from(
+                        br#"{"gitVersion":"v1.36"}"#.to_vec(),
+                    )));
+                }
+                assert_eq!(
+                    request.uri().path(),
+                    "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews",
+                    "denied operations must not reach the resource API"
+                );
+                assert_eq!(request.method(), http::Method::POST);
+                let body = request.into_body().collect().await.unwrap().to_bytes();
+                let value: serde_json::Value = serde_json::from_slice(&body).unwrap();
+                reviews
+                    .lock()
+                    .unwrap()
+                    .push(value["spec"]["resourceAttributes"].clone());
+                let status = allowed
+                    .map(|allowed| json!({"allowed":allowed}))
+                    .unwrap_or_else(|| json!({"evaluationError":"PRIVATE"}));
+                Ok(Response::new(Body::from(serde_json::to_vec(&json!({
+                "apiVersion":"authorization.k8s.io/v1", "kind":"SelfSubjectAccessReview", "spec":value["spec"], "status":status
+            })).unwrap())))
+            }
+        }),
+        "default",
+    )
+}
+
 #[tokio::test]
 async fn session_open_is_metadata_only_and_camel_case_wire_contract_is_closed() {
     let (_root, _catalog, engine, id, target) = fixture();

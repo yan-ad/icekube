@@ -16,6 +16,14 @@ async function fixture(page: Page, route = "/#/cluster/one?section=network") {
           { id: "two", name: "Secondary cluster", contextName: "two", source: "kubeconfig", status: "disconnected", pinned: false, labels: [], color: "#567BA1" },
         ] };
         const snapshot = { clusterId: request.clusterId, sessionId: request.sessionId ?? `lease-${calls.length}`, contextName: request.clusterId, status: "disconnected", apiVersion: null, error: null };
+        if (command === "cluster_permissions_review") {
+          const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+          const checkedAt = Date.now();
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+            authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+            items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "cluster_session_open") return snapshot;
         if (command === "cluster_connect") {
           if (control.holdConnect) await new Promise<void>(resolve => pending.push(resolve));

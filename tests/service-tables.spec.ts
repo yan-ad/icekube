@@ -27,7 +27,7 @@ test("delayed Helm cleanup targets only the old read while the new read is pendi
   await expect(page.getByRole("progressbar", { name: "Loading Helm releases…", exact: true })).toHaveCount(0);
   await expect(grid(page, "Helm Releases")).toContainText("edge");
   expect((await page.evaluate(() => (window as MockWindow).__serviceCalls)).every(
-    (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_pod_detail", "cluster_pod_forward_start", "cluster_pod_forward_stop"].includes(call.command),
+    (call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_permissions_review", "cluster_permissions_cancel", "cluster_permissions_refresh", "cluster_resources", "cluster_resources_cancel", "helm_table", "helm_cancel", "cluster_pod_forward_list", "cluster_pod_detail", "cluster_pod_forward_start", "cluster_pod_forward_stop"].includes(call.command),
   )).toBe(true);
 });
 
@@ -94,6 +94,10 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const request = { ...args?.request };
         calls.push({ command, request });
+        if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId,
+          authorizationEpoch: String(request.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+          items: (request.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
         ] };

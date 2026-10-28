@@ -7,6 +7,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { IconBox, IconCalendarEvent, IconDatabase, IconFileSettings, IconKey, IconNetwork, IconPackages, IconShield, IconSitemap } from "@tabler/icons-react";
 import { clusterSections, type ClusterSectionId } from "./navigation";
 import { destinationDescriptions } from "./destinationDescriptions";
+import { useNavigationPermissions } from "./PermissionProvider";
 
 export type Destination = { id: ClusterSectionId; label: string };
 export type DestinationGridProps = { clusterId: string; title: string; destinations: readonly Destination[] };
@@ -23,10 +24,11 @@ function destinationIcon(id: ClusterSectionId): IconType {
 }
 
 export function DestinationGrid({ clusterId, title, destinations }: DestinationGridProps) {
+  const permissions = useNavigationPermissions();
   return <VStack as="nav" aria-label={`${title} destinations`} padding={4} gap={4}
     style={{ flex: "1 1 0", minHeight: 0, minWidth: 0, overflow: "auto" }}>
     <Grid columns={{ minWidth: 256, max: 6 }} gap={4}>
-      {destinations.map(destination => <Card key={destination.id} padding={0}>
+      {destinations.filter(destination => permissions.visible(destination.id)).map(destination => <Card key={destination.id} padding={0}>
         <Link isStandalone display="block" color="primary" href={`#/cluster/${encodeURIComponent(clusterId)}?section=${destination.id}`}
           aria-labelledby={`destination-${destination.id}`} aria-describedby={`description-${destination.id}`}
           style={{ padding: "var(--spacing-4)", height: "100%", boxSizing: "border-box", textDecoration: "none" }}>

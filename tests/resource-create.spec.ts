@@ -102,6 +102,11 @@ async function fixture(page: Page, section = "config-maps") {
       __releaseCreate: () => { control.hold = false; pending.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const r = { ...args?.request }; calls.push({ command, request: r });
+        if (command === "cluster_permissions_cancel") return null;
+        if (command === "cluster_permissions_review") {
+          const request = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
+          return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
         if (command === "catalog_connection_states") return [];
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
           { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" },
@@ -148,7 +153,14 @@ async function fixture(page: Page, section = "config-maps") {
   await expect(page.getByRole("button", { name: /^(?:Create |Add Namespace$)/ }).first()).toBeVisible();
 }
 async function openEditor(page: Page) {
+  const scope = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  if (await scope.count() && (await scope.innerText()).includes("All namespaces")) await namespace(page, "team-a");
   await page.getByRole("button", { name: /^(?:Create |Add Namespace$)/ }).first().click();
+  const target = dialog(page).getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  if (await target.count()) {
+    await target.click();
+    await page.getByRole("option", { name: "team-a", exact: true }).click();
+  }
   await expect(editor(page)).toBeVisible();
 }
 async function validate(page: Page, yaml = manifest) {
@@ -171,9 +183,9 @@ test("registry covers every supported create kind with no service placeholder", 
 for (const [section, kind, kubeKind, apiVersion, namespaced] of registry) {
   test(`${kind}: FAB opens the expected metadata-only scaffold`, async ({ page }) => {
     await fixture(page, section); await openEditor(page);
-    await expect(editor(page)).toHaveText(`apiVersion: ${apiVersion}\nkind: ${kubeKind}\nmetadata:\n  name: ""\n`);
+    await expect(editor(page)).toHaveText(`apiVersion: ${apiVersion}\nkind: ${kubeKind}\nmetadata:\n  name: ""\n${namespaced ? "  namespace: team-a\n" : ""}`);
     await expect(dialog(page)).toContainText(`Kind: ${kubeKind} (${apiVersion})`);
-    await expect(dialog(page)).toContainText(namespaced ? "From manifest; default if omitted" : "Cluster-scoped");
+    await expect(dialog(page)).toContainText(namespaced ? "Namespace: team-a" : "Cluster-scoped");
     await expect(dialog(page).getByLabel("Creation target")).toContainText("Cluster: Development");
     expect(await calls(page)).toEqual([]);
     await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();

@@ -29,9 +29,12 @@ mod lifecycle_tests;
 mod metrics;
 #[cfg(test)]
 mod node_tests;
+pub(crate) mod permissions;
 pub(crate) mod pod_runtime;
 pub(crate) mod pod_sync;
 pub(crate) mod pods;
+pub(crate) mod rbac;
+pub(crate) mod rbac_management;
 mod renewal;
 #[cfg(test)]
 mod resource_tests;
@@ -64,6 +67,7 @@ pub enum ConnectionError {
     AuthFailed,
     TlsFailed,
     PermissionDenied,
+    PermissionReviewUnavailable,
     ResourceUnavailable,
     Timeout,
     Network,
@@ -323,6 +327,9 @@ struct Session {
     creates: HashMap<ResourceKind, CreateSlot>,
     deletes: HashMap<ResourceKind, delete::DeleteSlot>,
     detail: details::DetailSlot,
+    permissions: permissions::PermissionSession,
+    rbac_users: Option<rbac::UsersSlot>,
+    rbac_management: rbac_management::ManagementSlot,
 }
 struct ReadSlot {
     id: u64,
@@ -343,6 +350,7 @@ pub struct ConnectionEngine {
     file_workers: Arc<tokio::sync::Semaphore>,
     auth_tasks: tokio_util::task::TaskTracker,
     open_generation: AtomicU64,
+    authentication_generation: permissions::AuthenticationGeneration,
     pod_runtime: pod_runtime::PodRuntime,
     pod_sync: pod_sync::PodSyncRuntime,
     helm_runtime: helm::HelmRuntime,
@@ -356,6 +364,7 @@ impl ConnectionEngine {
             file_workers: Arc::new(tokio::sync::Semaphore::new(2)),
             auth_tasks: tokio_util::task::TaskTracker::new(),
             open_generation: AtomicU64::new(0),
+            authentication_generation: Arc::new(AtomicU64::new(1)),
             pod_runtime: pod_runtime::PodRuntime::default(),
             pod_sync: pod_sync::PodSyncRuntime::default(),
             helm_runtime: helm::HelmRuntime::default(),
@@ -369,6 +378,7 @@ impl ConnectionEngine {
                 .lock()
                 .map_err(|_| ConnectionError::StoreUnavailable)?;
             let generation = self.open_generation.fetch_add(1, Ordering::SeqCst) + 1;
+            permissions::invalidate_authentication(&self.authentication_generation);
             state.take();
             generation
         };
@@ -406,6 +416,9 @@ impl ConnectionEngine {
             creates: HashMap::new(),
             deletes: HashMap::new(),
             detail: details::DetailSlot::default(),
+            permissions: permissions::PermissionSession::default(),
+            rbac_users: None,
+            rbac_management: rbac_management::ManagementSlot::default(),
         });
         Ok(snapshot)
     }
@@ -417,11 +430,13 @@ impl ConnectionEngine {
             .map_err(|_| ConnectionError::StoreUnavailable)?;
         // Old disposal cannot release a replacement lease, including one for the same cluster.
         if state.as_ref().is_some_and(|s| matches_session(s, &request)) {
+            permissions::invalidate_authentication(&self.authentication_generation);
             state.take();
         }
         Ok(())
     }
     pub fn shutdown(&self) {
+        permissions::invalidate_authentication(&self.authentication_generation);
         self.pod_sync.cancel_all();
         self.open_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut state) = self.session.lock() {
@@ -483,6 +498,7 @@ impl ConnectionEngine {
                 self.file_workers.clone(),
                 self.auth_tasks.clone(),
                 cancel,
+                self.authentication_generation.clone(),
             )
         })
         .await
@@ -512,6 +528,7 @@ impl ConnectionEngine {
                 "connected" => return Ok(session.snapshot.clone()),
                 _ => {}
             }
+            permissions::invalidate_authentication(&self.authentication_generation);
             session.snapshot.status = "connecting";
             session.snapshot.error = None;
             (session.target.clone(), session.cancel.child_token())
@@ -590,6 +607,15 @@ impl ConnectionEngine {
         let identity = request.session();
         validate_request(&identity)?;
         validate_read_id(request.read_id)?;
+        self.reject_known_denied_read(
+            &identity,
+            &permissions::PermissionCheck {
+                kind: request.kind,
+                action: permissions::PermissionAction::List,
+                namespace: request.namespace.clone(),
+                name: None,
+            },
+        )?;
         let _permit = self
             .workers
             .try_acquire()

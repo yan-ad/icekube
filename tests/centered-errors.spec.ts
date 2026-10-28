@@ -12,6 +12,14 @@ async function fixture(page: Page, section?: string, empty = false) {
       if (command === "preferences_get") return null;
       if (command === "update_state") return { phase: "idle", version: null, error: null };
       if (command === "catalog_connection_states") return [];
+      if (command === "cluster_permissions_review") {
+        const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+        const checkedAt = Date.now();
+        return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+          authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+          items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+      }
+      if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
       if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? "lease-1", contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
       if (command === "catalog_list" || command === "helm_table" || command === "cluster_resources") {
         target.__reads.push(command);
@@ -23,7 +31,7 @@ async function fixture(page: Page, section?: string, empty = false) {
         if (command === "helm_table") return { ...r, truncated: false, items: [] };
         return { ...r, namespace: null, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null, items: [] };
       }
-      if (command.endsWith("_cancel") || command === "cluster_disconnect") return null;
+      if (["helm_cancel", "cluster_resources_cancel", "cluster_disconnect"].includes(command)) return null;
       throw "unsupported";
     } } });
   }, { empty });

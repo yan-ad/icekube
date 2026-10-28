@@ -16,6 +16,14 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
         calls.push({ command, request: args?.request });
         if (options.slow) await new Promise((resolve) => setTimeout(resolve, 250));
+        if (command === "cluster_permissions_review") {
+          const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+          const checkedAt = Date.now();
+          return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+            authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+            items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+        }
+        if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
         if (command === "cluster_session_open") return { clusterId: args?.request.clusterId, sessionId: crypto.randomUUID(), contextName: "dev-context", status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_connect") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, contextName: "dev-context", status: "connected", apiVersion: "v1.34.1", error: null };
         if (command === "cluster_resources") return { ...args?.request, namespace: args?.request.namespace ?? null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: Date.now() };
@@ -62,7 +70,7 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
     if (section === "nodes") await expect(page.getByRole("main")).toContainText("No nodes were returned");
     else await expect(page.getByRole("navigation", { name: `${name} destinations`, exact: true })).toBeVisible();
   }
-  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel"].includes(call.command))).toBe(true);
+  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "cluster_permissions_review", "cluster_permissions_cancel", "cluster_permissions_refresh"].includes(call.command))).toBe(true);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);

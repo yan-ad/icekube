@@ -1,5 +1,72 @@
 # Changelog
 
+## 0.0.2
+
+### Included changes
+
+- Permission-aware resource navigation and scoped action menus distinguish
+  allowed, denied, checking, stale, and unknown access. Read-only means a known
+  allowed read with known denied relevant writes; unknown access is labeled
+  Access unverified, not Read-only. Kubernetes remains the authorization boundary.
+- Access Control > Users is an actual managed ServiceAccount workflow, not only
+  an observed-subject directory: select a namespace, create or edit assignments
+  from existing template ClusterRoles, review exact rules and a server dry-run
+  plan, then confirm apply or deletion. New accounts disable token automount.
+  Plans expire after 120 seconds, are consumed once, and bind session,
+  authorization epoch and UID/resourceVersion baselines. Partial execution stops
+  without automatic rollback. No namespace/role seeding, User CRD, token Secret,
+  credential export or human identity-provider account CRUD is included.
+- Credit SIGHUP's BSD-3-Clause Permission Manager as a pinned workflow reference;
+  no upstream source was ported and Iceon's GPL v3 license is unchanged.
+
+### Fixes since 0.0.1
+
+- macOS credential-helper path resolution, including the GKE helper, accounts
+  for GUI launch environments using bounded known installation locations without
+  a login shell or directory scan. This work landed in
+  `69ec0c2938fa3be1a1af9b98e28117ba1dd4c080`; it does not install a helper or
+  guarantee that any cloud login is available.
+
+### Verification and distribution
+
+Local validation passed 328 backend Rust tests, 9 release-tool tests, and the
+managed-user, permission, lifecycle and mutation fixture regressions. Build,
+formatting and strict Clippy checks passed. Full cross-platform CI and package
+verification gate publication. Native installation, real-cluster RBAC and
+credential-helper smoke testing were not performed. The published 0.0.1
+installer and its warnings remain unchanged.
+See [permission management](docs/permission-management.md) for scope and
+acceptance criteria, including limits on permission coverage.
+
+### Download and installation warning
+
+The installer is `Iceon_0.0.2_aarch64.dmg`, containing `Iceon.app` for Apple
+Silicon Macs only. Publication requires full CI and packaging checks.
+The app is **ad-hoc signed, not Developer ID signed or notarized**; macOS may
+block it. No Intel, Universal, Linux or Windows installer is included. Automatic
+updates are disabled; no updater archive, updater signature or `latest.json`
+is published by the unsigned route.
+
+Download the DMG and `SHASUMS256.txt` from this exact release.
+Verify the download in its directory:
+
+```sh
+shasum -a 256 -c SHASUMS256.txt
+```
+
+Checksums detect corruption, not publisher identity. Open the DMG and drag
+`Iceon.app` into `/Applications`. **Only if you trust this repository and this
+downloaded release**, remove quarantine from the installed app and open it:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/Iceon.app
+open /Applications/Iceon.app
+```
+
+Do not disable Gatekeeper globally or remove quarantine from untrusted downloads.
+Connect only to clusters and credentials you intend the application to use.
+The published `0.0.1` tag and installer are not overwritten by this release.
+
 ## 0.0.1
 
 Iceon is a Kubernetes desktop workspace. This release uses the Iceon name for

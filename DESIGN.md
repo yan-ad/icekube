@@ -39,6 +39,36 @@ and confirmation, plus checkbox selection and confirmed deletion. API availabili
 schema validity and RBAC remain server-enforced; scaffolds are not complete manifests.
 Do not claim Freelens extension compatibility or expose unfinished operations.
 
+### Approved 0.0.2 permission work (implementation in progress)
+
+Access Control > Users is approved as a managed ServiceAccount workflow, not a
+directory-only substitute or normal human/IdP account CRUD. Select an explicit
+user namespace, create an account with `automountServiceAccountToken=false`,
+assign existing prefixed ClusterRole templates to selected namespaces or an
+explicit all-namespaces scope, and choose separate None/Read/Write cluster access.
+These labels select actual rules, not boolean effective-access claims. Review
+exact rules and server dry-run results before confirming create, edit or delete.
+No automatic namespace/role seeds, User CRD, token Secret or credential export
+belongs to this release.
+
+Rust owns the management plan, ownership and unrelated-subject checks,
+UID/resourceVersion baselines and authorization epoch. A plan is single-use,
+expires after 120 seconds and cannot survive a changed authentication epoch.
+Partial execution stops future submissions without automatic rollback or replay.
+Permission-aware navigation and menus remain scoped to supported operations;
+Read-only requires known allowed reads and known denied relevant writes. Unknown
+access is Access unverified, not a denial or a read-only guarantee. This is not a
+claim that every workspace helper already participates in permission gating.
+
+The implementation contract and acceptance criteria are in
+[permission management](docs/permission-management.md). The broader
+[RBAC design and pinned research](docs/permission-manager.md) retain future
+phases, including full Role/Binding editing and separately approved credential
+lifecycle work. SIGHUP Permission Manager at
+`fb6f65e161ac792ab290ffe680d6420caf834a43` is a BSD-3-Clause workflow reference;
+no source was ported and Iceon's GPL v3 license is unchanged. Combined release
+validation, native checks and live-cluster verification are pending.
+
 ## Existing visual direction
 
 The interface is a restrained operational workspace, not a marketing dashboard.

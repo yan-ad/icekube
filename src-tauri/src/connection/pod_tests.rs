@@ -1,11 +1,41 @@
 use super::*;
-use crate::connection::tests::{connected, fake, fixture, normal};
+use crate::connection::tests::{connected_authorized as connected, fake, fixture, normal};
 use std::sync::{Arc, Mutex};
 
 fn pod() -> Value {
     json!({"apiVersion":"v1","kind":"Pod","metadata":{"name":"web-0","namespace":"default","uid":"uid-1","resourceVersion":"42","annotations":{"credential":"PRIVATE_ANNOTATION"},"finalizers":["fixture/finalizer"]},
         "spec":{"nodeName":"node-a","serviceAccountName":"default","containers":[{"name":"web","image":"web:v1","ports":[{"containerPort":8080}],"env":[{"name":"TOKEN","value":"PRIVATE_ENV"}],"command":["PRIVATE_COMMAND"]}],"initContainers":[{"name":"setup","image":"setup:v1"}],"ephemeralContainers":[{"name":"debug","image":"debug:v1"}],"volumes":[{"name":"secret","secret":{"secretName":"PRIVATE_SECRET"}}]},
         "status":{"phase":"Running","podIPs":[{"ip":"10.0.0.2"}],"hostIP":"10.0.0.1","qosClass":"Burstable","containerStatuses":[{"name":"web","ready":true,"restartCount":2,"state":{"running":{"startedAt":"now"}}}],"conditions":[{"type":"Ready","status":"True","message":"PRIVATE_CONDITION"}]}})
+}
+
+#[tokio::test]
+async fn pod_mutation_denial_prevents_resource_dispatch() {
+    for action in [
+        PodAction::Delete,
+        PodAction::ForceDelete,
+        PodAction::Finalize,
+        PodAction::Replace,
+    ] {
+        let (_root, _, engine, id, _) = fixture();
+        let reviews = Arc::new(Mutex::new(Vec::new()));
+        let lease = crate::connection::tests::connected(
+            &engine,
+            id,
+            crate::connection::tests::denied_permission_client(reviews.clone(), Some(false)),
+        )
+        .await;
+        let mut r = mutation(action);
+        if action == PodAction::Replace {
+            r.yaml = Some(serde_yaml_ng::to_string(&yaml_view(&pod())).unwrap());
+        }
+        r.pod.cluster_id = lease.cluster_id;
+        r.pod.session_id = lease.session_id;
+        assert_eq!(
+            engine.pod_mutate(r).await,
+            Err(ConnectionError::PermissionDenied)
+        );
+        assert_eq!(reviews.lock().unwrap()[0]["name"], "web-0");
+    }
 }
 
 #[test]
@@ -271,10 +301,10 @@ async fn stale_mutation_identity_never_writes_and_event_failure_is_not_hidden() 
     let mut r = request();
     r.cluster_id = session.cluster_id;
     r.session_id = session.session_id;
-    assert!(matches!(
-        engine.pod_detail(r).await,
-        Err(ConnectionError::PermissionDenied)
-    ));
+    let details = engine.pod_detail(r).await.unwrap();
+    assert_eq!(details.events_state, PodEventsState::Denied);
+    assert!(details.events.is_empty());
+    assert_eq!(details.uid, "uid-1");
 }
 
 #[tokio::test]

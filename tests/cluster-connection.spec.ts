@@ -91,6 +91,14 @@ async function fixture(page: Page, options: Options = {}) {
             error: null,
           };
           if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters, webLinks: [] };
+          if (command === "cluster_permissions_review") {
+            const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
+            const checkedAt = Date.now();
+            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId,
+              authorizationEpoch: `fixture-${review.sessionId}`, revision: review.readId, checkedAt, expiresAt: checkedAt + 30_000,
+              items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+          }
+          if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
           if (command === "cluster_session_open") {
             const openCall = ++openCalls;
             if (options.openDelay && (!options.reorderedOpens || openCall === 1)) await new Promise((resolve) => setTimeout(resolve, options.openDelay));
@@ -213,7 +221,7 @@ test("section navigation does not reconnect and resource navigation cancels the 
   const previous = before.filter((call) => call.command === "cluster_resources").at(-1)!.request;
   await section(page, "Namespaces");
   await expect(page.getByRole("main").getByRole("status", { name: "Loading namespaces…", exact: true })).toBeVisible();
-  const next = (await callList(page)).slice(before.length);
+  const next = (await callList(page)).slice(before.length).filter(call => ["cluster_resources_cancel", "cluster_resources"].includes(call.command));
   expect(next[0]).toEqual({ command: "cluster_resources_cancel", request: previous });
   expect(next[1].command).toBe("cluster_resources");
   const { query: _query, ...previousScope } = previous;

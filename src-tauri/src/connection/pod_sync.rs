@@ -168,10 +168,31 @@ impl Drop for PodSyncRuntime {
     }
 }
 impl ConnectionEngine {
-    pub fn pod_sync_open(&self, request: ResourceRequest) -> Result<PodSyncSnapshot> {
+    pub async fn pod_sync_open(&self, request: ResourceRequest) -> Result<PodSyncSnapshot> {
         validate(&request)?;
         let scope = request.session();
+        use super::permissions::{PermissionAction, PermissionCheck};
+        let authorization = self
+            .require_permissions(
+                &scope,
+                &[
+                    PermissionCheck {
+                        kind: ResourceKind::Pods,
+                        action: PermissionAction::List,
+                        namespace: request.namespace.clone(),
+                        name: None,
+                    },
+                    PermissionCheck {
+                        kind: ResourceKind::Pods,
+                        action: PermissionAction::Watch,
+                        namespace: request.namespace.clone(),
+                        name: None,
+                    },
+                ],
+            )
+            .await?;
         let (client, cancel) = self.pod_client(&scope)?;
+        let client = super::permissions::authorized_client(client, authorization);
         let snapshot = self.pod_sync.start(client, request, cancel)?;
         self.check_pod_session(&scope)?;
         Ok(snapshot)

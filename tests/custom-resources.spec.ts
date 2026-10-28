@@ -5,6 +5,10 @@ async function mockCustomResources(page: Page, scenario: "normal" | "paged" | "p
     Object.assign(window, { isTauri: true, __customCalls: [], __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
       const request = args?.request;
       (window as any).__customCalls.push({ command, request });
+      if (command === "cluster_permissions_review") return { clusterId: request!.clusterId, sessionId: request!.sessionId, readId: request!.readId,
+        authorizationEpoch: String(request!.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+        items: (request!.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
+      if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
       if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: false }] };
       if (command === "cluster_session_open") return { ...request, sessionId: "session-one", contextName: "dev", status: "disconnected", apiVersion: null, error: null };
       if (command === "cluster_connect") return { ...request, contextName: "dev", status: "connected", apiVersion: "v1.35", error: null };

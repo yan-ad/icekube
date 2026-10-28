@@ -1,6 +1,6 @@
 use super::{
     create::*,
-    tests::{connected, fixture},
+    tests::{connected_authorized as connected, fixture},
     *,
 };
 use http::{Request, Response};
@@ -18,6 +18,33 @@ fn request(kind: ResourceKind) -> CreateRequest {
         yaml: format!("apiVersion: {api}\nkind: {kind_name}\nmetadata:\n  name: sample\n"),
         dry_run: true,
         read_id: 1,
+    }
+}
+
+#[tokio::test]
+async fn create_reviews_block_dry_run_and_commit_before_resource_dispatch() {
+    for dry_run in [true, false] {
+        for allowed in [Some(false), None] {
+            let (_root, _, engine, id, _) = fixture();
+            let reviews = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+            let lease = tests::connected(
+                &engine,
+                id,
+                tests::denied_permission_client(reviews.clone(), allowed),
+            )
+            .await;
+            let mut r = request(ResourceKind::Pods);
+            r.cluster_id = lease.cluster_id;
+            r.session_id = lease.session_id;
+            r.dry_run = dry_run;
+            assert!(engine.create(r).await.is_err());
+            let reviews = reviews.lock().unwrap();
+            assert_eq!(reviews.len(), 1);
+            assert_eq!(reviews[0]["verb"], "create");
+            assert_eq!(reviews[0]["resource"], "pods");
+            assert_eq!(reviews[0]["namespace"], "default");
+            assert!(reviews[0].get("name").is_none());
+        }
     }
 }
 fn kinds() -> Vec<ResourceKind> {

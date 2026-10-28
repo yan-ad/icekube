@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedSearch } from "./useDebouncedSearch";
 import { ContentLoading } from "../components/ContentLoading";
 import { ContentError } from "../components/ContentError";
@@ -31,6 +31,8 @@ import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector"
 import type { ResourceReference } from "./detailApi";
 import { useResourceRowMenu } from "./RowContextMenu";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
+import { usePermissionChecks } from "./PermissionProvider";
+import { ReadOnlyNotice } from "./ReadOnlyNotice";
 
 function PodHealth({ item }: { item: ResourceItem }) {
   const state = item.columns.health;
@@ -116,19 +118,30 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const { status, group } = filters;
   const [live, setLive] = useState(false);
   const [syncStatus, setSyncStatus] = useState<PodSyncStatus>("stopped");
+  const listCheck = { kind: view.kind!, namespace: namespace || null, action: "list" as const };
+  const permissions = usePermissionChecks([listCheck]);
+  const lastListDecision = useRef(permissions.decision(listCheck));
+  if (!permissions.loading) lastListDecision.current = permissions.decision(listCheck);
+  const listDecision = permissions.loading ? lastListDecision.current : permissions.decision(listCheck);
+  const checking = permissions.loading && !permissions.observed(listCheck);
+  const denied = listDecision === "denied";
+  const readable = !checking && !denied;
+  const watchCheck = { kind: view.kind!, namespace: namespace || null, action: "watch" as const };
+  const watchPermissions = usePermissionChecks(view.kind === "pods" ? [watchCheck] : []);
+  const watchAllowed = !permissions.loading && listDecision === "allowed" && !watchPermissions.loading && watchPermissions.decision(watchCheck) === "allowed";
   const filtered = !!(filters.query.trim() || filters.status || filters.group);
   const requestFiltered = !!(query.trim() || status || group);
-  const syncing = live && view.kind === "pods" && token === null && !filtered && !pending && !requestFiltered;
+  const syncing = live && watchAllowed && view.kind === "pods" && token === null && !filtered && !pending && !requestFiltered;
   const auto = useAutoRefresh({ scope: JSON.stringify([clusterId, sessionId, view.kind, namespace, token, query, status, group]), interval: 10_000,
-    busy: loading, paused: pending || syncing || index > 0, refresh: () => setRevision(value => value + 1) });
+    busy: loading, paused: !readable || pending || syncing || index > 0, refresh: () => setRevision(value => value + 1) });
   useRegisterWorkspacePageActions({ clusterId, section: view.section,
-    previous: { enabled: index > 0 && !loading && !pending, run: previous },
-    next: { enabled: !pending && !syncing && !!page?.continueToken && !loading && !error, run: () => { if (page?.continueToken) next(page.continueToken); } },
-    live: view.kind === "pods" ? { enabled: token === null && !filtered && !pending, checked: live, run: () => setLive(value => !value) } : undefined,
+    previous: { enabled: readable && index > 0 && !loading && !pending, run: previous },
+    next: { enabled: readable && !pending && !syncing && !!page?.continueToken && !loading && !error, run: () => { if (page?.continueToken) next(page.continueToken); } },
+    live: view.kind === "pods" ? { enabled: watchAllowed && token === null && !filtered && !pending, checked: live && watchAllowed, run: () => { if (permissions.decision(listCheck) === "allowed" && watchPermissions.decision(watchCheck) === "allowed") setLive(value => !value); } } : undefined,
   });
-  useRegisterWorkspaceRefresh({ clusterId, section: view.section, enabled: !loading && !pending, refresh: () => setRevision((value) => value + 1) });
+  useRegisterWorkspaceRefresh({ clusterId, section: view.section, enabled: denied || readable && !loading && !pending, refresh: () => { if (denied) permissions.retry(); else setRevision((value) => value + 1); } });
   useEffect(() => {
-    if (!view.kind || syncing || pending) return;
+    if (!view.kind || !readable || syncing || pending) return;
     let disposed = false;
     const request = { clusterId, sessionId, kind: view.kind, readId: nextReadId(), namespace: namespace || null, continueToken: token,
       ...(requestFiltered ? { query: query.trim() || null, status: status || null, group: group || null } : {}) };
@@ -142,7 +155,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       .catch((reason) => { if (!disposed) auto.deliver(() => { if (!disposed) { setError(errorCode(reason)); auto.complete(reason); } }); })
       .finally(() => { if (!disposed) setLoading(false); });
     return () => { disposed = true; void cancelResources(request).catch(() => {}); };
-  }, [clusterId, sessionId, view.kind, namespace, token, index, revision, syncing, query, status, group, requestFiltered, pending]);
+  }, [clusterId, sessionId, view.kind, namespace, token, index, revision, syncing, query, status, group, requestFiltered, pending, readable]);
   useEffect(() => {
     if (!syncing) return;
     let disposed = false;
@@ -187,12 +200,12 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const actionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, filters, syncing]);
   const selectionScope = JSON.stringify([actionScope, rows]);
   const visibleLoading = loading && !auto.background.current;
-  const inventoryUnavailable = pending || visibleLoading || !!error || syncing && syncStatus !== "syncing";
+  const inventoryUnavailable = !readable || pending || visibleLoading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
   const tableColumns = useMemo(() => columns(view, Date.now(), openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-    <TableToolbar label={view.label} count={page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}>
+    <TableToolbar label={view.label} count={readable && page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}>
       {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
       <TextInput label={`Search ${view.label}`} isLabelHidden value={filters.query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
         startIcon={IconSearch} hasClear size="sm" width="min(18rem, 100%)" />
@@ -202,6 +215,10 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
         options={[{ value: "", label: "All groups" }, ...groups.map(value => ({ value, label: value }))]} />}
       {filtered && <IconButton label="Clear filters" tooltip="Clear filters" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => onFilter({ query: "", status: "", group: "" })} />}
     </TableToolbar>
+    {checking ? <ContentLoading label="Checking access…" /> : denied ? <ContentError title="Access denied"
+      message={view.namespaced && !namespace ? "All-namespaces access is denied. Choose a namespace to check access within it." : "Your Kubernetes permissions do not allow viewing these resources in this scope."}
+      onRetry={permissions.retry} /> : <>
+    {!permissions.loading && listDecision === "unknown" && <ReadOnlyNotice unverified />}
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} refreshing active={visibleLoading && !!page} />
     {loading && !page && <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} />}
@@ -212,5 +229,6 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
     {view.kind && <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
       selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
+    </>}
   </VStack>;
 }
