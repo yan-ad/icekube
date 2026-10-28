@@ -11,6 +11,7 @@ import { nextReadId, type ResourceItem, type ResourceKind, type SessionRequest }
 import { cancelResourceDelete, deleteMessage, deleteResource, hasDeleteIdentity, resourceRowKey, type DeleteCancelRequest, type DeleteTarget } from "./deleteApi";
 import { resourceCreation } from "./resourceViews";
 import { usePermissionChecks } from "./PermissionProvider";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 
 type Props = SessionRequest & { kind: ResourceKind; selected: ResourceItem[]; disabled: boolean;
   onAccepted: (keys: Set<string>) => void; onRefresh: () => void; onNotice: (notice: string) => void;
@@ -47,6 +48,7 @@ export function ResourceDelete(props: Props) {
 function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, contextName, disabled, invalidated, onAccepted, onRefresh, onNotice, onClose }: Props & {
   targets: DeleteTarget[]; invalidated: boolean; clusterName: string; contextName: string; onClose: () => void;
 }) {
+  useUpdateBlocker(true, "Resource deletion is open.");
   const [busy, setBusy] = useState(false);
   const [outcomes, setOutcomes] = useState<Outcome[] | null>(null);
   const [progress, setProgress] = useState<Outcome[]>([]);

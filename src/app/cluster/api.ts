@@ -13,7 +13,7 @@ const messages = {
   kubeconfigInvalid: "The saved kubeconfig or selected context is invalid. Import the corrected file in Catalog.",
   sourceChanged: "The saved kubeconfig has changed. Refresh the saved metadata before connecting again.",
   unsupportedAuth: "This context uses an authentication method that is not supported yet.",
-  authHelperMissing: "The kubeconfig authentication helper could not be found. Desktop apps may have a different PATH than Terminal. Verify the helper is installed, then use its absolute executable path in the kubeconfig or an explicit exec.env PATH and reconnect.",
+  authHelperMissing: "The configured authentication helper was not found after automatic lookup. Check that the required cloud authentication plugin is installed. Iceon detects standard and literal SDK installation paths without changing your kubeconfig; an explicit command or PATH in that file is respected.",
   authHelperFailed: "The authentication helper failed. Complete its login using your trusted CLI, then reconnect. Helper output is not displayed because it may contain credentials.",
   authHelperInvalidResponse: "The authentication helper returned invalid credentials. Check that it supports the kubeconfig's ExecCredential API version, then reconnect.",
   authInteractiveRequired: "This authentication helper requires interactive input. Complete login in your trusted CLI and use a non-interactive credential helper before reconnecting.",

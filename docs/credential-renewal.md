@@ -58,11 +58,25 @@ absolute directories first, followed by Homebrew's `/opt/homebrew/bin` and
 directories. Empty, relative and duplicate inherited entries are omitted.
 Lookup is capped at 128 directories / 32 KiB. Absolute commands remain absolute;
 relative commands with path separators stay relative to the canonical kubeconfig
-directory. Both initial exec authentication and renewal use this behavior.
+directory. Both initial exec authentication and renewal use this behavior. Bare
+commands are resolved to the first canonical, regular executable in this child
+PATH before spawning; explicit path-containing commands are not substituted.
 
-The app does not evaluate shell startup files, invoke a login shell, scan
-directories, install tools, run legacy provider `cmd-path`, or change its global
-environment. Helper arguments, credentials and ExecCredential output never enter
+If the initial spawn still reports NotFound, automatic fallback reads bounded
+literal PATH entries from `/etc/paths` and up to 32 regular files in
+`/etc/paths.d`. Only for `gke-gcloud-auth-plugin` or `gcloud`, it also recognizes
+literal SDK source declarations in `.zshrc`, `.zprofile`, `.bashrc`,
+`.bash_profile`, and `.profile`. Those declarations can identify a custom
+`google-cloud-sdk` installation, including paths containing spaces. They are
+never executed: only the SDK's `bin` path is extracted. Unrecognized shell
+expressions, command substitution, parent traversal, and symlinked hint files
+are rejected. Reads are capped at 8 KiB per file and 32 KiB total. Discovery and
+the fallback spawn share the helper supervisor's original deadline and
+cancellation. New paths are adopted only if the exact configured helper exists.
+
+The app does not evaluate shell startup files, invoke a login shell, recursively
+search the filesystem, install tools, run legacy provider `cmd-path`, or change
+its global environment. Helper arguments, credentials and ExecCredential output never enter
 renderer diagnostics. Explicit kubeconfig environments and installed executables
 remain user-controlled trust boundaries; this is not executable identity pinning.
 

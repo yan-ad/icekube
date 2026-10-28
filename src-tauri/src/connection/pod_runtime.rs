@@ -286,6 +286,10 @@ impl Default for PodRuntime {
     }
 }
 impl PodRuntime {
+    pub(super) fn has_active_work(&self) -> bool {
+        self.stream_slots.available_permits() != STREAM_LIMIT
+            || self.forward_slots.available_permits() != FORWARD_LIMIT
+    }
     pub(super) async fn drain(&self) {
         self.cancel_all();
         self.tasks.close();
@@ -1023,3 +1027,21 @@ async fn forward_connection(
 #[cfg(test)]
 #[path = "pod_runtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod update_gate_tests {
+    use super::*;
+
+    #[test]
+    fn opening_and_retiring_streams_and_forwards_block_installation() {
+        let runtime = PodRuntime::default();
+        assert!(!runtime.has_active_work());
+        let stream = runtime.stream_slots.try_acquire().unwrap();
+        assert!(runtime.has_active_work());
+        drop(stream);
+        let forward = runtime.forward_slots.try_acquire().unwrap();
+        assert!(runtime.has_active_work());
+        drop(forward);
+        assert!(!runtime.has_active_work());
+    }
+}

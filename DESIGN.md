@@ -415,8 +415,10 @@ not persisted into Catalog's metadata snapshot.
   Credential helpers are Rust-owned, not Pod terminals. Inherited proxy routing is not enabled.
   On macOS, a helper without an explicit kubeconfig PATH receives a child-only,
   bounded PATH containing inherited absolute directories and fixed Homebrew/Google
-  Cloud SDK installation locations. No login shell, shell startup files, directory
-  scanning, automatic installation or global environment modification is used.
+  Cloud SDK installation locations. If spawning still reports NotFound, bounded
+  system PATH hints and literal Google SDK source declarations can resolve a
+  custom installation. No login shell, shell-file evaluation, recursive search,
+  automatic installation or global environment modification is used.
   Explicit `exec.env.PATH` remains unchanged. See `connection/auth_path.rs` and
   [credential renewal](docs/credential-renewal.md) for bounds and fixture coverage.
 - `connection/transport.rs` uses `kube` 4.2.0 with rustls. It sends only allowlisted
@@ -485,15 +487,27 @@ editing/dialog pause, visibility/online return and teardown) and
 `tests/resource-tables.spec.ts` (quiet Pod LIST, delayed delivery and manual
 continuation). These fixture obligations are not a current passing-suite claim.
 
-### Prerelease distribution
+### Application updates and distribution
 
-The `0.0.1` distribution is Apple Silicon only, ad-hoc signed, not Developer
-ID signed or notarized. Its updater key/endpoints are empty and no updater manifest
-or signing artifacts are published; automatic inventory reads do not imply automatic
-application updates. See [release instructions](docs/releases.md) for trusted-app
-installation and the required app-scoped quarantine command, two-OS Rust/Linux
-frontend CI, cold-runner fixture prebuild, and CI-gated draft verification/publication.
-Workflow configuration is not evidence of a completed release or native smoke test.
+The `0.0.3` route targets Apple Silicon macOS and Windows 32-bit x86. Rust
+`updates.rs` owns bounded GitHub `latest.json` checks, newer stable-version
+selection, package download and the official Tauri signature/installation path.
+The embedded minisign public key and authenticated package version are required;
+there is no unsigned fallback. This artifact signature is separate from OS trust:
+macOS remains ad-hoc signed without Developer ID/notarization, and Windows has
+no Authenticode certificate. Existing 0.0.1/0.0.2 installations have no updater
+trust key and need a one-time manual 0.0.3 installation.
+
+After bootstrap, verified updates install and restart automatically only when
+safe. Every admitted native window must acknowledge the current preparation ID
+after freezing interaction. `WindowGate` blocks new windows during preparation
+and restart. Dirty editors, dialogs, mutations, terminals and forwards defer
+installation; the backend closes admission and drains session work before install.
+The UI reports `preparing` and `restarting` without editing or saving user drafts.
+See [automatic updates](docs/automatic-updates.md) and
+[release instructions](docs/releases.md) for trust, limits and installation warnings.
+CI packaging, Windows x86 compilation and native update/install smoke verification
+remain release gates, not results established by workflow configuration.
 
 ### Resource tables and namespace scope
 

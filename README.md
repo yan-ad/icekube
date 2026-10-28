@@ -11,9 +11,9 @@ and open Pod logs or a shell without leaving the workspace.
 The goal is a familiar daily workspace where you can understand what is running,
 investigate a problem, and take the next action without constantly switching tools.
 
-[Iceon 0.0.2 release](https://github.com/yan-ad/iceon/releases/tag/0.0.2)
-(pending CI and publication). The existing
-[0.0.1 download](https://github.com/yan-ad/iceon/releases/tag/0.0.1) is unchanged.
+[Iceon 0.0.3 downloads](https://github.com/yan-ad/iceon/releases/tag/0.0.3)
+(pending CI and publication): Apple Silicon macOS and Windows 32-bit x86.
+[Latest published release](https://github.com/yan-ad/iceon/releases/latest).
 
 ## What you can do today
 
@@ -29,7 +29,7 @@ investigate a problem, and take the next action without constantly switching too
   manages namespace-scoped ServiceAccounts and template-based grants with
   exact-rule review, server dry-run, and confirmed create, edit, or delete.
   This is not human identity-provider account CRUD and does not export tokens
-  or credentials. The combined 0.0.2 changes are awaiting release validation;
+  or credentials. For scope and verification limits,
   see [permission management](docs/permission-management.md).
 - Browse Helm charts and releases, and install charts.
   Helm workflows require an optional local Helm binary.
@@ -44,11 +44,11 @@ Iceon is early in development. Detail coverage varies by resource kind. Loading,
 empty, failed, stale, and partial results have distinct states, so a retained list
 is not presented as a fresh or complete view of the cluster.
 
-## Install on macOS
+## Install
 
-The planned 0.0.2 download is for **Apple Silicon Macs only**, containing
-`Iceon.app`. Publication is pending full CI and packaging checks. Intel Macs,
-Windows, and Linux installers are not included in this release.
+For **Apple Silicon Macs**, download `Iceon_0.0.3_aarch64.dmg` from the
+release page and drag `Iceon.app` to `/Applications`. Intel Macs and Linux
+installers are not included. Publication requires full CI and packaging checks.
 
 The app uses ad-hoc signing. It is not Developer ID signed or Apple notarized,
 so macOS may block it on first launch.
@@ -64,8 +64,19 @@ xattr -dr com.apple.quarantine /Applications/Iceon.app
 
 A matching checksum detects corruption; it does not authenticate the publisher.
 Never disable Gatekeeper globally or remove quarantine from an untrusted download.
-Automatic application updates are disabled. Download future versions manually
-from [GitHub Releases](https://github.com/yan-ad/iceon/releases).
+
+For **Windows 32-bit x86**, use
+[`Iceon_0.0.3_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.3/Iceon_0.0.3_x86-setup.exe).
+The installer targets the current user and downloads WebView2 if missing, so that
+step needs network access. It has no Authenticode certificate; SmartScreen may
+show an unknown publisher. Windows compilation and native smoke checks are pending.
+
+Install 0.0.3 manually once. Older 0.0.1/0.0.2 installations cannot update
+themselves to it because they have no updater trust key. After bootstrap, Iceon
+checks GitHub for signed newer versions and automatically installs and restarts
+when all windows and backend work are safe. It does not save or discard drafts
+for you. See [automatic updates](docs/automatic-updates.md) and
+[installation details](docs/releases.md) for the trust model and OS warnings.
 
 ## Where Iceon is heading
 

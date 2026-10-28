@@ -13,6 +13,7 @@ import { TextInput } from "@astryxdesign/core/TextInput";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest } from "./api";
 import { NamespaceSelector } from "./NamespaceScope";
 import { usePermissionChecks } from "./PermissionProvider";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 import { applyManagedUser, cancelManagedUsers, planManagedUser, readOnlyTemplate, validManagedUser, validUsersNamespace, type ApplyResponse, type Assignment, type CancelRequest, type ManagedTemplate, type ManagedUser, type Operation, type PlanSummary, type UserPlan } from "./managedUsersApi";
 
 type Props = SessionRequest & { initial: ManagedUser; templates: ManagedTemplate[]; onBack: (changed: boolean) => void };
@@ -46,6 +47,7 @@ function NamespaceMultiSelect({ assignment, index, userNamespace, busy, onChange
   </VStack>;
 }
 export function ManagedUserEditor({ clusterId, sessionId, initial, templates, onBack }: Props) {
+  useUpdateBlocker(true, "Managed user editing is open.");
   const [user, setUser] = useState<ManagedUser>(() => structuredClone(initial));
   const [plan, setPlan] = useState<UserPlan | null>(null);
   const [planEpoch, setPlanEpoch] = useState<string | null>(null);

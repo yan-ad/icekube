@@ -58,10 +58,27 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<WebviewWindow> {
     #[cfg(not(target_os = "macos"))]
     let builder = builder.decorations(!SEAMLESS);
 
+    let gate = app
+        .state::<std::sync::Arc<crate::updates::WindowGate>>()
+        .inner()
+        .clone();
+    let generation = gate.admit(label)?;
     crate::native_navigation::register_window(app, label);
     let result = builder.build();
-    if result.is_err() {
-        crate::native_navigation::forget_window(app, label);
+    match &result {
+        Ok(window) => {
+            gate.complete(label, generation, crate::updates::window_identity(window));
+            let label = label.to_owned();
+            window.on_window_event(move |event| {
+                if matches!(event, tauri::WindowEvent::Destroyed) {
+                    gate.forget(&label, generation);
+                }
+            });
+        }
+        Err(_) => {
+            gate.forget(label, generation);
+            crate::native_navigation::forget_window(app, label);
+        }
     }
     result
 }

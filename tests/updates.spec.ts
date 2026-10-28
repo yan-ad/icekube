@@ -1,49 +1,38 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-async function fixture(page: Page, phase = "ready", fail = false) {
-  await page.addInitScript(({ phase, fail }) => {
-    const calls: string[] = [];
-    Object.assign(window, {
-      isTauri: true, __updateCalls: calls,
-      __TAURI_INTERNALS__: { invoke: async (command: string) => {
-        calls.push(command);
-        if (command === "update_state") return { phase, version: phase === "ready" ? "1.2.3" : null, error: null };
-        if (command === "update_restart") {
-          await new Promise(resolve => setTimeout(resolve, 300));
-          if (fail) throw "installFailed";
-          return;
-        }
-        if (command === "catalog_list") return { revision: 1, clusters: [], webLinks: [], discoveryError: null };
-        return;
-      } },
-    });
-  }, { phase, fail });
-}
-
-test("only staged verified readiness offers restart; duplicate restart is disabled", async ({ page }) => {
-  await fixture(page);
+test("updater snapshots accept only automatic lifecycle phases and bounded public fields", async ({ page }) => {
   await page.goto("/");
-  const button = page.getByRole("button", { name: "Restart to Update", exact: true });
-  await expect(button).toBeVisible();
-  await button.click();
-  await expect(button).toHaveAttribute("aria-disabled", "true");
-  expect(await page.evaluate(() => (window as unknown as { __updateCalls: string[] }).__updateCalls.filter(c => c === "update_restart").length)).toBe(1);
-});
-for (const phase of ["idle", "checking", "downloading", "disabled", "error"]) {
-  test(`${phase} is not ready`, async ({ page }) => {
-    await fixture(page, phase);
-    await page.goto("/");
-    await expect.poll(() => page.evaluate(() => (window as unknown as { __updateCalls: string[] }).__updateCalls.includes("update_state"))).toBe(true);
-    await expect(page.getByRole("button", { name: "Restart to Update", exact: true })).toHaveCount(0);
+  const result = await page.evaluate(async () => {
+    // @ts-expect-error Vite serves source modules for the IPC fixture.
+    const api = await import("/src/app/updates/api.ts");
+    const valid = ["disabled", "idle", "checking", "downloading", "ready", "preparing", "restarting", "error", "stopped"].map(phase => api.parseUpdateSnapshot({ phase, version: "1.2.3", error: null, ...(phase === "preparing" ? { preparationId: "0123456789abcdef0123456789abcdef" } : {}) }));
+    const invalid = [
+      { phase: "available", version: "1.2.3", error: null },
+      { phase: "downloaded", version: "1.2.3", error: null },
+      { phase: "ready", version: null, error: null },
+      { phase: "ready", version: "1.2.3", error: "secret backend details" },
+      { phase: "ready", version: "1.2.3", error: null, assetName: "installer.dmg" },
+      { phase: "downloading", version: "1.2.3", error: null, progress: { downloaded: 2, total: 1 } },
+      { phase: "preparing", version: "1.2.3", error: null },
+      { phase: "preparing", version: "1.2.3", error: null, preparationId: "not-an-attempt" },
+      { phase: "preparing", version: null, error: null, preparationId: "0123456789abcdef0123456789abcdef" },
+      { phase: "ready", version: "1.2.3", error: null, preparationId: "0123456789abcdef0123456789abcdef" },
+    ].map(value => { try { api.parseUpdateSnapshot(value); return false; } catch { return true; } });
+    return { valid, invalid, disabled: api.disabledUpdateSnapshot };
   });
-}
-test("restart failure is accessible and does not claim success", async ({ page }) => {
-  await fixture(page, "ready", true);
-  await page.goto("/");
-  await page.getByRole("button", { name: "Restart to Update", exact: true }).click();
-  await expect(page.getByRole("alert", { name: "Update error" })).toContainText("could not be installed");
+  expect(result.valid).toHaveLength(9);
+  expect(result.invalid).toEqual(Array(10).fill(true));
+  expect(result.disabled).toEqual({ phase: "disabled", version: null, error: null });
 });
-test("browser preview never calls updater IPC or shows restart", async ({ page }) => {
+
+test("browser preview never invokes readiness or updater IPC", async ({ page }) => {
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Restart to Update", exact: true })).toHaveCount(0);
+  expect(await page.evaluate(async () => {
+    // @ts-expect-error Vite serves source modules for the IPC fixture.
+    const api = await import("/src/app/updates/api.ts");
+    await api.reportUpdateWindowReady(true);
+    await api.reportUpdateWindowPrepared("0123456789abcdef0123456789abcdef", true);
+    return await api.readUpdateState();
+  })).toEqual({ phase: "disabled", version: null, error: null });
+  await expect(page.getByRole("button", { name: /Restart to Update|Download update|Show download/ })).toHaveCount(0);
 });

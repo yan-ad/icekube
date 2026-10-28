@@ -9,6 +9,7 @@ import { Text } from "@astryxdesign/core/Text";
 import { YamlEditor } from "../components/YamlEditor";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { IconPlus } from "@tabler/icons-react";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 import { TableActionOverlay } from "./TableToolbar";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { nextReadId, type SessionRequest } from "./api";
@@ -41,6 +42,7 @@ function ScopedHelmInstall(props: Props) {
 function InstallEditor({ clusterId, sessionId, namespace: initialNamespace, charts, contextChart, clusterName, contextName, onClose, onInstalled }: Props & {
   clusterName: string; contextName: string; onClose: (sent: boolean) => void;
 }) {
+  useUpdateBlocker(true, "Helm installation is open.");
   const [namespace, setNamespace] = useState(initialNamespace);
   const [releaseName, setReleaseName] = useState("");
   const [chart, setChart] = useState(contextChart?.name ?? "");

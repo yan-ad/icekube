@@ -13,6 +13,7 @@ import { cancelResourceCreate, createMessage, createResource, creationNamespaced
 import { resourceCreation } from "./resourceViews";
 import { usePermissionChecks } from "./PermissionProvider";
 import { NamespaceSelector } from "./NamespaceScope";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 
 type Props = SessionRequest & { kind: ResourceKind; namespace?: string; label?: string; onCreated: () => void; inline?: boolean; onNotice?: (notice: string) => void };
 const uncertainty = "Creation may already have reached the API server. Cancellation does not roll it back. Refresh the inventory and check the resource before retrying.";
@@ -46,6 +47,7 @@ function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterNam
 }) {
   const info = resourceCreation[kind];
   const namespaced = creationNamespaced(kind);
+  useUpdateBlocker(true, "Resource creation is open.");
   const [targetNamespace, setTargetNamespace] = useState(namespace || "default");
   const check = { kind, namespace: namespaced ? targetNamespace : null, action: "create" as const };
   const permissions = usePermissionChecks([check]);

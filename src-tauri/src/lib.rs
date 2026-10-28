@@ -547,12 +547,12 @@ pub fn run() {
                     Some(s.preferences.proxy.https_proxy)
                 }
             });
+            app.manage(native_navigation::Navigation::default());
+            app.manage(Arc::new(updates::WindowGate::default()));
+            window::create_main_window(app)?;
             let updater =
                 updates::UpdateEngine::start_with_proxy(app.handle().clone(), proxy.as_deref());
             app.manage(updater);
-
-            app.manage(native_navigation::Navigation::default());
-            window::create_main_window(app)?;
             native_navigation::install(app)?;
             context_menu::install(app);
             #[cfg(target_os = "macos")]
@@ -622,6 +622,8 @@ pub fn run() {
             route_history_clear,
             updates::update_state,
             updates::update_check,
+            updates::update_window_ready,
+            updates::update_window_prepared,
             updates::update_restart
         ])
         .build(tauri::generate_context!())

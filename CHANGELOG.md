@@ -1,5 +1,57 @@
 # Changelog
 
+## 0.0.3
+
+### Included changes
+
+- Automatic application updates from the public GitHub stable feed, with a pinned
+  embedded minisign public key and authenticated package-version checks. Rust
+  bounds downloads and uses the official Tauri bundle/installer update path;
+  unsigned packages, invalid signatures and mismatched versions are rejected.
+- Safe automatic installation and restart after every admitted window freezes
+  interaction and acknowledges its current preparation ID. New-window admission
+  closes during preparation. Dirty editors, dialogs, active mutations, terminals
+  and port forwards defer installation; backend session work drains before install.
+  Preparing and Restarting are reported without saving or changing user drafts.
+- A Windows 32-bit x86 NSIS setup route alongside the Apple Silicon macOS DMG.
+  Windows updates use quiet, current-user installation. WebView2 is downloaded
+  if missing, which requires a network connection.
+- macOS credential-helper discovery first resolves a canonical executable from
+  the helper's child PATH. After a not-found result, bounded fallback reads
+  `/etc/paths`, at most 32 `/etc/paths.d` entries and five startup files for
+  literal Google Cloud SDK source hints only. Files are never executed; reads
+  are limited to 8 KiB per file and 32 KiB total. No helper download or automatic
+  cloud login is performed; genuinely missing helpers remain errors.
+
+### Verification and distribution
+
+Local checks passed 348 backend tests, 16 release-tool tests, and 252 updater,
+authentication and active-work UI regressions, plus build and strict Clippy. Full
+CI and both platform packages gate publication. Native installation/update smoke
+checks remain outstanding; this entry makes no Windows-native or real-credential
+provider success claim. Existing RBAC behavior, SIGHUP credits,
+branding, icons and record colors are unchanged by this release.
+
+The release publishes exactly seven assets: `Iceon_0.0.3_aarch64.dmg`,
+`Iceon_0.0.3_aarch64.app.tar.gz`, its `.sig`, `Iceon_0.0.3_x86-setup.exe`,
+its `.sig`, `latest.json` and `SHASUMS256.txt`. SHA-256 checksums and GitHub
+asset digests detect transfer corruption; updater trust comes from the package
+signature and its authenticated version, not the checksum file.
+
+### First installation and OS warnings
+
+Install 0.0.3 manually once, including when upgrading from 0.0.1 or 0.0.2:
+those versions shipped without an updater trust key and cannot acquire automatic
+updates retroactively. Subsequent verified versions install automatically when
+safe, without a separate manual installation step.
+
+macOS is ad-hoc signed, not Developer ID signed or notarized. Only for a trusted
+download installed in `/Applications`, use
+`xattr -dr com.apple.quarantine /Applications/Iceon.app` if macOS blocks launch.
+Do not disable Gatekeeper globally. Windows has no Authenticode certificate;
+SmartScreen may report an unknown publisher. No SmartScreen bypass is provided.
+See [installation](docs/releases.md) and [automatic updates](docs/automatic-updates.md).
+
 ## 0.0.2
 
 ### Included changes

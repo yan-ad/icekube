@@ -1,20 +1,23 @@
-# Signed Iceon releases for Apple Silicon
+# Historical OS-signed Iceon release tooling
 
-For the unsigned stable `0.0.1` release, use [the separate unsigned route](releases.md),
-not `cargo xtask release`. The signed route below does not skip missing secrets.
+For the current `0.0.3` release, use [the current release workflow](releases.md),
+not `cargo xtask release`. That route publishes macOS aarch64 and Windows x86
+installers with version-bound updater signatures, without OS signing certificates.
+The route documented below is the older macOS-only Developer ID/notarized route;
+it does not skip missing secrets and is not the 0.0.3 shipping procedure.
 The product is Iceon, with Rust package/executable `iceon`, bundle identifier
 `ad.yan.iceon`, and the `yan-ad/iceon` repository.
 
-This pipeline publishes **macOS aarch64 only**. The install artifact is a DMG. The additional `.app.tar.gz`, `.app.tar.gz.sig`, and `latest.json` assets are required by Tauri's updater, not additional platform installers. No Intel, Universal, Linux or Windows release is built.
+This older pipeline publishes **macOS aarch64 only**. The install artifact is a DMG. The additional `.app.tar.gz`, `.app.tar.gz.sig`, and `latest.json` assets are required by Tauri's updater, not additional platform installers. It does not build Windows, Intel, Universal or Linux installers. Do not confuse that limitation with the current workflow's Windows x86 route.
 
 ## One-time setup
 
-1. Commit the release tooling and the Rust updater integration before releasing. Configure `bundle.createUpdaterArtifacts: true`, the real updater public key content in `plugins.updater.pubkey`, and this endpoint in `src-tauri/tauri.conf.json`:
+1. This historical route requires `bundle.createUpdaterArtifacts: true`, the real updater public key content in `plugins.updater.pubkey`, and this endpoint in `src-tauri/tauri.conf.json` (already configured for the current route):
 
    `https://github.com/yan-ad/iceon/releases/latest/download/latest.json`
 
    This is the Iceon release repository. Do not rename the release repository without deliberately migrating both the tooling and updater configuration. Actual xtask publication refuses other remote URLs.
-2. Generate the Tauri updater signing key yourself using the official signer instructions. Keep an encrypted backup outside this repository. Do not commit private keys, passwords, certificates or real kubeconfigs. A replacement private key cannot update existing installs that trust the old public key without a planned key migration. This task did not generate or read any signing credentials.
+2. Preserve the existing updater trust key. The current route already embeds its public key and uses a configured GitHub Actions private-key secret. Do not generate a replacement as a routine release step, read signing secrets or commit private keys, passwords, certificates or real kubeconfigs. A replacement private key cannot update installs that trust the old key without a planned migration. This documentation pass did not access private signing material.
 3. Obtain a **Developer ID Application** certificate and export its private key as a password-protected `.p12`. Base64-encode the `.p12` for `APPLE_CERTIFICATE`. An Apple Development or ad-hoc identity is not a substitute for a notarized distribution identity.
 4. Add these repository secrets (or adapt the workflow to an explicitly protected GitHub Environment):
 
@@ -58,7 +61,7 @@ The xtask:
 
 ## What Actions does
 
-A pushed `v*` tag starts `.github/workflows/release.yml`. It checks tag/version agreement with `cargo xtask verify-release`, validates the real updater configuration and required secrets, installs frozen Bun dependencies, tests xtask, and builds on `macos-15` with an explicit `arm64` host assertion and only `aarch64-apple-darwin` Rust target. Tauri receives `--bundles dmg` plus Cargo `--locked`; it signs, notarizes and staples through the standard CLI path.
+A pushed `v*` tag starts the historical `.github/workflows/release.yml`. It checks tag/version agreement with `cargo xtask verify-release`, validates the real updater configuration and required secrets, installs frozen Bun dependencies, tests xtask, and builds on `macos-15` with an explicit `arm64` host assertion and only `aarch64-apple-darwin` Rust target. Tauri receives `--bundles dmg` plus Cargo `--locked`; it signs, notarizes and staples through the standard CLI path. `verify-release` still expects a `v`-prefixed stable tag and configured updater key/artifacts; it is not the current exact `0.0.3` no-`v` workflow guard. The current route uses `verify-update` for package signatures and authenticated versions on both platforms.
 
 The pinned Tauri v0 action creates an exact-tag **draft** release and uploads the DMG, signed updater archive/signature and generated `latest.json`. A follow-up step checks the exact asset set, tag/version, aarch64-only manifest entries (both `darwin-aarch64` and v0's `darwin-aarch64-app` alias), exact-tag download URL, and equality with the uploaded signature. Only then does it publish and mark the release latest. No plain executable is uploaded. GitHub supplies source-code archives independently.
 

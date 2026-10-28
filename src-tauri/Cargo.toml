@@ -1,6 +1,6 @@
 [package]
 name = "iceon"
-version = "0.0.2"
+version = "0.0.3"
 description = "Iceon Kubernetes desktop workspace"
 authors = ["Yanuar"]
 edition = "2024"
@@ -24,6 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml_ng = "0.10"
 sha2 = "0.10"
+semver = "1"
 tempfile = "3"
 url = "2"
 rusqlite = { version = "0.40", features = ["bundled", "limits"] }
@@ -44,6 +45,9 @@ process-wrap = { version = "=10.0.1", default-features = false, features = ["tok
 tauri-plugin-updater = "=2.14.0"
 reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider", "stream"] }
 tauri-plugin-dialog = "2"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util"] }

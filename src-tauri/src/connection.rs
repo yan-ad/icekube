@@ -6,7 +6,7 @@ use std::{
     future::Future,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
     },
     time::Duration,
 };
@@ -80,6 +80,43 @@ pub enum ConnectionError {
     StoreUnavailable,
     HelmUnavailable,
     Conflict,
+}
+#[cfg(test)]
+mod update_gate_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_mutation_or_busy_worker_defers_without_dropping_the_session() {
+        let (_root, _catalog, engine, id, _) = tests::fixture();
+        engine.open(OpenRequest { cluster_id: id }).await.unwrap();
+        {
+            let mut state = engine.session.lock().unwrap();
+            state.as_mut().unwrap().creates.insert(
+                ResourceKind::Pods,
+                CreateSlot {
+                    id: 1,
+                    cancel: Some(CancellationToken::new()),
+                },
+            );
+        }
+        assert!(engine.has_active_runtime());
+        assert!(!engine.prepare_update_shutdown());
+        assert!(engine.session.lock().unwrap().is_some());
+        engine
+            .session
+            .lock()
+            .unwrap()
+            .as_mut()
+            .unwrap()
+            .creates
+            .clear();
+        let worker = engine.workers.try_acquire().unwrap();
+        assert!(!engine.prepare_update_shutdown());
+        assert!(engine.session.lock().unwrap().is_some());
+        drop(worker);
+        assert!(engine.prepare_update_shutdown());
+        assert!(engine.session.lock().unwrap().is_none());
+    }
 }
 impl Session {
     fn catalog_status(&self) -> &'static str {
@@ -344,6 +381,7 @@ impl Drop for Session {
 
 // A single main-window workspace owns the lease. Replacing or dropping it cancels all work.
 pub struct ConnectionEngine {
+    update_closing: AtomicBool,
     catalog: Arc<CatalogEngine>,
     session: Mutex<Option<Session>>,
     workers: tokio::sync::Semaphore,
@@ -358,6 +396,7 @@ pub struct ConnectionEngine {
 impl ConnectionEngine {
     pub fn new(catalog: Arc<CatalogEngine>) -> Self {
         Self {
+            update_closing: AtomicBool::new(false),
             catalog,
             session: Mutex::new(None),
             workers: tokio::sync::Semaphore::new(4),
@@ -377,6 +416,9 @@ impl ConnectionEngine {
                 .session
                 .lock()
                 .map_err(|_| ConnectionError::StoreUnavailable)?;
+            if self.update_closing.load(Ordering::SeqCst) {
+                return Err(ConnectionError::Busy);
+            }
             let generation = self.open_generation.fetch_add(1, Ordering::SeqCst) + 1;
             permissions::invalidate_authentication(&self.authentication_generation);
             state.take();
@@ -402,6 +444,9 @@ impl ConnectionEngine {
             .session
             .lock()
             .map_err(|_| ConnectionError::StoreUnavailable)?;
+        if self.update_closing.load(Ordering::SeqCst) {
+            return Err(ConnectionError::Busy);
+        }
         if generation != self.open_generation.load(Ordering::SeqCst) {
             return Err(ConnectionError::StaleSession);
         }
@@ -434,6 +479,43 @@ impl ConnectionEngine {
             state.take();
         }
         Ok(())
+    }
+    pub fn has_active_runtime(&self) -> bool {
+        self.pod_runtime.has_active_work()
+            || self.session.lock().map_or(true, |state| {
+                state.as_ref().is_some_and(|session| {
+                    session.creates.values().any(|slot| slot.cancel.is_some())
+                        || session.deletes.values().any(|slot| slot.cancel.is_some())
+                })
+            })
+    }
+    pub fn prepare_update_shutdown(&self) -> bool {
+        // Reserving worker permits closes the gap between checking pending mutations and
+        // dropping their session. A short read may defer this tick, not cancel user work.
+        let Ok(_workers) = self.workers.try_acquire_many(4) else {
+            return false;
+        };
+        if self.has_active_runtime() {
+            return false;
+        }
+        let Ok(mut state) = self.session.lock() else {
+            return false;
+        };
+        if state
+            .as_ref()
+            .is_some_and(|session| session.rbac_management.is_executing())
+        {
+            return false;
+        }
+        self.update_closing.store(true, Ordering::SeqCst);
+        permissions::invalidate_authentication(&self.authentication_generation);
+        self.open_generation.fetch_add(1, Ordering::SeqCst);
+        self.pod_sync.cancel_all();
+        state.take();
+        true
+    }
+    pub fn finish_update_failure(&self) {
+        self.update_closing.store(false, Ordering::SeqCst);
     }
     pub fn shutdown(&self) {
         permissions::invalidate_authentication(&self.authentication_generation);

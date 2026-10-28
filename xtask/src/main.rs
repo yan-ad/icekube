@@ -10,8 +10,10 @@ use std::{
 };
 use toml_edit::{DocumentMut, value};
 
+mod verify_update;
+
 type Result<T> = std::result::Result<T, String>;
-const HELP: &str = "Usage: cargo xtask release <X.Y.Z|patch|minor|major> [--dry-run] [--branch main] [--remote origin]\n       cargo xtask verify-release <vX.Y.Z>\nDry run performs local validation only, never fetches, writes, commits, tags or pushes.";
+const HELP: &str = "Usage: cargo xtask release <X.Y.Z|patch|minor|major> [--dry-run] [--branch main] [--remote origin]\n       cargo xtask verify-release <vX.Y.Z>\n       cargo xtask verify-update <CONFIG.json> <FILE.sig> <FILE> <X.Y.Z>\nDry run performs local validation only, never fetches, writes, commits, tags or pushes.";
 
 #[derive(Debug)]
 struct Options {
@@ -34,6 +36,27 @@ fn entry() -> Result<()> {
     let args: Vec<String> = env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] || args == ["-h"] {
         println!("{HELP}");
+        return Ok(());
+    }
+    if args.first().map(String::as_str) == Some("verify-update") {
+        if args.len() != 5 {
+            return Err(HELP.into());
+        }
+        verify_update::run(
+            Path::new(&args[1]),
+            Path::new(&args[2]),
+            Path::new(&args[3]),
+            &args[4],
+        )
+        .map_err(|error| error.to_string())?;
+        println!(
+            "Verified update {}: {}",
+            args[4],
+            Path::new(&args[3])
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+        );
         return Ok(());
     }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))

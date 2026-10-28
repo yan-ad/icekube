@@ -31,6 +31,11 @@ pub struct ManagementRequest {
     pub read_id: u64,
     pub namespace: String,
 }
+impl ManagementSlot {
+    pub(super) fn is_executing(&self) -> bool {
+        self.executing
+    }
+}
 
 fn validate_rule(rule: &Rule) -> Result<()> {
     let resource = !rule.resources.is_empty();

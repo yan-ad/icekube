@@ -1,6 +1,6 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
-import { parseUpdateSnapshot, type UpdateSnapshot } from "../updates/api";
+import { disabledUpdateSnapshot, hasUpdateEngine, parseUpdateSnapshot, type UpdateSnapshot } from "../updates/api";
 import { getWindowLayout } from "./window-layout";
 
 export const NATIVE_NAVIGATION_EVENT = "iceon://native-navigation";
@@ -21,6 +21,6 @@ export async function subscribeNativeNavigation(onAction: (action: NativeAction)
 }
 
 export async function checkForUpdates(): Promise<UpdateSnapshot> {
-  if (!isTauri() || getWindowLayout().platform === "browser") return { phase: "disabled", version: null, error: null };
+  if (!hasUpdateEngine()) return disabledUpdateSnapshot;
   return parseUpdateSnapshot(await invoke<unknown>("update_check"));
 }

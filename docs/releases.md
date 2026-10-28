@@ -1,96 +1,128 @@
-# Iceon unsigned releases
+# Iceon 0.0.3 releases
 
-The next stable unsigned release is **`0.0.2`**, without a `v` prefix, in the existing
-[yan-ad/iceon](https://github.com/yan-ad/iceon) repository. The displayed product
-is Iceon, packaged as `Iceon.app`; its internal executable stays `iceon` and
-its bundle identifier stays `ad.yan.iceon`. No Apple Developer or Tauri updater
-signing secrets are required for this route.
+The current release route is `.github/workflows/release-unsigned.yml` in
+[yan-ad/iceon](https://github.com/yan-ad/iceon). Despite its historical filename,
+it now publishes **signed updater artifacts without paid OS signing certificates**.
+The application remains Iceon, with executable `iceon` and bundle identifier
+`ad.yan.iceon`. The next stable tag is **`0.0.3`**, without a `v` prefix.
+Publication, Windows x86 compilation and native installation/update verification
+are pending; configuration is not evidence that a release has shipped.
 
-Release preparation is pending CI and packaging verification; these instructions
-do not claim that 0.0.2 is already published or natively smoke-tested. The
-published [0.0.1 release](https://github.com/yan-ad/iceon/releases/tag/0.0.1),
-its tag, and its assets remain unchanged. The workflow at that historical tag
-retains its original exact-0.0.1 route; the current workflow authorizes only 0.0.2.
+## Release gate
 
-## Stable publication gate
+The workflow accepts only the exact canonical stable `0.0.3` tag. A manual
+dispatch selects an existing tag at the same Actions commit. Tag, checkout HEAD
+and reusable CI commit must agree. All application manifests and the local
+`iceon` Cargo.lock package version must match. It never creates, moves or
+force-pushes tags and refuses to reuse an existing release.
 
-`.github/workflows/release-unsigned.yml` runs for the exact `0.0.2` tag push.
-It also supports manual dispatch with an optional existing `tag` input. When
-using dispatch, select that tag or the same commit as the workflow ref: the tag
-commit, checked-out HEAD and Actions `github.sha` must all agree. The reusable
-CI checks always run for the Actions commit; a different target tag is rejected.
-The route rejects other versions, `v0.0.2`, prereleases, build metadata and
-noncanonical versions.
-It never creates, moves or force-pushes a tag.
+Full reusable CI gates both platform packages. It includes Rust formatting,
+locked tests and strict Clippy, frontend build and Chromium fixture shards.
+Windows additionally compiles all backend targets for `i686-pc-windows-msvc`
+before packaging. Fixtures use mocked IPC, not real credentials or clusters.
+A failed or cancelled required job prevents publication.
 
-The full `.github/workflows/ci.yml` gates packaging: Rust formatting, locked tests
-and Clippy on macOS and Linux, followed by the frontend build and all four Chromium
-fixture shards. Browser fixtures consume the real same-commit Rust 41-kind detail
-contract. These tests use mocked IPC, not a real kubeconfig or cluster. A failed
-or cancelled required check prevents publication.
+The public minisign key is embedded in `src-tauri/tauri.conf.json` with
+`requireSignedVersion: true`. The matching private key is configured as the
+GitHub Actions `TAURI_SIGNING_PRIVATE_KEY` secret. Do not read, print or commit
+that secret or local signing-key material. CI proves key agreement before
+packaging, signs canonical artifact names with `--app-version`, then verifies
+both signatures and authenticated versions with `cargo xtask verify-update`.
+The current route passes an empty updater-key password; it does not require an
+Apple Developer ID, notarization account or Windows Authenticode certificate.
 
-The release job checks all application manifest versions and the dynamically
-resolved local Cargo.lock package against the tag. Product branding is not used
-as a Rust package name. It requires the tracked `.github/release-unsigned.json`
-overlay: ad-hoc signing (`-`), updater artifacts off, empty updater key and endpoints.
-The signed-stable workflow remains separate and still requires all its secrets.
+## Packages and publication
 
-An ARM64 `macos-15` runner installs frozen Bun dependencies and builds only the
-Apple Silicon app with Cargo `--locked`. No Apple or updater secrets are passed;
-notarization is skipped. The DMG is created with `hdiutil`, without Finder or
-AppleScript. Verification covers product name, both version fields, bundle ID,
-internal executable, ARM64 architecture, ad-hoc signature and updater absence.
-The DMG is verified and mounted read-only. Its app's signature and architecture
-are checked, its plist/executable/signed-resource manifest compared against the
-built app, and its Applications symlink required to point to `/Applications`.
+The matrix builds macOS aarch64 on `macos-15` and Windows 32-bit x86 on
+`windows-2022`, with frozen Bun dependencies and locked Cargo dependencies:
 
-Only `Iceon_0.0.2_aarch64.dmg` and `SHASUMS256.txt` are uploaded. The workflow
-extracts only the matching `## 0.0.2` section from the tracked
-[changelog](../CHANGELOG.md) into `/tmp/iceon-release-notes.md`, not an extra
-release asset. It creates an exact-tag draft with those notes,
-downloads the uploaded files, compares their SHA-256 hashes against the verified
-local bytes and checks the checksum file. Only then does it publish with
-`draft=false`, `prerelease=false` and mark it latest. GitHub's source archives
-are independent. No `latest.json`, updater archive or updater signature is
-published. A failed upload/verification can leave a draft; do not overwrite a
-published release or retarget a published tag. Fixes require a new version and
-a reviewed extension of the exact-tag workflow allowlist.
+- macOS uses `.github/release-autoupdate.json`, ad-hoc application signing and
+  signed updater archives. A headless DMG is created with `hdiutil`. Checks cover
+  bundle metadata, ARM64 architecture, ad-hoc signature, mounted read-only DMG
+  contents and the `/Applications` symlink. Notarization is skipped.
+- Windows uses `.github/release-windows.json`, the `i686-pc-windows-msvc` target
+  and a current-user NSIS installer. Checks inspect application and installer
+  32-bit PE architecture, application version metadata, absent Authenticode
+  signatures and the expected updater artifact. Native Windows behavior still
+  requires a separate smoke test.
 
-All jobs default to `contents: read`; only publication has `contents: write`.
-The automatic Actions token is not an Apple/updater signing secret. No release
-asset URL supplied by an input or remote manifest is used for downloading files.
+After both builds succeed, the publisher verifies transferred updater artifacts
+and assembles exactly these seven public assets:
 
-## Install on Apple Silicon
+| Asset | Purpose |
+| --- | --- |
+| `Iceon_0.0.3_aarch64.dmg` | First/manual Apple Silicon installation |
+| `Iceon_0.0.3_aarch64.app.tar.gz` | macOS app-bundle updater package |
+| `Iceon_0.0.3_aarch64.app.tar.gz.sig` | Version-bound minisign signature |
+| `Iceon_0.0.3_x86-setup.exe` | First/manual Windows x86 installer and updater package |
+| `Iceon_0.0.3_x86-setup.exe.sig` | Version-bound minisign signature |
+| `latest.json` | Stable feed for `darwin-aarch64` and `windows-i686` |
+| `SHASUMS256.txt` | SHA-256 checksums of the other six assets |
 
-After publication, download the DMG and `SHASUMS256.txt` from the
-[exact stable release](https://github.com/yan-ad/iceon/releases/tag/0.0.2).
-Run `shasum -a 256 -c SHASUMS256.txt` in the download directory. A checksum detects
-corruption, not publisher identity. Open the DMG and drag `Iceon.app` into
-`/Applications`.
+The publisher extracts only the matching canonical `## 0.0.3` changelog section
+(optionally suffixed ` (pending CI)`) into release notes. It creates a fresh
+exact-tag draft, uploads the assets, audits GitHub asset names/sizes/digests,
+downloads them again and compares bytes and checksums. It rechecks updater
+signatures and versions before publishing as stable/latest and confirms the
+latest release identity. GitHub-generated source archives are separate.
+Only publication receives `contents: write`; other jobs default to read access.
 
-This app is **ad-hoc signed, not Developer ID signed or notarized**. macOS may
-block it. Only if you trust the repository and this downloaded release:
+Checksums and GitHub digests validate transfer integrity, not update authority.
+The application trusts the embedded key, package signature and authenticated
+version. See [automatic updates](automatic-updates.md) for runtime checks.
+Do not retarget a published tag, replace its assets or mark an older version
+latest. Source fixes need a new version and a reviewed workflow allowlist change.
+A failed publication may leave a draft; inspect the failure rather than clobber it.
+
+## First installation
+
+Install 0.0.3 manually once, including from 0.0.1/0.0.2. Those older versions
+shipped without an updater public key and cannot acquire automatic updates
+retroactively. Once 0.0.3 is installed, later verified stable updates install and
+restart automatically when safe, without another manual installation step.
+
+### Apple Silicon macOS
+
+Download the DMG and checksum file from the
+[0.0.3 release](https://github.com/yan-ad/iceon/releases/tag/0.0.3) after publication.
+For a DMG-only download, compare `shasum -a 256 Iceon_0.0.3_aarch64.dmg` with its
+entry in `SHASUMS256.txt`. If all six listed assets are present, use
+`shasum -a 256 -c SHASUMS256.txt`. A matching checksum is not publisher identity.
+Open the DMG and drag `Iceon.app` into `/Applications`.
+
+The app is **ad-hoc signed, not Developer ID signed or notarized**. If macOS
+blocks it, only when you trust the repository and downloaded release:
 
 ```sh
 xattr -dr com.apple.quarantine /Applications/Iceon.app
 open /Applications/Iceon.app
 ```
 
-Do not disable Gatekeeper globally. Do not remove quarantine from untrusted
-downloads. No Intel, Universal, Linux or Windows installer is included. Automatic
-updates are disabled. Native installation, Gatekeeper behavior, file pickers,
-window controls and live-cluster workflows still require a real Apple Silicon
-smoke test; CI bundle checks do not establish those results.
+Do not disable Gatekeeper globally or remove quarantine from untrusted downloads.
+Native Gatekeeper acceptance, installation, window controls and actual bundle
+replacement are not proven by CI metadata checks.
+
+### Windows 32-bit x86
+
+Download
+[`Iceon_0.0.3_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.3/Iceon_0.0.3_x86-setup.exe)
+and compare its SHA-256 with the checksum file, for example using PowerShell
+`Get-FileHash .\Iceon_0.0.3_x86-setup.exe -Algorithm SHA256`. Run the setup to
+install for the current user. This is an installer, not a portable raw executable.
+If WebView2 is missing, the installer downloads its bootstrapper and requires
+network access. Automatic updates use quiet NSIS installation.
+
+Neither application nor installer has an Authenticode certificate. SmartScreen
+may warn about an unknown publisher; this guide does not bypass SmartScreen or
+recommend disabling Windows protection. Windows compilation, installer execution,
+WebView2 setup and update/relaunch smoke checks remain pending. No Linux, Intel
+macOS, Universal macOS or separate Windows ARM/x64 installer is built by this route.
 
 ## Other routes
 
-- [Dry run](release-dry-run.md): manual, full-CI packaging rehearsal, read-only
-  permissions, seven-day Actions evidence only, no release or tag creation.
-- `.github/workflows/prerelease-unsigned.yml`: canonical `X.Y.Z-pre.N` tags without
-  `v`, full CI, matching versions and same-commit checkout. Current builds use
-  `Iceon.app` and internal `iceon`. It publishes a prerelease, explicitly not
-  latest. Historical `0.0.1-pre.2` assets retain their original names; the new
-  display name does not rename historical assets or tags.
-- [Signed stable route](releasing.md): existing stable `v*` tags and stable-only
-  `cargo xtask release` tooling. Developer ID, notarization and updater secrets
-  remain mandatory. Do not use that tool for the unsigned `0.0.2` tag.
+- [Historical signed stable tooling](releasing.md): `v*` tags, Developer ID and
+  notarization requirements, macOS-only packaging. Not the 0.0.3 publication route.
+- [Dry run](release-dry-run.md): the separate packaging rehearsal, not publication
+  or evidence of current two-platform update coverage.
+- `.github/workflows/prerelease-unsigned.yml`: separate prerelease tags and policy,
+  not this stable/latest feed. Historical release tags/assets remain unchanged.

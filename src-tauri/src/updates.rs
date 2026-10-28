@@ -2,6 +2,7 @@
 use futures::{StreamExt, future::BoxFuture};
 use serde::Serialize;
 use std::{
+    collections::HashMap,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -16,6 +17,130 @@ const CHECK_TIMEOUT: Duration = Duration::from_secs(30);
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(180);
 const MANIFEST_LIMIT: usize = 256 * 1024;
 const PACKAGE_LIMIT: usize = 256 * 1024 * 1024;
+const READY_LEASE: Duration = Duration::from_secs(5);
+const PREPARATION_TIMEOUT: Duration = Duration::from_secs(10);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Target {
+    MacArm,
+    WindowsX86,
+}
+impl Target {
+    fn for_platform(os: &str, arch: &str) -> Option<Self> {
+        match (os, arch) {
+            ("macos", "aarch64") => Some(Self::MacArm),
+            ("windows", "x86") => Some(Self::WindowsX86),
+            _ => None,
+        }
+    }
+    fn key(self) -> &'static str {
+        match self {
+            Self::MacArm => "darwin-aarch64",
+            Self::WindowsX86 => "windows-i686",
+        }
+    }
+    fn asset(self, version: &str) -> String {
+        match self {
+            Self::MacArm => format!("Iceon_{version}_aarch64.app.tar.gz"),
+            Self::WindowsX86 => format!("Iceon_{version}_x86-setup.exe"),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct WindowGate(Mutex<WindowLifecycle>);
+#[derive(Default)]
+struct WindowLifecycle {
+    windows: HashMap<String, AdmittedWindow>,
+    preparation: Option<(String, tokio::time::Instant)>,
+    restarting: bool,
+    retry_after: Option<tokio::time::Instant>,
+}
+struct AdmittedWindow {
+    generation: u64,
+    identity: Option<usize>,
+    ready: Option<tokio::time::Instant>,
+    prepared: Option<tokio::time::Instant>,
+}
+impl WindowGate {
+    pub fn admit(&self, label: &str) -> std::io::Result<u64> {
+        let mut gate = self.0.lock().unwrap();
+        if gate.preparation.is_some() || gate.restarting || gate.windows.contains_key(label) {
+            return Err(std::io::Error::other(
+                "Window admission is closed for update preparation.",
+            ));
+        }
+        let mut bytes = [0; 8];
+        getrandom::fill(&mut bytes).map_err(std::io::Error::other)?;
+        let generation = u64::from_ne_bytes(bytes);
+        gate.windows.insert(
+            label.to_owned(),
+            AdmittedWindow {
+                generation,
+                identity: None,
+                ready: None,
+                prepared: None,
+            },
+        );
+        Ok(generation)
+    }
+    pub fn complete(&self, label: &str, generation: u64, identity: Option<usize>) {
+        let mut gate = self.0.lock().unwrap();
+        if let Some(entry) = gate
+            .windows
+            .get_mut(label)
+            .filter(|w| w.generation == generation)
+        {
+            entry.identity = identity;
+        }
+    }
+    pub fn forget(&self, label: &str, generation: u64) {
+        let mut gate = self.0.lock().unwrap();
+        if gate
+            .windows
+            .get(label)
+            .is_some_and(|w| w.generation == generation)
+        {
+            gate.windows.remove(label);
+        }
+    }
+}
+pub fn window_identity(window: &tauri::WebviewWindow) -> Option<usize> {
+    #[cfg(target_os = "macos")]
+    {
+        window.ns_window().ok().map(|pointer| pointer as usize)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        window.hwnd().ok().map(|handle| handle.0 as usize)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = window;
+        None
+    }
+}
+impl WindowLifecycle {
+    fn all_ready(&self) -> bool {
+        self.windows
+            .values()
+            .all(|w| w.identity.is_some() && w.ready.is_some_and(|at| at.elapsed() < READY_LEASE))
+    }
+    fn all_prepared(&self) -> bool {
+        self.windows.values().all(|w| {
+            w.identity.is_some() && w.prepared.is_some_and(|at| at.elapsed() < READY_LEASE)
+        })
+    }
+    fn thaw(&mut self) {
+        self.preparation = None;
+        self.restarting = false;
+        self.retry_after = Some(tokio::time::Instant::now() + READY_LEASE);
+        for entry in self.windows.values_mut() {
+            entry.ready = None;
+            entry.prepared = None;
+        }
+    }
+}
 
 #[derive(Clone, Debug, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -47,6 +172,7 @@ pub enum Phase {
     Checking,
     Downloading,
     Ready,
+    Preparing,
     Restarting,
     Error,
     Stopped,
@@ -57,6 +183,8 @@ pub struct UpdateSnapshot {
     pub phase: Phase,
     pub version: Option<String>,
     pub error: Option<UpdateError>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub preparation_id: Option<String>,
 }
 trait Package: Send {
     fn install(self: Box<Self>) -> Result<(), UpdateError>;
@@ -78,14 +206,10 @@ pub struct UpdateEngine {
     cancel: CancellationToken,
     tasks: TaskTracker,
     check_requested: tokio::sync::Notify,
+    gate: Arc<WindowGate>,
 }
 
 impl UpdateEngine {
-    /// Call once from setup and manage the returned Arc. Debug and non-Apple-silicon builds stay offline.
-    #[allow(dead_code)]
-    pub fn start(app: AppHandle) -> Arc<Self> {
-        Self::start_with_proxy(app, None)
-    }
     pub fn request_check(&self) -> UpdateSnapshot {
         let snapshot = self.snapshot();
         if matches!(snapshot.phase, Phase::Idle | Phase::Error) && !self.cancel.is_cancelled() {
@@ -105,11 +229,8 @@ impl UpdateEngine {
             .unwrap_or("")
             .trim()
             .to_owned();
-        let enabled = cfg!(all(
-            target_os = "macos",
-            target_arch = "aarch64",
-            not(debug_assertions)
-        ));
+        let target = Target::for_platform(std::env::consts::OS, std::env::consts::ARCH);
+        let enabled = target.is_some() && !cfg!(debug_assertions);
         let error = if !enabled {
             None
         } else if key.is_empty() {
@@ -117,37 +238,55 @@ impl UpdateEngine {
         } else {
             proxy.as_ref().err().cloned()
         };
-        let engine = Self::new(
+        let engine = Self::with_gate(
             if enabled && error.is_none() {
                 Phase::Idle
             } else {
                 Phase::Disabled
             },
             error,
+            app.state::<Arc<WindowGate>>().inner().clone(),
         );
         if enabled && engine.snapshot().error.is_none() {
             let provider = Arc::new(OfficialProvider {
-                app,
+                app: app.clone(),
                 key,
                 proxy: proxy.unwrap_or(None),
+                target: target.unwrap(),
             });
             engine.launch(provider, tauri::async_runtime::handle().inner());
+            let owner = engine.clone();
+            engine.tasks.spawn_on(async move {
+                let mut ticks = tokio::time::interval(Duration::from_secs(1));
+                loop {
+                    tokio::select! { biased; _ = owner.cancel.cancelled() => break, _ = ticks.tick() => {} }
+                    if matches!(owner.snapshot().phase, Phase::Ready | Phase::Preparing) {
+                        let _ = owner.install_ready(&app).await;
+                    }
+                }
+            }, tauri::async_runtime::handle().inner());
         }
         engine
     }
+    #[cfg(test)]
     fn new(phase: Phase, error: Option<UpdateError>) -> Arc<Self> {
+        Self::with_gate(phase, error, Arc::new(WindowGate::default()))
+    }
+    fn with_gate(phase: Phase, error: Option<UpdateError>, gate: Arc<WindowGate>) -> Arc<Self> {
         Arc::new(Self {
             inner: Arc::new(Mutex::new(Inner {
                 snapshot: UpdateSnapshot {
                     phase,
                     version: None,
                     error,
+                    preparation_id: None,
                 },
                 staged: None,
             })),
             cancel: CancellationToken::new(),
             tasks: TaskTracker::new(),
             check_requested: tokio::sync::Notify::new(),
+            gate,
         })
     }
     fn launch(self: &Arc<Self>, provider: Arc<dyn Provider>, runtime: &tokio::runtime::Handle) {
@@ -162,13 +301,17 @@ impl UpdateEngine {
             tokio::select! { biased; _ = self.cancel.cancelled() => break, _ = ticks.tick() => {}, _ = self.check_requested.notified() => {} }
             {
                 let mut state = self.inner.lock().unwrap();
-                if matches!(state.snapshot.phase, Phase::Ready | Phase::Restarting) {
+                if matches!(
+                    state.snapshot.phase,
+                    Phase::Ready | Phase::Preparing | Phase::Restarting
+                ) {
                     continue;
                 }
                 state.snapshot = UpdateSnapshot {
                     phase: Phase::Checking,
                     version: None,
                     error: None,
+                    preparation_id: None,
                 };
             }
             let result = tokio::select! { biased; _ = self.cancel.cancelled() => break, result = tokio::time::timeout(CHECK_TIMEOUT + DOWNLOAD_TIMEOUT, provider.stage(self.inner.clone())) => result.unwrap_or(Err(UpdateError::TimedOut)) };
@@ -182,6 +325,7 @@ impl UpdateEngine {
                         phase: Phase::Ready,
                         version: Some(staged.version.clone()),
                         error: None,
+                        preparation_id: None,
                     };
                     state.staged = Some(staged);
                 }
@@ -198,18 +342,100 @@ impl UpdateEngine {
     }
     pub fn shutdown(&self) {
         self.cancel.cancel();
+        let mut gate = self.gate.0.lock().unwrap();
         let mut state = self.inner.lock().unwrap();
         state.staged.take();
         if state.snapshot.phase != Phase::Restarting {
             state.snapshot.phase = Phase::Stopped;
             state.snapshot.version = None;
+            state.snapshot.preparation_id = None;
+            gate.thaw();
         }
         self.tasks.close();
     }
     pub async fn drain(&self) {
         self.tasks.wait().await;
     }
-    fn take_ready(&self) -> Result<Staged, UpdateError> {
+    fn begin_preparation(&self) -> Result<(), UpdateError> {
+        let mut gate = self.gate.0.lock().unwrap();
+        let mut state = self.inner.lock().unwrap();
+        if self.cancel.is_cancelled() {
+            return Err(UpdateError::Stopped);
+        }
+        if state.snapshot.phase == Phase::Preparing {
+            return Ok(());
+        }
+        if state.snapshot.phase == Phase::Restarting {
+            return Err(UpdateError::Busy);
+        }
+        if state.snapshot.phase != Phase::Ready || state.staged.is_none() {
+            return Err(UpdateError::NotReady);
+        }
+        if !gate.all_ready()
+            || gate
+                .retry_after
+                .is_some_and(|at| at > tokio::time::Instant::now())
+        {
+            return Err(UpdateError::Busy);
+        }
+        let mut bytes = [0; 16];
+        getrandom::fill(&mut bytes).map_err(|_| UpdateError::Unavailable)?;
+        let attempt = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
+        gate.preparation = Some((attempt.clone(), tokio::time::Instant::now()));
+        for entry in gate.windows.values_mut() {
+            entry.prepared = None;
+        }
+        state.snapshot.phase = Phase::Preparing;
+        state.snapshot.preparation_id = Some(attempt);
+        Ok(())
+    }
+    fn abort_preparation(gate: &mut WindowLifecycle, state: &mut Inner) {
+        gate.thaw();
+        state.snapshot.phase = Phase::Ready;
+        state.snapshot.preparation_id = None;
+    }
+    fn report_ready(&self, label: &str, identity: usize, ready: bool) {
+        let mut gate = self.gate.0.lock().unwrap();
+        let Some(entry) = gate
+            .windows
+            .get_mut(label)
+            .filter(|w| w.identity == Some(identity))
+        else {
+            return;
+        };
+        entry.ready = ready.then(tokio::time::Instant::now);
+        // A delayed unsafe report must invalidate a preparation, never authorize installation.
+        if !ready && gate.preparation.is_some() {
+            let mut state = self.inner.lock().unwrap();
+            Self::abort_preparation(&mut gate, &mut state);
+        }
+    }
+    fn report_prepared(&self, label: &str, identity: usize, attempt: &str, ready: bool) {
+        let mut gate = self.gate.0.lock().unwrap();
+        if !gate
+            .preparation
+            .as_ref()
+            .is_some_and(|(id, _)| id == attempt)
+        {
+            return;
+        }
+        let Some(entry) = gate
+            .windows
+            .get_mut(label)
+            .filter(|w| w.identity == Some(identity))
+        else {
+            return;
+        };
+        if ready {
+            entry.prepared = Some(tokio::time::Instant::now());
+        } else {
+            let mut state = self.inner.lock().unwrap();
+            Self::abort_preparation(&mut gate, &mut state);
+        }
+    }
+    fn take_ready(&self, prepare: impl FnOnce() -> bool) -> Result<Staged, UpdateError> {
+        // Lock order: window lifecycle, updater state, then backend admission.
+        let mut gate = self.gate.0.lock().unwrap();
         let mut state = self.inner.lock().unwrap();
         if self.cancel.is_cancelled() {
             return Err(UpdateError::Stopped);
@@ -217,9 +443,67 @@ impl UpdateEngine {
         if state.snapshot.phase == Phase::Restarting {
             return Err(UpdateError::Busy);
         }
-        let staged = state.staged.take().ok_or(UpdateError::NotReady)?;
+        if state.staged.is_none() {
+            return Err(UpdateError::NotReady);
+        }
+        if state.snapshot.phase != Phase::Preparing {
+            return Err(UpdateError::Busy);
+        }
+        let Some((_, started)) = &gate.preparation else {
+            return Err(UpdateError::Busy);
+        };
+        if started.elapsed() >= PREPARATION_TIMEOUT {
+            Self::abort_preparation(&mut gate, &mut state);
+            return Err(UpdateError::TimedOut);
+        }
+        if !gate.all_prepared() {
+            return Err(UpdateError::Busy);
+        }
+        if !prepare() {
+            Self::abort_preparation(&mut gate, &mut state);
+            return Err(UpdateError::Busy);
+        }
+        let staged = state.staged.take().unwrap();
+        gate.preparation = None;
+        gate.restarting = true;
         state.snapshot.phase = Phase::Restarting;
+        state.snapshot.preparation_id = None;
         Ok(staged)
+    }
+    async fn install_ready(&self, app: &AppHandle) -> Result<(), UpdateError> {
+        if self.snapshot().phase == Phase::Ready {
+            // Even a manual restart only starts preparation; receipts arrive on later IPC turns.
+            return self.begin_preparation();
+        }
+        let staged = self.take_ready(|| {
+            let connections = app.state::<Arc<crate::connection::ConnectionEngine>>();
+            connections.prepare_update_shutdown()
+        })?;
+        let connections = app.state::<Arc<crate::connection::ConnectionEngine>>();
+        connections.drain().await;
+        if self.cancel.is_cancelled() {
+            return Err(UpdateError::Stopped);
+        }
+        let result = tauri::async_runtime::spawn_blocking(move || staged.package.install())
+            .await
+            .map_err(|_| UpdateError::InstallFailed)
+            .and_then(|result| result);
+        if let Err(error) = result {
+            connections.finish_update_failure();
+            let mut gate = self.gate.0.lock().unwrap();
+            gate.thaw();
+            let mut state = self.inner.lock().unwrap();
+            state.snapshot = UpdateSnapshot {
+                phase: Phase::Error,
+                version: None,
+                error: Some(error.clone()),
+                preparation_id: None,
+            };
+            return Err(error);
+        }
+        // request_restart returns so this tracked worker can finish before exit drains it.
+        app.request_restart();
+        Ok(())
     }
 }
 
@@ -240,7 +524,7 @@ pub fn validate_proxy(input: &str) -> Result<Url, UpdateError> {
     }
     Ok(url)
 }
-fn asset_allowed(url: &Url) -> bool {
+fn asset_allowed(url: &Url, version: &str, target: Target) -> bool {
     url.scheme() == "https"
         && url.host_str() == Some("github.com")
         && url.port().is_none()
@@ -248,14 +532,15 @@ fn asset_allowed(url: &Url) -> bool {
         && url.password().is_none()
         && url.query().is_none()
         && url.fragment().is_none()
-        && {
-            let parts: Vec<_> = url.path().split('/').collect();
-            parts.len() == 7
-                && parts[1..5] == ["yan-ad", "iceon", "releases", "download"]
-                && !parts[5].is_empty()
-                && parts[6].ends_with(".app.tar.gz")
-                && !url.path().contains('%')
-        }
+        && [version.to_owned(), format!("v{version}")]
+            .iter()
+            .any(|tag| {
+                url.path()
+                    == format!(
+                        "/yan-ad/iceon/releases/download/{tag}/{}",
+                        target.asset(version)
+                    )
+            })
 }
 fn client(proxy: Option<&Url>) -> Result<reqwest::Client, UpdateError> {
     let mut builder = reqwest::Client::builder()
@@ -268,6 +553,7 @@ fn client(proxy: Option<&Url>) -> Result<reqwest::Client, UpdateError> {
                 && url.scheme() == "https"
                 && url.username().is_empty()
                 && url.password().is_none()
+                && url.port().is_none()
                 && (host == "github.com"
                     || host == "release-assets.githubusercontent.com"
                     || host == "objects.githubusercontent.com")
@@ -314,6 +600,7 @@ struct OfficialProvider {
     app: AppHandle,
     key: String,
     proxy: Option<Url>,
+    target: Target,
 }
 struct OfficialPackage {
     update: tauri_plugin_updater::Update,
@@ -341,13 +628,19 @@ impl Provider for OfficialProvider {
             )
             .await
             .map_err(|_| UpdateError::TimedOut)??;
-            let json =
+            let json: serde_json::Value =
                 serde_json::from_slice(&metadata).map_err(|_| UpdateError::InvalidRelease)?;
+            let raw_asset = json
+                .get("platforms")
+                .and_then(|platforms| platforms.get(self.target.key()))
+                .and_then(|platform| platform.get("url"))
+                .and_then(|url| url.as_str())
+                .map(str::to_owned);
             let updater = self
                 .app
                 .updater_builder()
                 .pubkey(&self.key)
-                .target("darwin-aarch64")
+                .target(self.target.key())
                 .build()
                 .map_err(|_| UpdateError::CheckFailed)?;
             let Some(update) = updater
@@ -356,7 +649,13 @@ impl Provider for OfficialProvider {
             else {
                 return Ok(None);
             };
-            if !asset_allowed(&update.download_url) || update.version.len() > 100 {
+            if !newer_release(&update.version, &update.current_version)? {
+                return Ok(None);
+            }
+            if raw_asset.as_deref() != Some(update.download_url.as_str())
+                || !asset_allowed(&update.download_url, &update.version, self.target)
+                || update.version.len() > 100
+            {
                 return Err(UpdateError::InvalidRelease);
             }
             phase.lock().unwrap().snapshot.phase = Phase::Downloading;
@@ -382,38 +681,38 @@ pub fn update_state(engine: tauri::State<'_, Arc<UpdateEngine>>) -> UpdateSnapsh
 }
 #[tauri::command]
 pub async fn update_restart(
-    app: AppHandle,
     engine: tauri::State<'_, Arc<UpdateEngine>>,
 ) -> Result<(), UpdateError> {
-    let staged = engine.take_ready()?;
-    let owner = engine.inner().clone();
-    let tasks = owner.tasks.clone();
-    tasks
-        .spawn_on(
-            async move {
-                let result = tauri::async_runtime::spawn_blocking(move || staged.package.install())
-                    .await
-                    .map_err(|_| UpdateError::InstallFailed)
-                    .and_then(|result| result);
-                if let Err(error) = result {
-                    let mut state = owner.inner.lock().unwrap();
-                    state.snapshot = UpdateSnapshot {
-                        phase: Phase::Error,
-                        version: None,
-                        error: Some(error.clone()),
-                    };
-                    return Err(error);
-                }
-                owner.cancel.cancel();
-                let connections = app.state::<Arc<crate::connection::ConnectionEngine>>();
-                connections.shutdown();
-                connections.drain().await;
-                app.restart();
-            },
-            tauri::async_runtime::handle().inner(),
-        )
-        .await
-        .map_err(|_| UpdateError::InstallFailed)?
+    engine.begin_preparation()
+}
+#[tauri::command]
+pub fn update_window_ready(
+    window: tauri::WebviewWindow,
+    engine: tauri::State<'_, Arc<UpdateEngine>>,
+    ready: bool,
+) {
+    if let Some(identity) = window_identity(&window) {
+        engine.report_ready(window.label(), identity, ready);
+    }
+}
+#[tauri::command]
+pub fn update_window_prepared(
+    window: tauri::WebviewWindow,
+    engine: tauri::State<'_, Arc<UpdateEngine>>,
+    attempt: String,
+    ready: bool,
+) {
+    if let Some(identity) = window_identity(&window) {
+        engine.report_prepared(window.label(), identity, &attempt, ready);
+    }
+}
+fn newer_release(version: &str, current: &str) -> Result<bool, UpdateError> {
+    let version = semver::Version::parse(version).map_err(|_| UpdateError::InvalidRelease)?;
+    let current = semver::Version::parse(current).map_err(|_| UpdateError::InvalidRelease)?;
+    if !version.pre.is_empty() || !version.build.is_empty() || version.to_string().len() > 50 {
+        return Ok(false);
+    }
+    Ok(version.cmp_precedence(&current).is_gt())
 }
 #[cfg(test)]
 #[path = "updates_tests.rs"]

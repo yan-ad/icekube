@@ -375,6 +375,7 @@ mod unix {
             args: Vec::new(),
             env: Vec::new(),
             info: "{}".into(),
+            fallback_home: None,
         }
     }
     #[tokio::test]
@@ -382,6 +383,7 @@ mod unix {
         let directory = tempfile::tempdir().unwrap();
         let request = HelperRequest {
             command: directory.path().join("missing"),
+            fallback_home: None,
             args: vec![],
             env: vec![],
             info: "{}".into(),

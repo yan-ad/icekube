@@ -164,6 +164,8 @@ struct HelperRequest {
     args: Vec<String>,
     env: Vec<(String, String)>,
     info: String,
+    #[cfg(any(target_os = "macos", test))]
+    fallback_home: Option<PathBuf>,
 }
 
 fn helper_request(exec: &ExecConfig, cluster: &Cluster, base: &Path) -> Result<HelperRequest> {
@@ -291,6 +293,13 @@ fn helper_request(exec: &ExecConfig, cluster: &Cluster, base: &Path) -> Result<H
     if size.saturating_add(info.len()) > CONFIG_LIMIT {
         return Err(ConnectionError::LimitExceeded);
     }
+    #[cfg(any(target_os = "macos", test))]
+    let fallback_home = if cfg!(target_os = "macos") && !env.iter().any(|(name, _)| name == "PATH")
+    {
+        std::env::var_os("HOME").map(PathBuf::from)
+    } else {
+        None
+    };
     #[cfg(target_os = "macos")]
     auth_path::configure(
         &mut env,
@@ -302,6 +311,8 @@ fn helper_request(exec: &ExecConfig, cluster: &Cluster, base: &Path) -> Result<H
         args,
         env,
         info,
+        #[cfg(any(target_os = "macos", test))]
+        fallback_home,
     })
 }
 
@@ -338,30 +349,68 @@ async fn supervise(
     deadline: Duration,
     cancel: CancellationToken,
 ) -> Result<Vec<u8>> {
+    #[cfg(any(target_os = "macos", test))]
+    let mut request = request;
+    let expires = tokio::time::Instant::now() + deadline;
     if cancel.is_cancelled() {
         return Err(ConnectionError::AuthHelperFailed);
     }
-    let mut command = CommandWrap::with_new(request.command, |command| {
-        command
-            .args(request.args)
-            .envs(request.env)
-            .env(EXEC_INFO, request.info)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-    });
-    command.wrap(KillOnDrop);
-    #[cfg(unix)]
-    command.wrap(process_wrap::tokio::ProcessGroup::leader());
-    #[cfg(windows)]
-    command.wrap(process_wrap::tokio::JobObject);
-    let mut child = command.spawn().map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound {
-            ConnectionError::AuthHelperMissing
-        } else {
-            ConnectionError::AuthHelperFailed
+    #[cfg(any(target_os = "macos", test))]
+    if let Some(path) = auth_path::resolve(&request.command, &request.env) {
+        request.command = path;
+    }
+    if cancel.is_cancelled() {
+        return Err(ConnectionError::AuthHelperFailed);
+    }
+    if tokio::time::Instant::now() >= expires {
+        return Err(ConnectionError::Timeout);
+    }
+    let mut child = match spawn_helper(&request) {
+        Ok(child) => child,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            #[cfg(any(target_os = "macos", test))]
+            {
+                let home = request.fallback_home.take();
+                if home.is_none() || auth_path::bare(&request.command).is_none() {
+                    return Err(ConnectionError::AuthHelperMissing);
+                }
+                let worker_cancel = cancel.clone();
+                let worker = tokio::task::spawn_blocking(move || {
+                    if let Some(home) = home {
+                        auth_path::fallback(
+                            &mut request.command,
+                            &mut request.env,
+                            &home,
+                            Path::new("/etc"),
+                            || {
+                                worker_cancel.is_cancelled()
+                                    || tokio::time::Instant::now() >= expires
+                            },
+                        )?;
+                    }
+                    Ok::<_, ConnectionError>(request)
+                });
+                request = tokio::select! {
+                    biased;
+                    _ = cancel.cancelled() => return Err(ConnectionError::AuthHelperFailed),
+                    result = tokio::time::timeout_at(expires, worker) => result.map_err(|_| ConnectionError::Timeout)?.map_err(|_| ConnectionError::AuthHelperFailed)??,
+                };
+                if cancel.is_cancelled() {
+                    return Err(ConnectionError::AuthHelperFailed);
+                }
+                if tokio::time::Instant::now() >= expires {
+                    return Err(ConnectionError::Timeout);
+                }
+                if !request.command.is_absolute() {
+                    return Err(ConnectionError::AuthHelperMissing);
+                }
+                spawn_helper(&request).map_err(spawn_error)?
+            }
+            #[cfg(not(any(target_os = "macos", test)))]
+            return Err(spawn_error(error));
         }
-    })?;
+        Err(error) => return Err(spawn_error(error)),
+    };
     let stdout = child
         .stdout()
         .take()
@@ -373,7 +422,7 @@ async fn supervise(
     let result = tokio::select! {
         biased;
         _ = cancel.cancelled() => Err(ConnectionError::AuthHelperFailed),
-        result = tokio::time::timeout(deadline, async {
+        result = tokio::time::timeout_at(expires, async {
             let (status, output, _) = tokio::try_join!(
                 async { child.wait().await.map_err(|_| ConnectionError::AuthHelperFailed) },
                 read_capped(stdout, STDOUT_LIMIT, true),
@@ -383,11 +432,37 @@ async fn supervise(
             Ok(output)
         }) => result.unwrap_or(Err(ConnectionError::Timeout)),
     };
-    // Kill the GROUP/JOB even if its leader exited while descendants retained pipes.
-    // KillOnDrop alone only kills the Unix leader. Never abort this supervisor on caller disposal.
     let _ = child.start_kill();
     let _ = child.wait().await;
     result
+}
+
+fn spawn_helper(
+    request: &HelperRequest,
+) -> std::io::Result<Box<dyn process_wrap::tokio::ChildWrapper>> {
+    let mut command = CommandWrap::with_new(&request.command, |command| {
+        command
+            .args(&request.args)
+            .envs(request.env.iter().map(|(name, value)| (name, value)))
+            .env(EXEC_INFO, &request.info)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+    });
+    command.wrap(KillOnDrop);
+    #[cfg(unix)]
+    command.wrap(process_wrap::tokio::ProcessGroup::leader());
+    #[cfg(windows)]
+    command.wrap(process_wrap::tokio::JobObject);
+    command.spawn()
+}
+
+fn spawn_error(error: std::io::Error) -> ConnectionError {
+    if error.kind() == std::io::ErrorKind::NotFound {
+        ConnectionError::AuthHelperMissing
+    } else {
+        ConnectionError::AuthHelperFailed
+    }
 }
 
 async fn read_capped(

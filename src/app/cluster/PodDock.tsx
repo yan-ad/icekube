@@ -20,6 +20,7 @@ import { useResourceInspector } from "./ResourceInspector";
 import { usePermissionChecks } from "./PermissionProvider";
 import { ReadOnlyNotice } from "./ReadOnlyNotice";
 import type { PermissionAction } from "./permissionsApi";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 
 type Tab = { id: string; pod: PodRequest; mode: PodMode };
 const modeIcons = { details: IconFileText, edit: IconFileText, logs: IconList, shell: IconTerminal2, attach: IconTerminal2, forward: IconPlug };
@@ -28,6 +29,7 @@ const Context = createContext<DockApi | null>(null);
 export function PodDockProvider({ clusterId, sessionId, children, onMutation, outlet }: { clusterId: string; sessionId: string; children: ReactNode; onMutation?: () => void; outlet?: HTMLElement | null }) {
   const { openPodDetails, closeInspector } = useResourceInspector();
   const [tabs, setTabs] = useState<Tab[]>([]);
+  useUpdateBlocker(tabs.some(tab => ["logs", "shell", "attach", "forward"].includes(tab.mode)), "Pod operational tabs are open.");
   const alive = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   const tabsRef = useRef(tabs);
@@ -125,6 +127,7 @@ function AuthorizedPodTab({ tab, visible, embedded = false, refreshRevision = 0,
   const [revision, setRevision] = useState(0);
   const [confirm, setConfirm] = useState<{ action: PodMutation; yaml?: string } | null>(null);
   const [busy, setBusy] = useState(false);
+  useUpdateBlocker(confirm !== null || busy, "A Pod mutation is pending.");
   const mutationAction = confirm?.action === "replace" ? "update" : confirm?.action === "finalize" ? "patch" : "delete";
   const mutationCheck = (action: PermissionAction) => ({ kind: "pods" as const, namespace: tab.pod.namespace, name: tab.pod.name, action });
   const permissions = usePermissionChecks(confirm ? [mutationCheck("get"), mutationCheck(mutationAction)] : []);

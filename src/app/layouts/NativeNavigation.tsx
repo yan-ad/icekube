@@ -8,28 +8,30 @@ import { useUpdates } from "../updates/UpdateProvider";
 import { usePreferences } from "../preferences/PreferencesProvider";
 import { useRef } from "react";
 import { updateError, type UpdateSnapshot } from "../updates/api";
-import { checkForUpdates, subscribeNativeNavigation } from "./nativeNavigationApi";
+import { subscribeNativeNavigation } from "./nativeNavigationApi";
 
 function statusMessage(snapshot: UpdateSnapshot | null): string {
   if (!snapshot) return "Requesting an update check…";
-  if (snapshot.phase === "disabled") return snapshot.error ? updateError(snapshot.error) : "Updates are disabled in this build. Signed release updates are supported on Apple silicon release builds.";
+  if (snapshot.phase === "disabled") return "Automatic updates are unavailable in this build.";
   if (snapshot.error) return updateError(snapshot.error);
-  if (snapshot.phase === "ready") return `Version ${snapshot.version} is verified and ready. Use Restart to update in the toolbar when you are ready.`;
-  if (snapshot.phase === "checking") return "Checking for a signed release…";
-  if (snapshot.phase === "downloading") return "Downloading and verifying the release…";
+  if (snapshot.phase === "ready") return `Version ${snapshot.version} is verified and will install automatically when work is safe.`;
+  if (snapshot.phase === "preparing") return "Preparing update; checking that work is safe…";
+  if (snapshot.phase === "restarting") return "Installing update and restarting…";
+  if (snapshot.phase === "checking") return "Checking GitHub releases…";
+  if (snapshot.phase === "downloading") return snapshot.progress ? `Downloading update: ${snapshot.progress.downloaded} of ${snapshot.progress.total} bytes` : "Downloading update…";
   if (snapshot.phase === "stopped") return "The updater has stopped.";
-  if (snapshot.phase === "restarting") return "Restarting to install the verified release…";
-  return "The Rust updater is scheduled to check for a signed release. No update is ready to install.";
+  return "No newer supported release was found.";
 }
 
 export function NativeNavigation({ onSearch }: { onSearch: () => void }) {
   const navigate = useNavigate();
-  const { snapshot } = useUpdates();
+  const { snapshot, busy, error: updateFailure, check } = useUpdates();
+  const checkAction = useRef(check);
+  checkAction.current = check;
   const { openPreferences } = usePreferences();
   const preferencesAction = useRef(openPreferences);
   preferencesAction.current = openPreferences;
   const [open, setOpen] = useState(false);
-  const [requested, setRequested] = useState<UpdateSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
     let disposed = false;
@@ -40,9 +42,8 @@ export function NativeNavigation({ onSearch }: { onSearch: () => void }) {
       if (action === "openPreferences") preferencesAction.current();
       if (action === "allCategories") void navigate({ to: "/catalog/all" });
       if (action === "checkUpdates") {
-        setOpen(true); setError(null); setRequested(null);
-        void checkForUpdates().then((next) => { if (!disposed) setRequested(next); })
-          .catch(() => { if (!disposed) setError("The update check could not be requested. Try again from Help."); });
+        setOpen(true); setError(null);
+        void checkAction.current();
       }
     }).then((stop) => { if (disposed) stop(); else unsubscribe = stop; })
       .catch(() => { if (!disposed) setError("Native menu navigation is unavailable. Use the toolbar to navigate."); });
@@ -51,7 +52,7 @@ export function NativeNavigation({ onSearch }: { onSearch: () => void }) {
   return <Dialog isOpen={open || !!error} onOpenChange={(next) => { setOpen(next); if (!next) setError(null); }}>
     <VStack gap={4} padding={6}>
       <DialogHeader title="Check for Updates" />
-      <Text role="status">{error ?? statusMessage(requested?.phase === "disabled" ? requested : snapshot ?? requested)}</Text>
+      <Text role="status">{error ?? updateFailure ?? (busy && snapshot?.phase !== "downloading" ? "Requesting an update check…" : statusMessage(snapshot))}</Text>
       <Button label="Close" onClick={() => { setOpen(false); setError(null); }} />
     </VStack>
   </Dialog>;

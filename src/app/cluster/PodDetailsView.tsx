@@ -9,6 +9,7 @@ import { ResourceRelationLink } from "./ResourceInspector";
 import { StatusBadge } from "./StatusBadge";
 import type { PodDetails, PodMode, PodMutation } from "./podApi";
 import { usePermissionChecks } from "./PermissionProvider";
+import { useUpdateBlocker } from "../updates/UpdateProvider";
 
 type Props = {
   details: PodDetails;
@@ -30,6 +31,7 @@ function podAge(createdAt: string | null) {
 }
 
 export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen, onAction }: Props) {
+  useUpdateBlocker(edit, "Pod YAML editing is open.");
   const [yaml, setYaml] = useState(details.yaml);
   const permissions = usePermissionChecks([
     { kind: "pods", namespace: details.namespace, name: details.name, action: "get" },
