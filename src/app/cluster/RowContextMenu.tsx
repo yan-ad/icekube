@@ -10,14 +10,15 @@ import { hasDeleteIdentity, resourceRowKey } from "./deleteApi";
 import type { ResourceReference } from "./detailApi";
 import { showNativeContextMenu, type NativeContextTarget, type RowAction } from "./nativeContextMenu";
 import type { PodMode } from "./podApi";
-import { usePermissions } from "./PermissionProvider";
+import { usePermissions, usePermissionRevision } from "./PermissionProvider";
 import { permissionCheck, type PermissionCheck, type PermissionAction } from "./permissionsApi";
 
 const labels: Record<RowAction, string> = { details: "Details", edit: "Edit YAML", logs: "Logs", shell: "Shell", attach: "Attach", forward: "Port forward", delete: "Delete…", stop: "Stop", remove: "Remove", install: "Install…" };
 export type RowMenuAction = { action: RowAction; disabled?: boolean };
 type Options<T> = SessionRequest & { rows: T[]; scope: string; rowKey: (item: T) => string; rowLabel: (item: T) => string;
   target: (item: T) => NativeContextTarget; actions: (item: T) => RowMenuAction[]; onAction: (item: T, action: RowAction) => void;
-  beforeOpen?: (item: T, signal: AbortSignal) => Promise<void> };
+  beforeOpen?: (item: T, signal: AbortSignal) => Promise<void>;
+  authorizationFingerprint?: () => string };
 
 /** Row transforms preserve table semantics; the browser menu is anchored to the Actions cell. */
 export function useRowContextMenu<T extends Record<string, unknown>>(options: Options<T>): TablePlugin<T> {
@@ -30,6 +31,8 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
   const current = useRef(fingerprint);
   current.current = fingerprint;
   const active = useRef<AbortController | null>(null);
+  const authorization = options.authorizationFingerprint?.();
+  const activeAuthorization = useRef<string | undefined>(undefined);
   const [fallback, setFallback] = useState<{ key: string; fingerprint: typeof fingerprint; item: T; actions: RowMenuAction[]; controller: AbortController } | null>(null);
   const [error, setError] = useState<string | null>(null);
   useLayoutEffect(() => {
@@ -37,7 +40,10 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
     setError(null);
     return () => { active.current?.abort(); active.current = null; };
   }, [fingerprint]);
-  function close() { active.current?.abort(); active.current = null; setFallback(null); }
+  useLayoutEffect(() => {
+    if (activeAuthorization.current !== undefined && activeAuthorization.current !== authorization) close();
+  }, [authorization]);
+  function close() { active.current?.abort(); active.current = null; activeAuthorization.current = undefined; setFallback(null); }
 
   async function open(item: T) {
     const options = latest.current;
@@ -47,19 +53,29 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
     const captured = structuredClone(item);
     if (options.beforeOpen) await options.beforeOpen(captured, controller.signal);
     if (controller.signal.aborted || current.current !== fingerprint) return;
-    const actions = options.actions(captured).map(action => ({ ...action }));
+    const expiry = setTimeout(() => controller.abort(), 30_000);
+    controller.signal.addEventListener("abort", () => clearTimeout(expiry), { once: true });
+    const capturedAuthorization = latest.current.authorizationFingerprint?.();
+    activeAuthorization.current = capturedAuthorization;
+    const valid = () => !controller.signal.aborted && current.current === fingerprint
+      && latest.current.authorizationFingerprint?.() === capturedAuthorization;
+    const actions = latest.current.actions(captured).map(action => ({ ...action }));
     const run = (action: RowAction) => {
-      if (controller.signal.aborted || current.current !== fingerprint || !actions.some(entry => entry.action === action && !entry.disabled)) return;
+      if (!valid() || !actions.some(entry => entry.action === action && !entry.disabled)
+        || !latest.current.actions(captured).some(entry => entry.action === action && !entry.disabled)) return;
       close();
       latest.current.onAction(captured, action);
     };
     void showNativeContextMenu({ clusterId: options.clusterId, sessionId: options.sessionId,
       target: options.target(captured), actions: actions.filter(entry => !entry.disabled).map(entry => entry.action) }, run, controller.signal)
       .then(handle => {
-        if (controller.signal.aborted || current.current !== fingerprint) { handle.dispose(); return; }
+        if (!valid()) { handle.dispose(); return; }
         if (!handle.supported) setFallback({ key: options.rowKey(captured), fingerprint, item: captured, actions, controller });
       }).catch(() => {
-        if (!controller.signal.aborted && current.current === fingerprint) setError("Could not open row actions. Try again.");
+        if (!controller.signal.aborted && current.current === fingerprint) {
+          controller.abort();
+          setError("Could not open row actions. Try again.");
+        }
       });
   }
   return useMemo<TablePlugin<T>>(() => ({
@@ -73,7 +89,9 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
             icon={<Icon icon={IconDots} />} onClick={event => { event.stopPropagation(); open(item); }} />}
           items={(menu?.actions ?? options.actions(item)).map(entry => ({ label: labels[entry.action], isDisabled: entry.disabled,
             onClick: () => {
-              if (!menu || menu.controller.signal.aborted || current.current !== menu.fingerprint || entry.disabled) return;
+              if (!menu || menu.controller.signal.aborted || current.current !== menu.fingerprint || entry.disabled
+                || latest.current.authorizationFingerprint?.() !== activeAuthorization.current
+                || !latest.current.actions(menu.item).some(action => action.action === entry.action && !action.disabled)) return;
               close(); latest.current.onAction(menu.item, entry.action);
             } }))} />;
       },
@@ -95,6 +113,7 @@ export function useResourceRowMenu(options: SessionRequest & { rows: ResourceIte
   const [deletion, setDeletion] = useState<{ identity: typeof identity; item: ResourceItem } | null>(null);
   const hasPodActions = !!options.openPod;
   const permissions = usePermissions();
+  usePermissionRevision();
   const check = (item: ResourceItem, action: PermissionAction) => permissionCheck({ kind: options.kind, namespace: item.namespace, name: item.name, action });
   const can = (item: ResourceItem, action: PermissionAction) => permissions.decision(check(item, "get")) === "allowed" && permissions.decision(check(item, action)) === "allowed";
   const podAction = { edit: "update", logs: "logs", shell: "exec", attach: "attach", forward: "portForward" } as const;
@@ -103,12 +122,15 @@ export function useResourceRowMenu(options: SessionRequest & { rows: ResourceIte
     ...(hasPodActions ? (["edit", "logs", "shell", "attach", "forward"] as const).map(action => ({ action, disabled: options.unavailable || !item.namespace || !item.uid || !can(item, podAction[action]) })) : []),
     { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) || !can(item, "delete") },
   ], [hasPodActions, options.unavailable, options.kind, permissions]);
-  const plugin = useRowContextMenu({ ...options, scope: JSON.stringify([options.scope, options.kind]), rowKey: resourceRowKey, rowLabel: item => item.name,
+  const plugin = useRowContextMenu({ ...options, scope: JSON.stringify([options.scope, options.kind, options.unavailable]), rowKey: resourceRowKey, rowLabel: item => item.name,
+    authorizationFingerprint: () => JSON.stringify([permissions.authorizationEpoch(), permissions.fingerprint(options.rows.flatMap(item => [
+      check(item, "get"), check(item, "delete"), ...(hasPodActions ? Object.values(podAction).map(action => check(item, action)) : []),
+    ]))]),
     target: item => ({ type: "resource", reference: { kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid } }),
     actions,
     beforeOpen: (item, signal) => reviewRowPermissions(permissions, [check(item, "get"), check(item, "delete"), ...(hasPodActions ? Object.values(podAction).map(action => check(item, action)) : [])], signal),
     onAction: (item, action) => {
-      if (actions(item).find(entry => entry.action === action)?.disabled) return;
+      if (!actions(item).some(entry => entry.action === action && !entry.disabled)) return;
       if (action === "delete") setDeletion({ identity, item });
       else if (options.openPod) options.openPod(item, action as PodMode);
       else if (action === "details") options.openResource({ kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid });
@@ -120,10 +142,13 @@ export function useResourceRowMenu(options: SessionRequest & { rows: ResourceIte
 // Review only the requested row, not every row during table rendering.
 function reviewRowPermissions(store: ReturnType<typeof usePermissions>, checks: PermissionCheck[], signal: AbortSignal): Promise<void> {
   return new Promise(resolve => {
+    if (signal.aborted) { resolve(); return; }
     const release = store.request(checks);
     let unsubscribe = () => {};
-    const finish = () => { release(); unsubscribe(); signal.removeEventListener("abort", finish); resolve(); };
-    const ready = () => { if (!store.loading(checks)) finish(); };
+    let finished = false;
+    const finish = () => { if (finished) return; finished = true; unsubscribe(); signal.removeEventListener("abort", finish); release(); resolve(); };
+    // Keep these checks subscribed until the menu owner aborts so expiry also revokes an open popup.
+    const ready = () => { if (!store.loading(checks)) { unsubscribe(); resolve(); } };
     unsubscribe = store.subscribe(ready);
     signal.addEventListener("abort", finish, { once: true });
     if (signal.aborted) finish(); else ready();

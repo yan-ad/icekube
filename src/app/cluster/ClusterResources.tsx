@@ -117,11 +117,11 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     {metricState && metricState !== "available" && <Text role="status" color="secondary">{metricMessages[metricState]}</Text>}
     {page?.truncated && !loading && !error && kind === "nodes" && <Text type="supporting">{page.continueToken
       ? "More nodes may match. Continue to the next page." : "Results are limited; no continuation is available."}</Text>}
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={visibleLoading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
-      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={visibleLoading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
-        emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
     <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={unavailable} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={visibleLoading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
+      <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={visibleLoading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
+        emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
   </VStack>;
 }

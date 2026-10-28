@@ -128,7 +128,11 @@ test("namespace changes during the debounce cannot restore the old request scope
   await expect(grid.getByRole("row")).toHaveCount(101);
   const input = page.getByRole("textbox", { name: "Search Pods", exact: true });
   const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  await input.fill("held");
+  await expect.poll(async () => (await calls(page, "cluster_resources", "pods")).at(-1)?.request.query).toBe("held");
+  const held = (await calls(page, "cluster_resources", "pods")).at(-1)!.request;
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+  await input.fill("");
   await input.pressSequentially("scoped");
   await namespace.click();
   await page.getByRole("option", { name: "team-b", exact: true }).click();
@@ -137,10 +141,21 @@ test("namespace changes during the debounce cannot restore the old request scope
   await page.clock.resume();
   await expect(input).toHaveValue("scoped");
   await expect(grid).toContainText("scoped");
+  await expect.poll(async () => (await calls(page, "cluster_resources_cancel")).some(call =>
+    call.request.clusterId === held.clusterId && call.request.sessionId === held.sessionId && call.request.readId === held.readId)).toBe(true);
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
   const searches = (await calls(page, "cluster_resources", "pods")).filter(call => call.request.query === "scoped");
-  // Namespace changes remount the snapshot; StrictMode replays its read effect.
-  expect(searches).toHaveLength(2);
-  expect(new Set(searches.map(search => search.request.readId)).size).toBe(2);
-  expect(new Set(searches.map(search => search.request.sessionId)).size).toBe(1);
-  for (const search of searches) expect(search.request).toMatchObject({ clusterId: "one", query: "scoped", namespace: "team-b", continueToken: null });
+  // The permission gate may commit after StrictMode's initial replay, so read ownership, not replay count, is the contract.
+  expect(searches.length).toBeGreaterThanOrEqual(1);
+  expect(new Set(searches.map(search => search.request.readId)).size).toBe(searches.length);
+  for (const search of searches) {
+    expect(search.request).toMatchObject({ clusterId: "one", sessionId: held.sessionId, kind: "pods", query: "scoped", namespace: "team-b", continueToken: null });
+    expect(search.request.readId).not.toBe(held.readId);
+  }
+  await page.evaluate(() => (window as SearchWindow).__releaseSearch());
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await expect(grid).toContainText("scoped");
+  await expect(grid).not.toContainText("held");
+  await expect(input).toHaveValue("scoped");
+  expect((await calls(page, "cluster_resources", "pods")).filter(call => call.request.query === "scoped")).toEqual(searches);
 });

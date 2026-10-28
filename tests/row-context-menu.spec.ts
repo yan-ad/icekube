@@ -4,7 +4,7 @@ import { resourceViews } from "../src/app/cluster/resourceViews";
 type Request = Record<string, any>;
 type Call = { command: string; request: Request };
 type Menu = Request & { clusterId: string; sessionId: string; requestId: string; actions: string[] };
-type Controls = { readFailure?: boolean; replacement?: boolean; missing?: boolean; holdShow?: boolean; holdListen?: boolean; showFailure?: boolean; removeAccepted?: boolean };
+type Controls = { readFailure?: boolean; replacement?: boolean; missing?: boolean; holdShow?: boolean; holdListen?: boolean; holdPermissions?: boolean; holdResources?: boolean; shortPermissions?: boolean; denyPermissions?: boolean; showFailure?: boolean; removeAccepted?: boolean };
 type FixtureWindow = Window & {
   __rowCalls: Call[]; __rowControls: Controls; __rowUnexpected: string[];
   __rowEmit: (payload: Request, late?: boolean) => void; __rowRelease: () => void;
@@ -14,6 +14,41 @@ const registry = [{ section: "nodes", kind: "nodes", namespaced: false, label: "
 const calls = (page: Page, command: string) => page.evaluate(command => (window as FixtureWindow).__rowCalls.filter(call => call.command === command), command);
 const control = (page: Page, value: Controls) => page.evaluate(value => Object.assign((window as FixtureWindow).__rowControls, value), value);
 const inspector = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
+
+for (const change of ["stale", "route"] as const) test(`${change}: pending row permission review cannot resurrect native ownership`, async ({ page }) => {
+  await fixture(page, "config-maps"); await control(page, { holdPermissions: true });
+  await page.getByRole("button", { name: "Actions for alpha", exact: true }).locator("xpath=ancestor::tr").click({ button: "right" });
+  await expect.poll(async () => (await calls(page, "cluster_permissions_review")).some(call => call.request.checks.some((check: Request) => check.name === "alpha"))).toBe(true);
+  if (change === "stale") {
+    await control(page, { readFailure: true, holdResources: true });
+    await page.getByRole("button", { name: "Refresh config-maps", exact: true }).click();
+    await expect(page.getByRole("checkbox", { name: "Select team-a/alpha", exact: true })).toBeDisabled();
+  } else {
+    await page.evaluate(() => { location.hash = "/cluster/one?section=services"; });
+    await expect(page.getByRole("table", { name: "Services", exact: true })).toBeVisible();
+  }
+  await page.evaluate(() => (window as FixtureWindow).__rowRelease());
+  if (change === "stale") await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
+  await expect.poll(() => page.evaluate(() => (window as FixtureWindow).__rowOrder.includes("row-permissions-resolved"))).toBe(true);
+  await noListener(page);
+  expect(await calls(page, "row_context_menu_show")).toEqual([]);
+  await expect(inspector(page)).toHaveCount(0); await expect(dialog(page)).toHaveCount(0);
+});
+
+test("permission expiry invalidates native ownership and denied actions cannot be selected", async ({ page }) => {
+  await fixture(page, "config-maps"); await page.clock.install(); await page.clock.pauseAt(new Date());
+  await control(page, { shortPermissions: true });
+  const menu = await openMenu(page, "alpha");
+  await control(page, { denyPermissions: true });
+  await page.clock.fastForward(1000);
+  await noListener(page);
+  await select(page, menu, "details", true); await select(page, menu, "delete", true);
+  const denied = await openMenu(page, "alpha"); expect(denied.actions).toEqual([]);
+  await select(page, denied, "details"); await select(page, denied, "delete"); await select(page, denied, null);
+  await noListener(page);
+  await expect(inspector(page)).toHaveCount(0); await expect(dialog(page)).toHaveCount(0);
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+});
 const dialog = (page: Page) => page.getByRole("dialog");
 async function fixture(page: Page, section: string) {
   await page.addInitScript(({ registry }) => {
@@ -34,7 +69,7 @@ async function fixture(page: Page, section: string) {
       for (const { id, event, handler } of entries) if (event === "iceon://row-context-menu") callbacks.get(handler)?.({ event, id, payload });
     };
     Object.assign(window, { isTauri: true, __rowCalls: calls, __rowControls: controls, __rowUnexpected: unexpected, __rowOrder: order,
-      __rowEmit: emit, __rowRelease: () => { controls.holdShow = false; controls.holdListen = false; pending.splice(0).forEach(resolve => resolve()); },
+      __rowEmit: emit, __rowRelease: () => { controls.holdShow = false; controls.holdListen = false; controls.holdPermissions = false; controls.holdResources = false; pending.splice(0).forEach(resolve => resolve()); },
       __rowListeners: () => [...listeners.values()].filter(value => value.event === "iceon://row-context-menu").length,
       __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener: (_event: string, id: number) => {
         const listener = listeners.get(id); if (listener) retired.push({ id, ...listener }); listeners.delete(id);
@@ -47,7 +82,9 @@ async function fixture(page: Page, section: string) {
           if (command === "cluster_permissions_cancel") return null;
           if (command === "cluster_permissions_review") {
             const request = args!.request as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
-            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+            if (controls.holdPermissions && request.checks.some(check => check.name === "alpha")) await new Promise<void>(resolve => pending.push(resolve));
+            if (request.checks.some(check => check.name === "alpha")) order.push("row-permissions-resolved");
+            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + (controls.shortPermissions ? 1000 : 30000), items: request.checks.map(check => ({ check, decision: controls.denyPermissions && check.name === "alpha" ? "denied" : "allowed", reason: null })) };
           }
           if (command === "plugin:event|listen") {
             if (controls.holdListen) await new Promise<void>(resolve => pending.push(resolve));
@@ -69,6 +106,7 @@ async function fixture(page: Page, section: string) {
           if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? `lease-${++session}`,
             contextName: "dev", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };
           if (command === "cluster_resources") {
+            if (controls.holdResources) await new Promise<void>(resolve => pending.push(resolve));
             if (controls.readFailure) throw "permissionDenied";
             const namespace = namespaced.has(r.kind) ? r.namespace ?? "team-a" : null;
             return { ...r, namespace: r.namespace ?? null, items: ["alpha", "beta"].filter(name => !removed.has(`${r.kind}/${name}`)).map(name => item(name, namespace, r.kind)),
@@ -101,7 +139,7 @@ async function openMenu(page: Page, name: string, gesture: "right" | "keyboard" 
   const count = (await calls(page, "row_context_menu_show")).length;
   if (gesture === "keyboard") { await row.focus(); await page.keyboard.press("Shift+F10"); }
   else if (gesture === "button") await trigger.click();
-  else await row.click({ button: "right" });
+  else await row.getByRole("cell").nth(1).click({ button: "right" });
   await expect.poll(async () => (await calls(page, "row_context_menu_show")).length).toBe(count + 1);
   await expect(page.getByRole("menu")).toHaveCount(0);
   return (await calls(page, "row_context_menu_show")).at(-1)!.request as Menu;
@@ -263,7 +301,14 @@ test("replacement menu, malformed scope, dismissal and retired callback cannot a
 
 for (const change of ["stale", "replacement", "filter", "route", "session"] as const) test(`${change} invalidates root ownership before late native selection`, async ({ page }) => {
   await fixture(page, "config-maps"); const menu = await openMenu(page, "alpha");
-  if (change === "stale" || change === "replacement") { await control(page, change === "stale" ? { readFailure: true } : { replacement: true }); await page.keyboard.press("ControlOrMeta+r"); }
+  if (change === "stale" || change === "replacement") {
+    await control(page, change === "stale" ? { readFailure: true } : { replacement: true });
+    await page.getByRole("button", { name: "Refresh config-maps", exact: true }).click();
+    if (change === "stale") {
+      await expect(page.getByRole("alert")).toContainText("Kubernetes permissions");
+      await expect(page.getByRole("status").filter({ hasText: "Updates unavailable" })).toContainText("stale");
+    }
+  }
   if (change === "filter") await page.getByRole("textbox", { name: "Search Config Maps", exact: true }).fill("beta");
   if (change === "route") await page.evaluate(() => { location.hash = "/cluster/one?section=services"; });
   if (change === "session") { await clusterAction(page, "Disconnect"); await clusterAction(page, "Connect to cluster"); }

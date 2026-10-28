@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { resourceCreation, resourceViews } from "../src/app/cluster/resourceViews";
 
 type Call = { command: string; request: Record<string, string | number | null> };
-type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; failContinuation?: boolean; manyRows?: boolean };
+type Controls = { failure?: string; malformed?: string; empty?: boolean; hold?: boolean; failContinuation?: boolean; manyRows?: boolean; writeAccess?: "denied" | "unknown" };
 type MockWindow = Window & {
   __resourceCalls: Call[];
   __resourceControls: Controls;
@@ -62,6 +62,8 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
   const create = overlay.getByRole("button", { name: /Create/, exact: false });
   const remove = overlay.getByRole("button", { name: "Delete selected resources", exact: true });
   await expect(create).toBeVisible(); await expect(remove).toHaveCount(0);
+  await expect(page.getByText("Changes require verified access to their target resources.", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Access unverified", { exact: true })).toHaveCount(0);
   const frame = (await viewport.boundingBox())!, fade = (await overlay.boundingBox())!;
   expect(Math.abs(frame.y + frame.height - fade.y - fade.height)).toBeLessThan(2);
   expect(fade.y).toBeLessThan(frame.y + frame.height - 40);
@@ -115,6 +117,25 @@ test("changing filters on a continuation page resets pagination and cancels the 
   await expect(page.getByRole("menuitem", { name: "Next page", exact: true })).toBeEnabled();
   await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeEnabled();
 });
+
+for (const section of ["nodes", "resource-quotas"]) for (const writeAccess of ["denied", "unknown"] as const) for (const width of [1440, 390]) test(`${section} ${writeAccess} write notice stays above the table at ${width}`, async ({ page }) => {
+  await fixture(page, { section, manyRows: true, writeAccess });
+  await page.setViewportSize({ width, height: 900 });
+  if (section === "resource-quotas") await selectNamespace(page, "team-a");
+  const status = page.getByRole("status").filter({ hasText: writeAccess === "denied" ? "Read-only access." : "Access unverified." });
+  await expect(status).toBeVisible();
+  const viewport = page.locator("[data-iceon-table-viewport]");
+  await expect(viewport).toBeVisible();
+  await expect.poll(() => page.evaluate(text => {
+    const notice = [...document.querySelectorAll('[role="status"]')].find(element => element.textContent?.includes(text))?.getBoundingClientRect();
+    const frame = document.querySelector("[data-iceon-table-viewport]")?.getBoundingClientRect();
+    const fade = document.querySelector('[role="group"][aria-label="Resource actions"]')?.getBoundingClientRect();
+    return !!notice && !!frame && !!fade && notice.bottom <= frame.top && Math.abs(frame.bottom - fade.bottom) < 2;
+  }, writeAccess === "denied" ? "Read-only access." : "Access unverified.")).toBe(true);
+  await expect(page.getByRole("button", { name: /^Create / })).toHaveCount(0);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+});
+
 async function clusterAction(page: Page, name: string) {
   if (name.startsWith("Refresh ")) {
     await page.getByRole("button", { name, exact: true }).click();
@@ -168,7 +189,7 @@ test("parent menus expose complete destination cards without resource fan-out", 
     ["network", "Network", ["services", "endpoint-slices", "endpoints", "ingresses", "ingress-classes", "network-policies", "port-forwarding"]],
     ["storage", "Storage", ["persistent-volume-claims", "persistent-volumes", "storage-classes"]],
     ["helm", "Helm", ["helm-charts", "helm-releases"]],
-    ["access-control", "Access Control", ["service-accounts", "cluster-roles", "roles", "cluster-role-bindings", "role-bindings", "pod-security-policies"]],
+    ["access-control", "Access Control", ["users", "service-accounts", "cluster-roles", "roles", "cluster-role-bindings", "role-bindings", "pod-security-policies"]],
     ["custom-resources", "Custom Resources", ["custom-resource-definitions"]],
   ] as const) {
     await navigate(page, section);
@@ -220,7 +241,7 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
           if (command === "cluster_permissions_cancel") return null;
           if (command === "cluster_permissions_review") {
             const review = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
-            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId, authorizationEpoch: `fixture-epoch-${review.sessionId}`, revision: review.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: review.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+            return { clusterId: review.clusterId, sessionId: review.sessionId, readId: review.readId, authorizationEpoch: `fixture-epoch-${review.sessionId}`, revision: review.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: review.checks.map(check => ({ check, decision: ["create", "update", "patch", "delete"].includes(check.action) ? control.writeAccess ?? "allowed" : "allowed", reason: null })) };
           }
           calls.push({ command, request });
           if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
