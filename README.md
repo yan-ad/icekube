@@ -2,6 +2,9 @@
 
 # Iceon
 
+> [!IMPORTANT]  
+> This an early development project, small release number might be break the flow. Do it with your cautions
+
 A desktop workspace for everyday Kubernetes work.
 
 Iceon brings cluster contexts, resource navigation, and troubleshooting into one
