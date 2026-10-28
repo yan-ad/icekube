@@ -34,12 +34,16 @@ jobs:
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: x86
+      - uses: ./.github/actions/msvc-x86-linker
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target
           key: i686-pc-windows-msvc
       - name: Compile backend and test targets without running credential fixtures
         run: cargo check --manifest-path src-tauri/Cargo.toml --locked --all-targets --target i686-pc-windows-msvc
+      - name: Link and run x86 updater verification tests from Git Bash
+        shell: bash
+        run: cargo test --manifest-path xtask/Cargo.toml --locked --target i686-pc-windows-msvc verify_update::tests
 
   rust:
     name: Rust (${{ matrix.os }})

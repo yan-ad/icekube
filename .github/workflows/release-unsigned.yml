@@ -139,6 +139,8 @@ jobs:
         if: runner.os == 'Windows'
         with:
           arch: x86
+      - uses: ./.github/actions/msvc-x86-linker
+        if: runner.os == 'Windows'
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target

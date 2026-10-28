@@ -1,0 +1,29 @@
+name: Pin MSVC x86 linker
+description: Select Visual Studio's absolute x86 linker instead of Git Bash's link.exe
+runs:
+  using: composite
+  steps:
+    - name: Resolve the configured Visual Studio linker
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        if ([string]::IsNullOrWhiteSpace($env:VCToolsInstallDir)) {
+          throw 'MSVC environment must be initialized before selecting the linker'
+        }
+        if ($env:VSCMD_ARG_TGT_ARCH -ne 'x86') {
+          throw 'Expected MSVC x86 target environment'
+        }
+        $root = [IO.Path]::GetFullPath($env:VCToolsInstallDir)
+        $hostArch = $env:VSCMD_ARG_HOST_ARCH
+        if ($hostArch -notin @('x64', 'x86')) {
+          throw 'Unsupported MSVC linker host architecture'
+        }
+        $linker = [IO.Path]::GetFullPath((Join-Path $root "bin/Host$hostArch/x86/link.exe"))
+        if (-not (Test-Path -LiteralPath $linker -PathType Leaf)) {
+          throw 'Visual Studio x86 linker is missing'
+        }
+        if (-not $linker.StartsWith($root, [StringComparison]::OrdinalIgnoreCase)) {
+          throw 'Linker is outside the configured Visual Studio tool directory'
+        }
+        "CARGO_TARGET_I686_PC_WINDOWS_MSVC_LINKER=$linker" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+        Write-Host "Pinned MSVC x86 linker: $linker"
