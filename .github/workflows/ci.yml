@@ -108,14 +108,14 @@ jobs:
           cargo clippy --manifest-path xtask/Cargo.toml --all-targets --locked -- -D warnings
 
   frontend:
-    name: Browser fixtures (${{ matrix.shard }}/4)
+    name: Browser fixtures (${{ matrix.shard }}/8)
     needs: rust
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     env:
       ICEON_DETAIL_CONTRACT: .ci-fixtures/detail-contract.json
     steps:
@@ -141,12 +141,12 @@ jobs:
         run: bunx playwright install --with-deps chromium
       - name: Run bounded browser shard with mocked IPC
         timeout-minutes: 10
-        run: bun run test:e2e --workers=2 --fully-parallel --shard=${{ matrix.shard }}/4 --global-timeout=480000
+        run: bun run test:e2e --workers=2 --fully-parallel --shard=${{ matrix.shard }}/8 --global-timeout=480000
       - name: Upload shard report and failure evidence
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-shard-${{ matrix.shard }}
+          name: playwright-shard-${{ matrix.shard }}-of-8
           path: |
             blob-report/
             test-results/

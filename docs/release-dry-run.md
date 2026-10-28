@@ -7,6 +7,12 @@ not create a tag, bump the current version, create a GitHub Release, publish
 packages, or write repository contents. It runs from the exact manually selected
 commit and first waits for the full reusable CI workflow.
 
+Reusable CI runs eight Linux browser-fixture shards with two workers per runner.
+Each shard keeps the 480-second suite, 10-minute test-step and 20-minute job
+limits, with dependency installation, frontend build and Chromium setup in
+separate steps. These per-browser-job bounds do not bound the whole rehearsal;
+the packaging job retains its separate 90-minute limit.
+
 The stable release target is `0.0.1`. The workflow requires the exact
 current commit and synchronized versions in `package.json`, `tauri.conf.json`,
 `Cargo.toml` and `Cargo.lock`; it does not alter any of them. It uses read-only

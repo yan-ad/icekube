@@ -105,3 +105,9 @@ Windows-native behavior, Gatekeeper/SmartScreen acceptance or real cloud login.
 Full release CI, Windows x86 compilation and native install/update/relaunch smoke
 checks are pending. The [release workflow](releases.md) audits exactly seven
 public assets before marking a release latest.
+
+Reusable CI distributes browser fixtures across eight Linux shards with two
+workers each. The per-shard 480-second suite, 10-minute test-step and 20-minute
+job limits are unchanged, with setup in separate steps. Sharding does not prove
+native update behavior or set an end-to-end release duration; packaging jobs
+have separate 90-minute limits.

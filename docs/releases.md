@@ -22,6 +22,14 @@ Windows additionally compiles all backend targets for `i686-pc-windows-msvc`
 before packaging. Fixtures use mocked IPC, not real credentials or clusters.
 A failed or cancelled required job prevents publication.
 
+Browser fixtures run in eight Linux shards with two workers per runner and
+fully parallel test distribution. Each shard retains the 480-second suite bound,
+10-minute test-step bound and 20-minute job bound; dependency installation,
+frontend build and Chromium setup are separate steps. Rust exports the shared
+detail contract once after its tests, and every browser shard consumes that
+same-commit artifact. These are per-browser-job limits, not a total release-time
+promise; platform packaging jobs retain their separate 90-minute limits.
+
 The public minisign key is embedded in `src-tauri/tauri.conf.json` with
 `requireSignedVersion: true`. The matching private key is configured as the
 GitHub Actions `TAURI_SIGNING_PRIVATE_KEY` secret. Do not read, print or commit

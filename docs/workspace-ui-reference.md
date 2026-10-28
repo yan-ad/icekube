@@ -277,7 +277,7 @@ than Developer ID or notarization. Updater public key/endpoints are empty; no
 updater manifest, archive or signature is published. Foreground inventory polling
 is independent of application updates, which remain disabled for this unsigned release.
 
-CI configures Rust checks on macOS and Linux and four parallel Chromium fixture
+CI configures Rust checks on macOS and Linux and eight parallel Chromium fixture
 shards on Linux. Rust exports the real detail-contract artifact once; the browser
 contract test verifies its commit instead of invoking Cargo in a browser worker.
 Each shard prints individual test progress, preserves failure traces and has an

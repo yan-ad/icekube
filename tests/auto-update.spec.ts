@@ -111,7 +111,9 @@ async function lastReady(page: Page) {
 test("verified updates report window safety without manual download or install actions", async ({ page }) => {
   await fixture(page);
   await page.goto("/");
-  await expect(page.getByRole("status").filter({ hasText: "Update verified" })).toBeVisible();
+  const status = page.getByRole("status", { name: "Update verified; installs automatically when work is safe.", exact: true });
+  await expect(status).toBeVisible();
+  await expect(status).toContainText("Update verified; installs automatically when work is safe.");
   await expect.poll(() => lastReady(page)).toBe(true);
   await expect(page.getByRole("button", { name: /Restart to Update|Download update|Show download/ })).toHaveCount(0);
   expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.some(call => ["update_download", "update_reveal", "update_restart"].includes(call.command)))).toBe(false);

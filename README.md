@@ -95,6 +95,11 @@ and [workspace behavior reference](docs/workspace-ui-reference.md).
 The project uses [Tauri](https://tauri.app/) and [Astryx](https://astryx.atmeta.com/),
 with [Freelens](https://github.com/freelensapp/freelens) as a workflow reference.
 
+CI runs browser fixtures in eight Linux shards with two workers per runner.
+Each keeps a 480-second suite limit, a 10-minute test-step limit and a 20-minute
+job limit, with setup in separate steps. These are per-browser-job bounds, not
+an end-to-end release-time guarantee; packaging jobs have 90-minute limits.
+
 ## Credits
 
 Inspired by Permission Manager by SIGHUP (BSD-3-Clause).
