@@ -412,46 +412,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          python3 - <<'PY'
-          import hashlib, json, os, subprocess
-          from pathlib import Path
-          tag = os.environ['RELEASE_TAG']
-          repo = os.environ['GH_REPO']
-          def gh(*args):
-              return subprocess.check_output(['gh', *args], timeout=120)
-          if json.loads(gh('api', f'repos/{repo}'))['private']:
-              raise SystemExit('Installer update downloads require a public GitHub repository')
-          # No clobber or reuse: creation fails if any release already owns this tag.
-          subprocess.run(['gh', 'release', 'create', tag, '--verify-tag', '--draft',
-              '--prerelease=false', '--latest=false', '--title', f'Iceon {tag}',
-              '--notes-file', '/tmp/iceon-release-notes.md'], check=True)
-          expected = [f'Iceon_{tag}_aarch64.dmg', f'Iceon_{tag}_aarch64.app.tar.gz', f'Iceon_{tag}_aarch64.app.tar.gz.sig',
-              f'Iceon_{tag}_x86-setup.exe', f'Iceon_{tag}_x86-setup.exe.sig', 'latest.json', 'SHASUMS256.txt']
-          subprocess.run(['gh', 'release', 'upload', tag, *[str(Path('release-assets', n)) for n in expected]], check=True)
-          def audit(draft):
-              release = json.loads(gh('api', f'repos/{repo}/releases/tags/{tag}'))
-              if release['tag_name'] != tag or release['draft'] != draft or release['prerelease']:
-                  raise SystemExit('Unexpected release state')
-              if sorted(a['name'] for a in release['assets']) != sorted(expected):
-                  raise SystemExit('Release must contain exactly the seven audited assets')
-              for asset in release['assets']:
-                  local = Path('release-assets', asset['name']).read_bytes()
-                  digest = 'sha256:' + hashlib.sha256(local).hexdigest()
-                  if asset.get('digest') != digest or asset['size'] != len(local):
-                      raise SystemExit('GitHub asset digest or size differs from audited asset')
-              return release
-          audit(True)
-          gh('release', 'download', tag, '--dir', 'release-verify')
-          for name in expected:
-              if Path('release-assets', name).read_bytes() != Path('release-verify', name).read_bytes():
-                  raise SystemExit('Downloaded release bytes differ')
-          subprocess.run(['sha256sum', '--check', 'SHASUMS256.txt'], cwd='release-verify', check=True)
-          for name in [f'Iceon_{tag}_aarch64.app.tar.gz', f'Iceon_{tag}_x86-setup.exe']:
-              subprocess.run(['cargo', 'run', '--manifest-path', 'xtask/Cargo.toml', '--locked', '--', 'verify-update',
-                  'src-tauri/tauri.conf.json', f'release-verify/{name}.sig', f'release-verify/{name}', tag], check=True)
-          gh('release', 'edit', tag, '--draft=false', '--prerelease=false', '--latest')
-          published = audit(False)
-          latest = json.loads(gh('api', f'repos/{repo}/releases/latest'))
-          if latest['id'] != published['id']:
-              raise SystemExit('Published release is not latest')
-          PY
+          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          python3 -m unittest discover -s .github/scripts -p 'test_publish_release.py'
+          python3 .github/scripts/publish_release.py
