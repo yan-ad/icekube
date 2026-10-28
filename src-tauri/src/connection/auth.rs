@@ -356,7 +356,9 @@ async fn supervise(
         return Err(ConnectionError::AuthHelperFailed);
     }
     #[cfg(any(target_os = "macos", test))]
-    if let Some(path) = auth_path::resolve(&request.command, &request.env) {
+    if request.fallback_home.is_some()
+        && let Some(path) = auth_path::resolve(&request.command, &request.env)
+    {
         request.command = path;
     }
     if cancel.is_cancelled() {
@@ -382,6 +384,9 @@ async fn supervise(
                             &mut request.env,
                             &home,
                             Path::new("/etc"),
+                            std::env::var_os("XDG_CONFIG_HOME")
+                                .as_deref()
+                                .map(Path::new),
                             || {
                                 worker_cancel.is_cancelled()
                                     || tokio::time::Instant::now() >= expires

@@ -9,6 +9,9 @@ const MAX_DIRECTORIES: usize = 128;
 const FILE_LIMIT: usize = 8 * 1024;
 const READ_LIMIT: usize = 32 * 1024;
 
+#[path = "auth_fish.rs"]
+mod fish;
+
 pub(super) fn bare(command: &Path) -> Option<&str> {
     let name = command.to_str()?;
     (!name.is_empty() && !name.contains(['/', '\\']) && name != "." && name != "..").then_some(name)
@@ -139,6 +142,7 @@ pub(super) fn fallback(
     env: &mut Vec<(String, String)>,
     home: &Path,
     system: &Path,
+    config_home: Option<&Path>,
     stopped: impl Fn() -> bool,
 ) -> Result<()> {
     let Some(name) = bare(command) else {
@@ -192,6 +196,7 @@ pub(super) fn fallback(
         }
     }
     if matches!(name, "gke-gcloud-auth-plugin" | "gcloud") && home.is_absolute() {
+        fish::discover(home, config_home, &mut directories, &mut budget, &stopped)?;
         for filename in [
             ".zshrc",
             ".zprofile",
@@ -405,7 +410,7 @@ mod tests {
         )];
         let mut env = initial.clone();
         let mut command = PathBuf::from("gke-gcloud-auth-plugin");
-        fallback(&mut command, &mut env, &home, &system, || false).unwrap();
+        fallback(&mut command, &mut env, &home, &system, None, || false).unwrap();
         assert_eq!(
             command,
             fs::canonicalize(sdk.join("bin/gke-gcloud-auth-plugin")).unwrap()
@@ -414,14 +419,14 @@ mod tests {
         for name in ["synthetic-helper", "/absent/gke-gcloud-auth-plugin"] {
             let mut command = PathBuf::from(name);
             let mut env = initial.clone();
-            fallback(&mut command, &mut env, &home, &system, || false).unwrap();
+            fallback(&mut command, &mut env, &home, &system, None, || false).unwrap();
             assert_eq!(command, PathBuf::from(name));
             assert_eq!(env, initial);
         }
         fs::write(home.join(".zshrc"), "x".repeat(FILE_LIMIT + 1)).unwrap();
         let mut command = PathBuf::from("gke-gcloud-auth-plugin");
         let mut env = initial.clone();
-        fallback(&mut command, &mut env, &home, &system, || false).unwrap();
+        fallback(&mut command, &mut env, &home, &system, None, || false).unwrap();
         assert_eq!(env, initial);
         assert_eq!(command, PathBuf::from("gke-gcloud-auth-plugin"));
         fs::create_dir_all(system.join("paths.d")).unwrap();
@@ -430,15 +435,166 @@ mod tests {
             format!("relative\n{}\n", sdk.join("bin").display()),
         )
         .unwrap();
-        fallback(&mut command, &mut env, &home, &system, || true).unwrap();
+        fallback(&mut command, &mut env, &home, &system, None, || true).unwrap();
         assert_eq!(env, initial);
-        fallback(&mut command, &mut env, &home, &system, || false).unwrap();
+        fallback(&mut command, &mut env, &home, &system, None, || false).unwrap();
         assert!(command.is_absolute());
     }
 
     #[cfg(unix)]
+    #[test]
+    fn finder_discovers_custom_sdk_from_fish_without_running_startup_commands() {
+        use std::fs;
+        for (filename, contents) in [
+            (
+                "config.fish",
+                "set -gx PATH \"$HOME/Kerjaa ü space/google-cloud-sdk/bin\" $PATH",
+            ),
+            (
+                "config.fish",
+                "set -gx PATH \"$HOME//Kerjaa ü space/google-cloud-sdk/bin\" $PATH",
+            ),
+            (
+                "config.fish",
+                "fish_add_path ~//Kerjaa/google-cloud-sdk/bin",
+            ),
+            (
+                "conf.d/gcloud.fish",
+                "source \"$HOME/Kerjaa ü space/google-cloud-sdk/path.fish.inc\"",
+            ),
+            (
+                "config.fish",
+                "fish_add_path --prepend \"$HOME/Kerjaa ü space/google-cloud-sdk/bin\"",
+            ),
+            (
+                "config.fish",
+                "set -U fish_user_paths \"$HOME/Kerjaa ü space/google-cloud-sdk/bin\" $fish_user_paths",
+            ),
+        ] {
+            let root = tempfile::tempdir().unwrap();
+            let home = root.path().join("home");
+            let config = home.join(".config/fish").join(filename);
+            fs::create_dir_all(config.parent().unwrap()).unwrap();
+            let sdk = if contents.contains("~//") {
+                "Kerjaa"
+            } else {
+                "Kerjaa ü space"
+            };
+            let helper = home
+                .join(sdk)
+                .join("google-cloud-sdk/bin/gke-gcloud-auth-plugin");
+            executable(&helper);
+            let marker = root.path().join("must-not-exist");
+            fs::write(
+                &config,
+                format!("touch '{}'\n{contents}\n", marker.display()),
+            )
+            .unwrap();
+            let initial = vec![(
+                "PATH".into(),
+                root.path().join("empty").to_str().unwrap().into(),
+            )];
+            let mut env = initial.clone();
+            let mut command = PathBuf::from("gke-gcloud-auth-plugin");
+            fallback(
+                &mut command,
+                &mut env,
+                &home,
+                &root.path().join("etc"),
+                None,
+                || false,
+            )
+            .unwrap();
+            assert_eq!(
+                command,
+                fs::canonicalize(&helper).unwrap(),
+                "{filename}: {contents}"
+            );
+            assert!(!marker.exists());
+            assert!(path(&env).contains(&helper.parent().unwrap().to_owned()));
+            assert_eq!(
+                fs::read_to_string(config).unwrap(),
+                format!("touch '{}'\n{contents}\n", marker.display())
+            );
+            for name in ["synthetic-helper", "/absent/gke-gcloud-auth-plugin"] {
+                let mut command = PathBuf::from(name);
+                let mut env = initial.clone();
+                fallback(
+                    &mut command,
+                    &mut env,
+                    &home,
+                    &root.path().join("etc"),
+                    None,
+                    || false,
+                )
+                .unwrap();
+                assert_eq!(command, PathBuf::from(name));
+                assert_eq!(env, initial);
+            }
+            fs::remove_file(helper).unwrap();
+            let mut command = PathBuf::from("gke-gcloud-auth-plugin");
+            let mut env = initial.clone();
+            fallback(
+                &mut command,
+                &mut env,
+                &home,
+                &root.path().join("etc"),
+                None,
+                || false,
+            )
+            .unwrap();
+            assert_eq!(command, PathBuf::from("gke-gcloud-auth-plugin"));
+            assert_eq!(env, initial);
+        }
+    }
+
+    #[cfg(unix)]
     #[tokio::test]
-    async fn discovered_sdk_runs_fixture_sibling_with_literal_arguments() {
+    async fn explicit_path_keeps_relative_entry_precedence_over_absolute_entries() {
+        use super::super::{V1, helper_request, run};
+        use kube::config::{Cluster, ExecConfig, ExecInteractiveMode};
+        use std::{fs, time::Duration};
+        let cwd = std::env::current_dir().unwrap();
+        let root = tempfile::tempdir_in(&cwd).unwrap();
+        let relative = root.path().strip_prefix(&cwd).unwrap().join("relative");
+        let absolute = root.path().join("absolute");
+        for (directory, output) in [
+            (cwd.join(&relative), "relative"),
+            (absolute.clone(), "absolute"),
+        ] {
+            let helper = directory.join("iceon-fixture-auth-helper");
+            executable(&helper);
+            fs::write(helper, format!("#!/bin/sh\nprintf {output}\n")).unwrap();
+        }
+        let path = std::env::join_paths([&relative, &absolute])
+            .unwrap()
+            .into_string()
+            .unwrap();
+        let exec = ExecConfig {
+            command: Some("iceon-fixture-auth-helper".into()),
+            api_version: Some(V1.into()),
+            interactive_mode: Some(ExecInteractiveMode::Never),
+            env: Some(vec![
+                [
+                    ("name".into(), "PATH".into()),
+                    ("value".into(), path.clone()),
+                ]
+                .into(),
+            ]),
+            ..Default::default()
+        };
+        let request = helper_request(&exec, &Cluster::default(), root.path()).unwrap();
+        assert!(request.fallback_home.is_none());
+        assert_eq!(request.env[0].1, path);
+        assert_eq!(
+            run(request, Duration::from_secs(2)).await.unwrap(),
+            b"relative"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn fish_discovered_sdk_runs_fixture_sibling_with_literal_arguments() {
         use super::super::{HelperRequest, run};
         use std::{fs, time::Duration};
         let root = tempfile::tempdir().unwrap();
@@ -453,9 +609,10 @@ mod tests {
             "#!/bin/sh\n[ \"$1\" = 'literal ; ü' ] || exit 9\nprintf fixture-only\n",
         )
         .unwrap();
+        fs::create_dir_all(root.path().join(".config/fish")).unwrap();
         fs::write(
-            root.path().join(".zprofile"),
-            format!("source '{}/path.zsh.inc'", sdk.display()),
+            root.path().join(".config/fish/config.fish"),
+            "set -gx PATH \"$HOME/Kerjaa/google-cloud-sdk/bin\" $PATH",
         )
         .unwrap();
         let mut env = vec![(
@@ -468,6 +625,7 @@ mod tests {
             &mut env,
             root.path(),
             &root.path().join("etc"),
+            None,
             || false,
         )
         .unwrap();

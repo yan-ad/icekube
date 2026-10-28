@@ -417,7 +417,9 @@ not persisted into Catalog's metadata snapshot.
   bounded PATH containing inherited absolute directories and fixed Homebrew/Google
   Cloud SDK installation locations. If spawning still reports NotFound, bounded
   system PATH hints and literal Google SDK source declarations can resolve a
-  custom installation. No login shell, shell-file evaluation, recursive search,
+  custom installation. Literal fish SDK source/PATH declarations and saved
+  `fish_user_paths` are recognized in bounded user configuration files as well.
+  No login shell, shell-file evaluation, recursive search,
   automatic installation or global environment modification is used.
   Explicit `exec.env.PATH` remains unchanged. See `connection/auth_path.rs` and
   [credential renewal](docs/credential-renewal.md) for bounds and fixture coverage.

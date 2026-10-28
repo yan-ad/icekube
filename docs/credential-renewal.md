@@ -59,20 +59,38 @@ directories. Empty, relative and duplicate inherited entries are omitted.
 Lookup is capped at 128 directories / 32 KiB. Absolute commands remain absolute;
 relative commands with path separators stay relative to the canonical kubeconfig
 directory. Both initial exec authentication and renewal use this behavior. Bare
-commands are resolved to the first canonical, regular executable in this child
-PATH before spawning; explicit path-containing commands are not substituted.
+commands without an explicit kubeconfig PATH are resolved to the first canonical,
+regular executable in this child PATH before spawning. Explicit PATH lookup is
+left to process spawning, preserving its search order, including relative entries;
+explicit path-containing commands are not substituted.
 
 If the initial spawn still reports NotFound, automatic fallback reads bounded
 literal PATH entries from `/etc/paths` and up to 32 regular files in
 `/etc/paths.d`. Only for `gke-gcloud-auth-plugin` or `gcloud`, it also recognizes
 literal SDK source declarations in `.zshrc`, `.zprofile`, `.bashrc`,
-`.bash_profile`, and `.profile`. Those declarations can identify a custom
+`.bash_profile`, and `.profile`. Fish hints come from `config.fish`, saved
+`fish_user_paths` in `fish_variables`, and up to 32 entries in `conf.d` (only
+`.fish` files are read), under `$XDG_CONFIG_HOME/fish` when that inherited setting
+is absolute, otherwise `~/.config/fish`. Recognized fish declarations are literal
+`source …/google-cloud-sdk/path.fish.inc`, `fish_add_path …/google-cloud-sdk/bin`,
+and `set` assignments to `PATH` or `fish_user_paths`, including
+`set -gx PATH "$HOME/Kerjaa/google-cloud-sdk/bin" $PATH`. Saved universal paths
+decode fish's hexadecimal escapes and list separators without evaluating them.
+These declarations can identify a custom
 `google-cloud-sdk` installation, including paths containing spaces. They are
 never executed: only the SDK's `bin` path is extracted. Unrecognized shell
 expressions, command substitution, parent traversal, and symlinked hint files
 are rejected. Reads are capped at 8 KiB per file and 32 KiB total. Discovery and
 the fallback spawn share the helper supervisor's original deadline and
 cancellation. New paths are adopted only if the exact configured helper exists.
+Fish is treated as a source of SDK installation hints, not a shell interpreter:
+dynamic expressions, functions and conditional execution are not reproduced.
+An unsaved PATH change in a terminal cannot be recovered by a Finder-launched
+app. A persisted literal declaration or saved `fish_user_paths` is required for
+custom SDK locations outside the fixed defaults. Fixture tests in
+`connection/auth_fish.rs` and `connection/auth_path.rs` cover fish discovery,
+minimal app-launch PATH, sibling CLI execution, XDG configuration, unsupported
+syntax, bounded reads, cancellation, and unchanged explicit kubeconfig PATH.
 
 The app does not evaluate shell startup files, invoke a login shell, recursively
 search the filesystem, install tools, run legacy provider `cmd-path`, or change

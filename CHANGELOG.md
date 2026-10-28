@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.0.5
+
+### Fixed
+
+- Fix Google Cloud SDK authentication-helper discovery for macOS Finder/Dock
+  launches when the SDK path is configured in fish. Iceon now recognizes literal
+  SDK paths in `config.fish`, bounded `conf.d` snippets, and saved
+  `fish_user_paths`, including custom locations such as
+  `$HOME/Kerjaa/google-cloud-sdk/bin`. A persisted fish declaration no longer
+  requires launching Iceon from a terminal with a manually exported PATH.
+- Preserve OS search order for an explicit kubeconfig PATH, including relative
+  entries. Automatic discovery does not replace an explicit helper command or
+  modify kubeconfig, shell configuration, or the application's global environment.
+- Keep discovery bounded and non-executing: shell startup commands are never run,
+  unsupported expressions are ignored, and existing helper deadlines and
+  cancellation remain enforced. A PATH change made only in an open terminal
+  cannot be recovered by a Finder-launched app; custom paths must be persisted.
+
+### Verification and distribution
+
+Local checks passed 357 Rust tests and 848 browser fixture tests, plus frontend
+build, formatting, strict Clippy, and an unsigned macOS release bundle build.
+Fixtures cover fish discovery, saved paths, sibling SDK commands, explicit PATH
+precedence, malformed syntax, read limits and cancellation. Real credentials,
+live clusters, and native installation/update smoke tests were not used.
+
+Full CI, both platform packages, signed updater verification, and uploaded-byte
+checks gate publication. Working 0.0.4 installations can receive this patch
+through automatic updates. If 0.0.3 crashes at startup, or when upgrading from
+0.0.1/0.0.2, install the new package manually. macOS remains ad-hoc signed and not
+notarized; Windows has no Authenticode certificate. See
+[installation](docs/releases.md) and [automatic updates](docs/automatic-updates.md).
+
 ## 0.0.4
 
 ### Fixed
