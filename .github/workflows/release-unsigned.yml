@@ -412,6 +412,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
         run: |
-          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}"
+          git fetch --no-tags origin "refs/tags/${RELEASE_TAG}:refs/iceon/release-tags/${RELEASE_TAG}"
           python3 -m unittest discover -s .github/scripts -p 'test_publish_release.py'
           python3 .github/scripts/publish_release.py

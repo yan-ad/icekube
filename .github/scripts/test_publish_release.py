@@ -8,7 +8,7 @@ import unittest
 from unittest.mock import patch
 
 from publish_release import (GitHub, MAX_ASSET, PublishError, REPOSITORY,
-                             expected_names, publish, run_bounded)
+                             expected_names, publish, run_bounded, verify_checkout)
 
 TAG = "0.0.3"
 SHA = "a" * 40
@@ -260,6 +260,45 @@ class PublisherTests(unittest.TestCase):
             self.publish()
         self.assertEqual(len(self.ops.verifications), 2)
         self.assert_not_published()
+
+
+class CheckoutTests(unittest.TestCase):
+    def test_remote_annotated_tag_does_not_clobber_checkout_lightweight_tag(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            remote = root / "remote"
+            local = root / "checkout"
+            def git(path, *args):
+                return subprocess.check_output(["git", "-C", str(path), *args],
+                                               text=True, stderr=subprocess.DEVNULL).strip()
+            subprocess.run(["git", "init", "-q", str(remote)], check=True)
+            git(remote, "config", "user.name", "Fixture")
+            git(remote, "config", "user.email", "fixture@example.test")
+            git(remote, "config", "commit.gpgsign", "false")
+            git(remote, "config", "tag.gpgsign", "false")
+            (remote / "fixture").write_text("synthetic source\n")
+            git(remote, "add", "fixture")
+            git(remote, "commit", "-qm", "fixture")
+            sha = git(remote, "rev-parse", "HEAD")
+            git(remote, "tag", "-a", TAG, "-m", "remote annotated release")
+            subprocess.run(["git", "clone", "-q", "--no-tags", str(remote), str(local)], check=True)
+            git(local, "config", "tag.gpgsign", "false")
+            git(local, "tag", TAG, sha)
+            old_ref = git(local, "rev-parse", f"refs/tags/{TAG}")
+            refspec = f"refs/tags/{TAG}:refs/iceon/release-tags/{TAG}"
+            git(local, "fetch", "--no-tags", "origin", refspec)
+            verify_checkout(TAG, sha, cwd=local)
+            git(local, "fetch", "--no-tags", "origin", refspec)
+            self.assertEqual(git(local, "rev-parse", f"refs/tags/{TAG}"), old_ref)
+            self.assertEqual(git(local, "cat-file", "-t", f"refs/tags/{TAG}"), "commit")
+            with self.assertRaises(PublishError):
+                verify_checkout(TAG, "f" * 40, cwd=local)
+            git(local, "update-ref", f"refs/iceon/release-tags/{TAG}", sha)
+            with self.assertRaises(PublishError):
+                verify_checkout(TAG, sha, cwd=local)
+            workflow = Path(".github/workflows/release-unsigned.yml").read_text()
+            self.assertIn('refs/tags/${RELEASE_TAG}:refs/iceon/release-tags/${RELEASE_TAG}', workflow)
+            self.assertNotIn('refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}', workflow)
 
 
 class TransportTests(unittest.TestCase):

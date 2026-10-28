@@ -218,13 +218,26 @@ def publish(ops, repo, tag, sha, assets, downloads, notes_path, config_path):
     return release_id, url
 
 
+def verify_checkout(tag, sha, cwd=None):
+    require(re.fullmatch(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", tag),
+            "Expected a canonical stable tag")
+    require(re.fullmatch(r"[0-9a-f]{40}", sha), "Expected an exact workflow commit")
+    # checkout may synthesize a lightweight local tag. Fetch the remote tag into
+    # a separate namespace so provenance checks never overwrite checkout refs.
+    reference = f"refs/iceon/release-tags/{tag}"
+    kind = subprocess.check_output(["git", "cat-file", "-t", reference],
+                                   cwd=cwd, text=True, timeout=30).strip()
+    require(kind == "tag", "Expected the remote release tag to be annotated")
+    for selector in ["HEAD", f"{reference}^{{commit}}"]:
+        actual = subprocess.check_output(["git", "rev-parse", "--verify", selector],
+                                         cwd=cwd, text=True, timeout=30).strip()
+        require(actual == sha, "Tag, checkout and workflow SHA must agree")
+
+
 def main():
     tag = os.environ["RELEASE_TAG"]
     sha = os.environ["GITHUB_SHA"]
-    for selector in ["HEAD", f"refs/tags/{tag}^{{commit}}"]:
-        actual = subprocess.check_output(["git", "rev-parse", "--verify", selector],
-                                         text=True, timeout=30).strip()
-        require(actual == sha, "Tag, checkout and workflow SHA must agree")
+    verify_checkout(tag, sha)
     release_id, url = publish(GitHub(), os.environ["GH_REPO"], tag, sha,
                               Path("release-assets"), Path("release-verify"),
                               Path("/tmp/iceon-release-notes.md"), Path("src-tauri/tauri.conf.json"))
