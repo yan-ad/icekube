@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.0.6
+
+### Fixed
+
+- Fix a fish Google Cloud SDK discovery case missed by 0.0.5: installer-style
+  `if [ -f '…/path.fish.inc' ]; . '…/path.fish.inc'; end` hints are now
+  recognized, including quoted `~/` paths. The tested path and sourced path must
+  match. No condition, shell startup command, SDK script, or authentication
+  plugin is executed during discovery.
+- Recognize bare `.` SDK source hints as well as `source`. Quoted `~/` is treated
+  only as a home-relative SDK installation hint; this does not claim fish expands
+  the original declaration. Additional commands, substitutions, mismatched paths,
+  and comments that hide the source or closing statement are rejected.
+
+### Verification and distribution
+
+Regression fixtures reproduce the exact guarded source declaration that 0.0.5
+missed, including helper and sibling SDK command execution with synthetic data.
+A separate read-only check with a minimal Finder PATH resolved the locally
+installed helper from the actual fish hint without running it. Real kubeconfigs,
+credentials, and live clusters were not accessed. Full CI and both verified
+platform packages gate publication. Existing signed-update installations can
+receive this patch automatically; native install/update smoke tests are not claimed.
+
 ## 0.0.5
 
 ### Fixed

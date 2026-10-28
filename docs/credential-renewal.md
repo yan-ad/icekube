@@ -76,6 +76,12 @@ is absolute, otherwise `~/.config/fish`. Recognized fish declarations are litera
 and `set` assignments to `PATH` or `fish_user_paths`, including
 `set -gx PATH "$HOME/Kerjaa/google-cloud-sdk/bin" $PATH`. Saved universal paths
 decode fish's hexadecimal escapes and list separators without evaluating them.
+SDK source hints also accept `.` and a single guarded installer statement such as
+`if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end`.
+The test and source must name the same literal SDK path. Quoted `~/` in these
+source hints is treated as a home-relative installation hint, not a claim that
+fish itself expands it. No condition or source script is executed, and additional
+commands or substitutions are rejected.
 These declarations can identify a custom
 `google-cloud-sdk` installation, including paths containing spaces. They are
 never executed: only the SDK's `bin` path is extracted. Unrecognized shell

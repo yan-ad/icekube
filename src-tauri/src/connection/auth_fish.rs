@@ -65,15 +65,60 @@ fn sdk_bin(path: PathBuf) -> Option<PathBuf> {
     path.ends_with("google-cloud-sdk/bin").then_some(path)
 }
 
+// Installer source hints sometimes contain a quoted ~/ prefix. Treat it as an
+// installation hint, not as evidence that fish expanded or executed the line.
+fn source_hint(word: &str, home: &Path) -> Option<PathBuf> {
+    let unquoted = if word.starts_with(['\'', '"']) {
+        let quote = word.chars().next()?;
+        word.strip_prefix(quote)?.strip_suffix(quote)?
+    } else {
+        word
+    };
+    let path = if let Some(rest) = unquoted.strip_prefix("~/") {
+        literal(home.join(rest.trim_start_matches('/')).to_str()?, home)?
+    } else {
+        literal(word, home)?
+    };
+    path.ends_with("google-cloud-sdk/path.fish.inc")
+        .then_some(path)
+}
+
+fn guarded_source(line: &str, home: &Path) -> Option<Vec<PathBuf>> {
+    let mut parts = line.split(';');
+    let guard = parts.next()?;
+    let body = parts.next()?;
+    if guard.contains('#') || body.contains('#') {
+        return None;
+    }
+    let guard = words(guard)?;
+    let body = words(body)?;
+    let end = words(parts.next()?)?;
+    if parts.next().is_some() || end != ["end"] {
+        return None;
+    }
+    let tested = match guard.as_slice() {
+        ["if", "[", "-f", path, "]"] | ["if", "test", "-f", path] => *path,
+        _ => return None,
+    };
+    let ["source" | ".", sourced] = body.as_slice() else {
+        return None;
+    };
+    let path = source_hint(sourced, home)?;
+    if source_hint(tested, home)? != path {
+        return None;
+    }
+    Some(vec![path.parent()?.join("bin")])
+}
+
 fn hints(line: &str, home: &Path) -> Option<Vec<PathBuf>> {
+    if line.trim_start().starts_with("if ") {
+        return guarded_source(line, home);
+    }
     let words = words(line)?;
     let (command, rest) = words.split_first()?;
-    if *command == "source" {
+    if matches!(*command, "source" | ".") {
         let [word] = rest else { return None };
-        let source = literal(word, home)?;
-        return source
-            .ends_with("google-cloud-sdk/path.fish.inc")
-            .then(|| vec![source.parent().unwrap().join("bin")]);
+        return Some(vec![source_hint(word, home)?.parent()?.join("bin")]);
     }
     let mut index = 0;
     match *command {
@@ -247,6 +292,36 @@ pub(super) fn discover(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognizes_guarded_installer_sources_without_interpreting_fish() {
+        let home = Path::new("/Users/fixture");
+        for line in [
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
+            "if test -f \"$HOME/Kerjaa/google-cloud-sdk/path.fish.inc\"; source \"$HOME/Kerjaa/google-cloud-sdk/path.fish.inc\"; end # SDK",
+            ". '~/Kerjaa/google-cloud-sdk/path.fish.inc'",
+            "source \"~/Kerjaa/google-cloud-sdk/path.fish.inc\"",
+        ] {
+            assert_eq!(
+                hints(line, home),
+                Some(vec![home.join("Kerjaa/google-cloud-sdk/bin")]),
+                "{line}"
+            );
+        }
+        for line in [
+            "if [ -f '~/other/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; touch /must/notexecute; end",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end; touch /must/notexecute",
+            "if [ -f '(touch /must/notexecute)/google-cloud-sdk/path.fish.inc' ]; . '(touch /must/notexecute)/google-cloud-sdk/path.fish.inc'; end",
+            "if [ -f '~/../google-cloud-sdk/path.fish.inc' ]; . '~/../google-cloud-sdk/path.fish.inc'; end",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end | touch /must/notexecute",
+            "# if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ] # ignored; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc' # ignored; end",
+        ] {
+            assert!(hints(line, home).is_none(), "{line}");
+        }
+    }
 
     #[test]
     fn accepts_only_literal_sdk_declarations() {

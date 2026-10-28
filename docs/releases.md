@@ -1,16 +1,16 @@
-# Iceon 0.0.5 releases
+# Iceon 0.0.6 releases
 
 The current release route is `.github/workflows/release-unsigned.yml` in
 [yan-ad/iceon](https://github.com/yan-ad/iceon). Despite its historical filename,
 it now publishes **signed updater artifacts without paid OS signing certificates**.
 The application remains Iceon, with executable `iceon` and bundle identifier
-`ad.yan.iceon`. The next stable tag is **`0.0.5`**, without a `v` prefix.
+`ad.yan.iceon`. The next stable tag is **`0.0.6`**, without a `v` prefix.
 Publication requires CI and packaging verification. Native installation/update
 smoke checks remain outstanding; configuration is not evidence of those checks.
 
 ## Release gate
 
-The workflow accepts only the exact canonical stable `0.0.5` tag. A manual
+The workflow accepts only the exact canonical stable `0.0.6` tag. A manual
 dispatch selects an existing tag at the same Actions commit. Tag, checkout HEAD
 and reusable CI commit must agree. All application manifests and the local
 `iceon` Cargo.lock package version must match. It never creates, moves or
@@ -59,15 +59,15 @@ and assembles exactly these seven public assets:
 
 | Asset | Purpose |
 | --- | --- |
-| `Iceon_0.0.5_aarch64.dmg` | First/manual Apple Silicon installation |
-| `Iceon_0.0.5_aarch64.app.tar.gz` | macOS app-bundle updater package |
-| `Iceon_0.0.5_aarch64.app.tar.gz.sig` | Version-bound minisign signature |
-| `Iceon_0.0.5_x86-setup.exe` | First/manual Windows x86 installer and updater package |
-| `Iceon_0.0.5_x86-setup.exe.sig` | Version-bound minisign signature |
+| `Iceon_0.0.6_aarch64.dmg` | First/manual Apple Silicon installation |
+| `Iceon_0.0.6_aarch64.app.tar.gz` | macOS app-bundle updater package |
+| `Iceon_0.0.6_aarch64.app.tar.gz.sig` | Version-bound minisign signature |
+| `Iceon_0.0.6_x86-setup.exe` | First/manual Windows x86 installer and updater package |
+| `Iceon_0.0.6_x86-setup.exe.sig` | Version-bound minisign signature |
 | `latest.json` | Stable feed for `darwin-aarch64` and `windows-i686` |
 | `SHASUMS256.txt` | SHA-256 checksums of the other six assets |
 
-The publisher extracts only the matching canonical `## 0.0.5` changelog section
+The publisher extracts only the matching canonical `## 0.0.6` changelog section
 (optionally suffixed ` (pending CI)`) into release notes. It creates a fresh
 exact-tag draft, uploads the assets, audits GitHub asset names/sizes/digests,
 downloads them again and compares bytes and checksums. It rechecks updater
@@ -84,8 +84,8 @@ A failed publication may leave a draft; inspect the failure rather than clobber 
 
 ## First installation
 
-Working 0.0.4 installations can receive 0.0.5 through automatic updates.
-Install 0.0.5 manually if 0.0.3 crashes during startup: the affected build cannot
+Working 0.0.4 installations can receive 0.0.6 through automatic updates.
+Install 0.0.6 manually if 0.0.3 crashes during startup: the affected build cannot
 run its updater. Also install manually from 0.0.1/0.0.2. Those older versions
 shipped without an updater public key and cannot acquire automatic updates
 retroactively. Once 0.0.4 or newer is installed, later verified stable updates install and
@@ -94,8 +94,8 @@ restart automatically when safe, without another manual installation step.
 ### Apple Silicon macOS
 
 Download the DMG and checksum file from the
-[0.0.5 release](https://github.com/yan-ad/iceon/releases/tag/0.0.5) after publication.
-For a DMG-only download, compare `shasum -a 256 Iceon_0.0.5_aarch64.dmg` with its
+[0.0.6 release](https://github.com/yan-ad/iceon/releases/tag/0.0.6) after publication.
+For a DMG-only download, compare `shasum -a 256 Iceon_0.0.6_aarch64.dmg` with its
 entry in `SHASUMS256.txt`. If all six listed assets are present, use
 `shasum -a 256 -c SHASUMS256.txt`. A matching checksum is not publisher identity.
 Open the DMG and drag `Iceon.app` into `/Applications`.
@@ -115,9 +115,9 @@ replacement are not proven by CI metadata checks.
 ### Windows 32-bit x86
 
 Download
-[`Iceon_0.0.5_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.5/Iceon_0.0.5_x86-setup.exe)
+[`Iceon_0.0.6_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.6/Iceon_0.0.6_x86-setup.exe)
 and compare its SHA-256 with the checksum file, for example using PowerShell
-`Get-FileHash .\Iceon_0.0.5_x86-setup.exe -Algorithm SHA256`. Run the setup to
+`Get-FileHash .\Iceon_0.0.6_x86-setup.exe -Algorithm SHA256`. Run the setup to
 install for the current user. This is an installer, not a portable raw executable.
 If WebView2 is missing, the installer downloads its bootstrapper and requires
 network access. Automatic updates use quiet NSIS installation.
@@ -131,7 +131,7 @@ macOS, Universal macOS or separate Windows ARM/x64 installer is built by this ro
 ## Other routes
 
 - [Historical signed stable tooling](releasing.md): `v*` tags, Developer ID and
-  notarization requirements, macOS-only packaging. Not the 0.0.5 publication route.
+  notarization requirements, macOS-only packaging. Not the 0.0.6 publication route.
 - [Dry run](release-dry-run.md): the separate packaging rehearsal, not publication
   or evidence of current two-platform update coverage.
 - `.github/workflows/prerelease-unsigned.yml`: separate prerelease tags and policy,

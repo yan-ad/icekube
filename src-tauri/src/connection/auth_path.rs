@@ -448,6 +448,10 @@ mod tests {
         for (filename, contents) in [
             (
                 "config.fish",
+                "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
+            ),
+            (
+                "config.fish",
                 "set -gx PATH \"$HOME/Kerjaa ü space/google-cloud-sdk/bin\" $PATH",
             ),
             (
@@ -475,7 +479,7 @@ mod tests {
             let home = root.path().join("home");
             let config = home.join(".config/fish").join(filename);
             fs::create_dir_all(config.parent().unwrap()).unwrap();
-            let sdk = if contents.contains("~//") {
+            let sdk = if contents.contains("~//") || contents.contains("~/Kerjaa/") {
                 "Kerjaa"
             } else {
                 "Kerjaa ü space"
@@ -612,7 +616,7 @@ mod tests {
         fs::create_dir_all(root.path().join(".config/fish")).unwrap();
         fs::write(
             root.path().join(".config/fish/config.fish"),
-            "set -gx PATH \"$HOME/Kerjaa/google-cloud-sdk/bin\" $PATH",
+            "if [ -f '~/Kerjaa/google-cloud-sdk/path.fish.inc' ]; . '~/Kerjaa/google-cloud-sdk/path.fish.inc'; end",
         )
         .unwrap();
         let mut env = vec![(
