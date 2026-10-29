@@ -41,6 +41,7 @@ pub struct ResourceDetail {
     pub item: ResourceItem,
     pub related: BTreeMap<String, ResourceReference>,
     pub sections: Vec<super::detail_facts::DetailSection>,
+    pub metadata: Option<super::detail_metadata::DetailMetadata>,
 }
 #[derive(Default)]
 pub(super) struct DetailSlot {
@@ -233,6 +234,7 @@ pub(super) fn project(r: &DetailRequest, value: Value) -> Result<ResourceDetail>
         return Err(ConnectionError::Conflict);
     }
     let sections = super::detail_facts::project(reference.kind, &value);
+    let metadata = super::detail_metadata::project(reference.kind, &value);
     let related = related(reference.kind, &value, reference.namespace.as_deref());
     let mut item = super::resources::project(reference.kind, value)?;
     for column in ["controlledBy", "serviceAccount", "involvedObject"] {
@@ -255,6 +257,7 @@ pub(super) fn project(r: &DetailRequest, value: Value) -> Result<ResourceDetail>
         item,
         related,
         sections,
+        metadata,
     })
 }
 fn related(

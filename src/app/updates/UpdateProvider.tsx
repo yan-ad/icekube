@@ -1,8 +1,8 @@
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { checkForUpdates } from "../layouts/nativeNavigationApi";
-import { hasUpdateEngine, readUpdateState, reportUpdateWindowPrepared, reportUpdateWindowReady, updateError, type UpdateSnapshot } from "./api";
+import { hasUpdateEngine, readUpdateState, reportUpdateWindowPrepared, reportUpdateWindowReady, restartForUpdate, updateError, type UpdateSnapshot } from "./api";
 
-type UpdateState = { snapshot: UpdateSnapshot | null; busy: boolean; error: string | null; check: () => Promise<void>; block: (token: symbol, reason: string | null) => void };
+type UpdateState = { snapshot: UpdateSnapshot | null; busy: boolean; error: string | null; check: () => Promise<void>; restart: () => Promise<void>; block: (token: symbol, reason: string | null) => void };
 const UpdateContext = createContext<UpdateState | null>(null);
 function sameSnapshot(previous: UpdateSnapshot | null, next: UpdateSnapshot): boolean {
   return previous !== null && previous.phase === next.phase && previous.version === next.version
@@ -32,6 +32,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
   const [snapshot, setSnapshot] = useState<UpdateSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [restartError, setRestartError] = useState<string | null>(null);
   const operation = useRef(false);
   const generation = useRef(0);
   const mounted = useRef(false);
@@ -54,6 +55,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     heartbeat.current();
   }, []);
   const apply = useCallback((next: UpdateSnapshot) => {
+    if (next.phase !== "ready") setRestartError(null);
     if (next.phase === "preparing" || next.phase === "restarting") {
       if (next.phase === "preparing" && attempt.current !== next.preparationId) {
         attempt.current = next.preparationId!;
@@ -94,7 +96,7 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
           await reportUpdateWindowPrepared(attempt.current, frozen.current && !unsafeSeen.current);
         } else await reportUpdateWindowReady(!unsafe);
       }
-      catch { if (!disposed && reportingAttempt === attempt.current) { unsafeSeen.current = true; setError("Update readiness could not be reported. Automatic installation is paused."); } }
+      catch { if (!disposed && reportingAttempt === attempt.current) { unsafeSeen.current = true; setError("Update readiness could not be reported. Installation is paused."); } }
       finally {
         reporting = false;
         if (queued) { queued = false; void report(); }
@@ -154,7 +156,25 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     catch (reason) { if (mounted.current) setError(updateError(reason)); }
     finally { operation.current = false; if (mounted.current) setBusy(false); }
   }, [apply]);
-  const value = useMemo(() => ({ snapshot, busy, error, check, block }), [snapshot, busy, error, check, block]);
+  const restart = useCallback(async () => {
+    if (operation.current || frozen.current || phase.current !== "ready" || !hasUpdateEngine()) return;
+    if (blockers.current.size > 0 || hasBlockingSurface(dirty.current)) {
+      setRestartError(updateError("busy"));
+      return;
+    }
+    operation.current = true;
+    generation.current++;
+    setBusy(true); setRestartError(null);
+    try {
+      await reportUpdateWindowReady(true);
+      await restartForUpdate();
+      const next = await readUpdateState();
+      if (mounted.current) { apply(next); heartbeat.current(); }
+    } catch (reason) { if (mounted.current) setRestartError(updateError(reason)); }
+    finally { operation.current = false; if (mounted.current) setBusy(false); }
+  }, [apply]);
+  const failure = restartError ?? error;
+  const value = useMemo(() => ({ snapshot, busy, error: failure, check, restart, block }), [snapshot, busy, failure, check, restart, block]);
   return <UpdateContext value={value}><section ref={admission} data-update-admission="" style={{ display: "contents" }}>{children}</section></UpdateContext>;
 }
 export function useUpdateBlocker(active: boolean, reason: string) {

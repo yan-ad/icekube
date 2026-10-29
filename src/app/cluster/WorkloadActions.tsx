@@ -57,6 +57,7 @@ function GuardedActions({ clusterId, sessionId, detail, onChanged }: Props) {
     reference: { ...reference }, resourceVersion: item.resourceVersion ?? "", action, replicas: action === "scale" ? parseReplicas(replicas) : null });
   const hasIdentity = detail.clusterId === clusterId && detail.sessionId === sessionId && reference.uid === item.uid
     && reference.name === item.name && reference.namespace === item.namespace;
+  const validIdentity = hasIdentity && actions.some(action => validWorkloadRequest({ ...requestFor(action, 1), replicas: action === "scale" ? 0 : null }));
   const allowed = (action: WorkloadAction) => !permissions.loading && checks(action).every(check => permissions.decision(check) === "allowed");
   const canSubmit = confirm !== null && hasIdentity && validWorkloadRequest(requestFor(confirm, 1)) && allowed(confirm) && !busy && !refreshRequired;
   const submit = async () => {
@@ -94,7 +95,7 @@ function GuardedActions({ clusterId, sessionId, detail, onChanged }: Props) {
         onClick={() => { setReplicas(/^\d+$/.test(item.columns.replicas ?? "") ? item.columns.replicas : ""); setMessage(null); setConfirm(action); }} />)}
     </HStack>
     {actions.some(action => !allowed(action)) && <Text size="sm" type="supporting">Actions require verified get and patch access to this resource; Trigger requires get access and create access to Jobs in this namespace.</Text>}
-    {!hasIdentity && <Text role="alert">Refresh details to obtain a matching resource identity.</Text>}
+    {!validIdentity && <Text role="alert">Refresh details to obtain a valid matching UID and resource version.</Text>}
     {message && <Text role="status" size="sm">{message}</Text>}
     {refreshRequired && <Text role="alert" size="sm">Refresh details before another workload action.</Text>}
     <Dialog isOpen={confirm !== null} purpose={busy ? "required" : "form"} onOpenChange={open => { if (!open && !busy) setConfirm(null); }} width="min(38rem, 100%)">

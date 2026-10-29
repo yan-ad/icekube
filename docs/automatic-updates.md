@@ -11,8 +11,8 @@ it does not fetch packages, handle signing secrets or install files.
 0.0.1 and 0.0.2 shipped with no updater trust key and automatic updates disabled.
 Install 0.0.4 manually once using the [platform installer](releases.md). This
 cannot be enabled retroactively in those installed binaries. After bootstrap,
-subsequent verified stable updates install automatically when safe; there is no
-separate manual installation step after staging.
+subsequent verified stable updates download automatically. Installation and restart
+wait until the user chooses **Restart to Update** in the toolbar.
 
 The app embeds the public minisign key in `plugins.updater.pubkey`, requires
 signed versions and uses Tauri's official restore/verify/install APIs. The
@@ -80,11 +80,14 @@ then `restarting`. Failures report `error`; unsupported/unconfigured contexts ar
 `disabled`, and shutdown is `stopped`. These states describe updater progress,
 not a claim that a release has already installed or been natively tested.
 
-1. Verified bytes are staged in Rust. The engine attempts installation
-   automatically, but every admitted native window must first report fresh safe
-   readiness. Readiness leases last five seconds. Unknown or unready windows
-   defer installation, including hidden windows with retained drafts.
-2. Rust creates a fresh preparation ID. `WindowGate` freezes admission, blocking
+1. Verified bytes are staged in Rust without installing, freezing interaction or
+   restarting. The toolbar shows **Restart to Update**, and a staged update can
+   wait indefinitely. Readiness reports and scheduled/manual checks never authorize
+   installation. Staged bytes remain in memory until installation or app shutdown.
+2. Clicking **Restart to Update** requests preparation. Every admitted native
+   window must first report fresh safe readiness, including hidden windows with
+   retained drafts. Readiness leases last five seconds. Rust creates a fresh
+   preparation ID. `WindowGate` freezes admission, blocking
    new windows. Each renderer checks draft/blocker state before making the root
    inert and intercepting interaction (including portals), then acknowledges
    **that preparation ID** after freezing. A stale acknowledgement cannot
@@ -93,7 +96,8 @@ not a claim that a release has already installed or been natively tested.
    editor/operation blockers pause preparation. This is a quiesce protocol, not
    autosave: it never saves, discards or edits a user's draft. All admitted
    windows must provide fresh prepared acknowledgements. An unsafe report or
-   ten-second preparation timeout thaws interaction and returns to Ready.
+   ten-second preparation timeout thaws interaction and returns to Ready. Another
+   click is required; clearing a blocker never automatically retries installation.
 4. The backend reserves worker permits and refuses shutdown while runtime
    sessions (including terminals/forwards) or managed permission mutations are
    active. It closes new backend work admission, invalidates session/auth
@@ -105,11 +109,12 @@ not a claim that a release has already installed or been natively tested.
    application restart. Installation failure reports an error, thaws windows
    and reopens backend admission; it does not claim work was restored.
 
-The optional restart command starts the same preparation gate and cannot bypass
-it. Native New Window and other admission points remain blocked during
+The `update_restart` command is the only entry to preparation and cannot bypass
+the safety gate. Native New Window and other admission points remain blocked during
 preparation/restart. The UI exposes Preparing and Restarting as progress, not as
-an invitation to continue editing. A user should finish or close active work to
-allow a staged update to proceed.
+an invitation to continue editing. A user should finish or close active work,
+then choose **Restart to Update**. On Windows the installer exits the app, so
+installation itself, not only the relaunch call, waits for this explicit action.
 
 ## OS trust and verification limits
 

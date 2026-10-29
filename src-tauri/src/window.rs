@@ -44,6 +44,7 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<WebviewWindow> {
     let mut config = config.clone();
     config.label = label.to_owned();
     let builder = WebviewWindowBuilder::from_config(app, &config)?
+        .disable_drag_drop_handler()
         .initialization_script(layout_script(SEAMLESS, std::env::consts::OS)?);
 
     #[cfg(target_os = "macos")]

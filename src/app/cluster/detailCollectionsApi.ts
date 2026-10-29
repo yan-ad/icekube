@@ -10,6 +10,15 @@ export type CollectionItem = { reference: ResourceReference; status: string; col
 export type ResourceCollectionResponse = CollectionRequest & { state: "complete" | "partial" | "denied" | "unavailable"; items: CollectionItem[] };
 
 const namespaced = new Set<ResourceKind>(["pods", "replicaSets", "jobs", "endpointSlices", "events", "resourceQuotas", "limitRanges"]);
+const projectedColumns: Record<ResourceCollection, readonly string[]> = {
+  pods: ["ready", "restarts", "node", "qos", "health", "warning", "controlledBy"],
+  replicaSets: ["replicas", "desired", "ready", "updated", "available"],
+  jobs: ["active", "completions", "failed", "desiredCompletions", "parallelism", "suspend"],
+  endpointSlices: ["addressType", "endpoints", "ports", "ready"],
+  events: ["type", "reason", "message", "count", "lastSeen", "occurrenceTime", "source", "involvedObject"],
+  resourceQuotas: ["cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "cpuLimitUsed", "cpuLimitHard", "memoryLimitUsed", "memoryLimitHard", "scopes"],
+  limitRanges: ["types", "minCpu", "maxCpu"],
+};
 const allowed: Record<ResourceKind, readonly ResourceCollection[]> = {
   nodes: ["pods", "events"], namespaces: ["resourceQuotas", "limitRanges", "events"],
   deployments: ["pods", "replicaSets", "events"], daemonSets: ["pods", "events"], statefulSets: ["pods", "events"],
@@ -61,8 +70,7 @@ export function parseResourceCollection(value: unknown, request: CollectionReque
     const ref = item.reference as ResourceReference;
     const expectedNamespace = request.reference.kind === "namespaces" ? request.reference.name : request.reference.namespace;
     if (expectedNamespace !== null && ref.namespace !== expectedNamespace) throw "invalidResponse";
-    const reviewedKeys = resourceViews.find(view => view.kind === request.collection)?.columns.map(column => column.key) ?? [];
-    if (!Object.keys(item.columns).every(key => reviewedKeys.includes(key) || request.collection === "pods" && key === "phase")) throw "invalidResponse";
+    if (!Object.keys(item.columns).every(key => projectedColumns[request.collection].includes(key))) throw "invalidResponse";
     return { reference: { kind: ref.kind, namespace: ref.namespace, name: ref.name, uid: ref.uid }, status: item.status, columns: { ...item.columns } as Record<string, string> };
   });
   return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, reference: { ...value.reference } as ResourceReference, collection: request.collection, state: value.state as ResourceCollectionResponse["state"], items };

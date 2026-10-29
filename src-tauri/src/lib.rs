@@ -5,6 +5,7 @@ mod context_menu;
 #[cfg(target_os = "macos")]
 mod menu;
 mod native_navigation;
+mod pin_menu;
 mod preferences;
 mod project;
 mod route_history;
@@ -367,6 +368,38 @@ fn cluster_resource_detail_cancel(
 }
 
 #[tauri::command]
+async fn cluster_resource_collection(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::detail_collections::CollectionRequest,
+) -> Result<connection::detail_collections::ResourceCollection, connection::ConnectionError> {
+    engine.resource_collection(request).await
+}
+
+#[tauri::command]
+fn cluster_resource_collection_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::detail_collections::CollectionRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_resource_collection(request)
+}
+
+#[tauri::command]
+async fn cluster_workload_action(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::workload_actions::WorkflowRequest,
+) -> Result<connection::workload_actions::WorkloadActionResult, connection::ConnectionError> {
+    engine.resource_workload_action(request).await
+}
+
+#[tauri::command]
+fn cluster_workload_action_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::workload_actions::Cancel,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_workload_action(request)
+}
+
+#[tauri::command]
 async fn cluster_resource_delete(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::delete::DeleteRequest,
@@ -585,6 +618,7 @@ pub fn run() {
             app.manage(updater);
             native_navigation::install(app)?;
             context_menu::install(app);
+            pin_menu::install(app);
             #[cfg(target_os = "macos")]
             menu::install(app)?;
             Ok(())
@@ -592,6 +626,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             context_menu::row_context_menu_show,
             context_menu::row_context_menu_cancel,
+            pin_menu::catalog_pin_menu_show,
+            pin_menu::catalog_pin_menu_cancel,
             catalog_list,
             catalog_picker::catalog_choose_kubeconfig,
             catalog_connection_states,
@@ -615,6 +651,10 @@ pub fn run() {
             cluster_permissions_refresh,
             cluster_resources_cancel,
             cluster_resource_detail,
+            cluster_resource_collection,
+            cluster_resource_collection_cancel,
+            cluster_workload_action,
+            cluster_workload_action_cancel,
             cluster_custom_resources,
             cluster_custom_resources_cancel,
             cluster_custom_resource_definitions,
@@ -680,12 +720,14 @@ pub fn run() {
             } = &event
             {
                 native_navigation::forget_window(app, label);
+                app.state::<Arc<pin_menu::PinMenus>>().clear_window(label);
             }
             if matches!(
                 event,
                 tauri::RunEvent::Exit | tauri::RunEvent::ExitRequested { .. }
             ) {
                 app.state::<Arc<context_menu::ContextMenus>>().clear();
+                app.state::<Arc<pin_menu::PinMenus>>().clear();
                 let engine = app.state::<Arc<connection::ConnectionEngine>>();
                 engine.shutdown();
                 tauri::async_runtime::block_on(engine.drain());

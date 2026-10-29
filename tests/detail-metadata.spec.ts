@@ -2,6 +2,39 @@ import { expect, test } from "@playwright/test";
 import { parseDetailMetadata } from "../src/app/cluster/detailMetadata";
 
 const metadata = () => ({ labels: [{ key: "app", value: "api" }], annotations: [{ key: "example/note", value: "" }], finalizers: ["example/cleanup"], managedFields: [{ manager: "controller", operation: "Update", apiVersion: "v1", time: null, subresource: null, fields: '[["spec","containers","[keyed item]","image"]]' }], deletionTimestamp: null, partial: true });
+
+test("keeps public Helm metadata but rejects credential syntax in every text field", () => {
+  const publicMetadata = { ...metadata(), labels: [{ key: "app", value: "my-app" }], annotations: [{ key: "meta.helm.sh/release-name", value: "my-app" }] };
+  expect(parseDetailMetadata(publicMetadata, "pods")).toEqual(publicMetadata);
+  for (const value of ["Bearer abc", "Authorization: Basic abc", "password = abc", '{"client_secret":"abc"}', "-----BEGIN RSA PRIVATE KEY-----abc"]) {
+    invalid({ ...metadata(), labels: [{ key: "app", value }] });
+    invalid({ ...metadata(), annotations: [{ key: "example/note", value }] });
+    invalid({ ...metadata(), finalizers: [value] });
+    invalid({ ...metadata(), managedFields: [{ ...metadata().managedFields[0], manager: value }] });
+  }
+  invalid({ ...metadata(), labels: [{ key: "example/secret", value: "hidden" }] });
+  for (const fields of ['[["metadata","labels","example/secret"]]', '[["metadata","annotations","example/password"]]', '[["spec","k:{\\"value\\":\\"hidden\\"}"]]', '[["spec","v:hidden"]]']) {
+    invalid({ ...metadata(), managedFields: [{ ...metadata().managedFields[0], fields }] });
+  }
+});
+
+test("validates timestamp calendar, precision and explicit RFC3339 offsets", () => {
+  for (const time of ["2024-02-29T23:59:59.123456789+23:59", "2026-10-29t12:00:00z", "0000-01-01T00:00:00Z"]) {
+    expect(parseDetailMetadata({ ...metadata(), deletionTimestamp: time, managedFields: [{ ...metadata().managedFields[0], time }] }, "pods")?.deletionTimestamp).toBe(time);
+  }
+  for (const time of ["", "tomorrow", "2023-02-29T00:00:00Z", "2024-01-01 00:00:00Z", "2024-01-01T24:00:00Z", "2024-01-01T00:00:60Z", "2024-01-01T00:00:00+24:00", "2024-01-01T00:00:00.1234567890Z", "2024-01-01T00:00:00Z[UTC]"]) {
+    invalid({ ...metadata(), deletionTimestamp: time });
+    invalid({ ...metadata(), managedFields: [{ ...metadata().managedFields[0], time }] });
+  }
+});
+
+test("uses UTF-8 JSON wire bytes without ASCII escaping and rejects lone surrogates", () => {
+  for (const value of ["é".repeat(512), "😀".repeat(256), "\"\\".repeat(512), "\u2028".repeat(341)]) {
+    const projected = { ...metadata(), labels: [{ key: "app", value }] };
+    expect(parseDetailMetadata(projected, "pods")).toEqual(projected);
+  }
+  invalid({ ...metadata(), labels: [{ key: "app", value: "\ud800" }] });
+});
 function invalid(value: unknown) { expect(() => parseDetailMetadata(value, "pods")).toThrow("invalidResponse"); }
 
 test("shared metadata accepts bounded projection and legacy absence", () => {

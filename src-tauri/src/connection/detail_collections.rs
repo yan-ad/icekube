@@ -507,6 +507,31 @@ mod tests {
     use super::*;
     use crate::connection::tests::{connected, fake, fixture};
     use serde_json::json;
+    #[test]
+    fn export_frontend_collection_contract() {
+        let cases: Vec<_> = [
+            (ResourceKind::Nodes, CollectionKind::Pods, json!({"spec":{"nodeName":"node-a","containers":[{"name":"main"}]},"status":{"phase":"Running","qosClass":"Burstable","containerStatuses":[{"name":"main","ready":true,"restartCount":2}]}})),
+            (ResourceKind::Deployments, CollectionKind::ReplicaSets, json!({"spec":{"replicas":3},"status":{"replicas":3,"readyReplicas":2,"availableReplicas":2,"fullyLabeledReplicas":3}})),
+            (ResourceKind::CronJobs, CollectionKind::Jobs, json!({"spec":{"completions":3,"parallelism":2,"suspend":false},"status":{"active":1,"succeeded":2,"failed":0}})),
+            (ResourceKind::Services, CollectionKind::EndpointSlices, json!({"addressType":"IPv4","endpoints":[{"addresses":["10.0.0.1"],"conditions":{"ready":true}}],"ports":[{"port":8080,"protocol":"TCP"}]})),
+            (ResourceKind::Deployments, CollectionKind::Events, json!({"type":"Normal","reason":"ScalingReplicaSet","message":"Scaled up replica set","count":2,"lastTimestamp":"2026-10-29T12:00:00Z","firstTimestamp":"2026-10-29T11:00:00Z","source":{"component":"deployment-controller"},"involvedObject":{"kind":"Deployment","name":"parent","namespace":"default","uid":"parent-uid","apiVersion":"apps/v1"}})),
+            (ResourceKind::Namespaces, CollectionKind::ResourceQuotas, json!({"status":{"hard":{"requests.cpu":"4","requests.memory":"8Gi","pods":"20","limits.cpu":"8","limits.memory":"16Gi","requests.storage":"100Gi"},"used":{"requests.cpu":"1","requests.memory":"2Gi","pods":"3","limits.cpu":"2","limits.memory":"4Gi","requests.storage":"10Gi"}}})),
+            (ResourceKind::Namespaces, CollectionKind::LimitRanges, json!({"spec":{"limits":[{"type":"Container","min":{"cpu":"100m","memory":"64Mi"},"max":{"cpu":"2","memory":"2Gi"},"default":{"cpu":"500m","memory":"256Mi"},"defaultRequest":{"cpu":"200m","memory":"128Mi"}}]}})),
+        ].into_iter().map(|(parent_kind, collection, mut value)| {
+            let r = request(parent_kind, collection);
+            value["metadata"] = json!({"name":"child","namespace":scope(&r).unwrap_or("default"),"uid":"child-uid","resourceVersion":"10","annotations":{"example/credential":"PRIVATE"}});
+            let mut response = ResourceCollection::empty(&r, CollectionState::Complete);
+            response.items.push(project_item(collection.resource(), value).unwrap());
+            let response = response.bounded().unwrap();
+            let wire = serde_json::to_value(&response).unwrap();
+            assert!(!wire.to_string().contains("PRIVATE"));
+            json!({"request":r,"response":wire})
+        }).collect();
+        println!(
+            "COLLECTION_CONTRACT_JSON:{}",
+            serde_json::to_string(&cases).unwrap()
+        );
+    }
     fn request(kind: ResourceKind, collection: CollectionKind) -> CollectionRequest {
         CollectionRequest {
             cluster_id: "cluster".into(),

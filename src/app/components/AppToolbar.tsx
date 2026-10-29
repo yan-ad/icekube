@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
-import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Button } from "@astryxdesign/core/Button";
@@ -9,7 +8,6 @@ import { Text } from "@astryxdesign/core/Text";
 import { DropdownMenu, type DropdownMenuOption } from "@astryxdesign/core/DropdownMenu";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
 import {
-  IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconArrowLeft,
   IconArrowRight,
@@ -56,7 +54,7 @@ function ClusterSwitcher({ clusterId }: { clusterId: string }) {
     })) : [{ label: loading ? "Loading clusters…" : error ? "Cluster metadata unavailable" : query ? "No matching clusters" : "No saved clusters", isDisabled: true }]} />;
 }
 
-export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { onSearch: () => void; isSidebarCollapsed: boolean; onToggleSidebar: () => void }) {
+export function AppToolbar({ onSearch }: { onSearch: () => void }) {
   const history = useNavigationHistory();
   const [repositoryBusy, setRepositoryBusy] = useState(false);
   const [repositoryError, setRepositoryError] = useState<string | null>(null);
@@ -72,9 +70,6 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const layout = getWindowLayout();
   const draggable = layout.seamless && layout.platform !== "browser";
   const isCatalog = useRouterState({ select: (state) => state.location.pathname.startsWith("/catalog") });
-  const mobile = useAppShellMobile();
-  const expanded = mobile.isMobile ? mobile.isMobileNavOpen : !isSidebarCollapsed;
-  const toggleLabel = mobile.isMobile ? "Open sidebar" : isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar";
   const workspaceRefresh = useWorkspaceRefresh();
   const { openPreferences } = usePreferences();
   const { clusterId } = useParams({ strict: false });
@@ -127,15 +122,6 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         className="toolbar-history"
         style={{ flexShrink: 0 }}
       >
-        <IconButton
-          label={toggleLabel}
-          tooltip={toggleLabel}
-          aria-expanded={expanded}
-          aria-controls={mobile.isMobile ? mobile.mobileNavId : "catalog-sidebar"}
-          variant="ghost"
-          icon={<Icon icon={expanded ? IconLayoutSidebarLeftCollapse : IconLayoutSidebarLeftExpand} />}
-          onClick={mobile.isMobile ? mobile.toggleMobileNav : onToggleSidebar}
-        />
         <IconButton
           label="Go back"
           tooltip="Go back"

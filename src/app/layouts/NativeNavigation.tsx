@@ -14,7 +14,7 @@ function statusMessage(snapshot: UpdateSnapshot | null): string {
   if (!snapshot) return "Requesting an update check…";
   if (snapshot.phase === "disabled") return "Automatic updates are unavailable in this build.";
   if (snapshot.error) return updateError(snapshot.error);
-  if (snapshot.phase === "ready") return `Version ${snapshot.version} is verified and will install automatically when work is safe.`;
+  if (snapshot.phase === "ready") return `Version ${snapshot.version} is downloaded and verified. Close this dialog and choose Restart to Update when you are ready.`;
   if (snapshot.phase === "preparing") return "Preparing update; checking that work is safe…";
   if (snapshot.phase === "restarting") return "Installing update and restarting…";
   if (snapshot.phase === "checking") return "Checking GitHub releases…";

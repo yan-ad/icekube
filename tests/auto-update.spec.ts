@@ -20,6 +20,13 @@ async function fixture(page: Page, phase = "ready", error: string | null = null,
           calls.push({ command, ready: args?.ready, attempt: args?.attempt, inert: (document.getElementById("root") ?? document.querySelector<HTMLElement>("[data-update-admission]"))?.inert });
 
           if (command === "update_window_prepared" && (window as unknown as { __holdPrepared?: boolean }).__holdPrepared) await new Promise<void>(resolve => Object.assign(window, { __releasePrepared: resolve }));
+          if (command === "update_restart") {
+            const state = window as unknown as { __updatePhase: string; __restartFailure?: string; __holdRestart?: boolean };
+            if (state.__holdRestart) await new Promise<void>(resolve => Object.assign(window, { __releaseRestart: resolve }));
+            if (state.__restartFailure) throw state.__restartFailure;
+            state.__updatePhase = "preparing";
+            return;
+          }
           if (command === "update_state" || command === "update_check") {
             const state = window as unknown as { __updatePhase: string; __updateAttempt: string };
             return { phase: state.__updatePhase, version: "1.2.3", error, ...(state.__updatePhase === "preparing" ? { preparationId: state.__updateAttempt } : {}) };
@@ -108,15 +115,61 @@ async function lastReady(page: Page) {
   return page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.filter(call => call.command === "update_window_ready").at(-1)?.ready);
 }
 
-test("verified updates report window safety without manual download or install actions", async ({ page }) => {
+test("verified updates stay interactive until Restart to Update is explicitly activated", async ({ page }) => {
+  await page.clock.install();
   await fixture(page);
   await page.goto("/");
-  const status = page.getByRole("status", { name: "Update verified; installs automatically when work is safe.", exact: true });
-  await expect(status).toBeVisible();
-  await expect(status).toContainText("Update verified; installs automatically when work is safe.");
+  const restart = page.getByRole("button", { name: "Restart to Update", exact: true });
+  await expect(restart).toBeVisible();
   await expect.poll(() => lastReady(page)).toBe(true);
-  await expect(page.getByRole("button", { name: /Restart to Update|Download update|Show download/ })).toHaveCount(0);
+  await page.clock.runFor(15 * 60 * 1000);
+  await expect(page.locator("#root")).not.toHaveAttribute("inert");
+  await expect(restart).toBeEnabled();
   expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.some(call => ["update_download", "update_reveal", "update_restart"].includes(call.command)))).toBe(false);
+  await restart.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => lastPrepared(page)).toMatchObject({ ready: true, inert: true });
+  expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.filter(call => call.command === "update_restart").length)).toBe(1);
+});
+
+test("restart refusal preserves the action and error until the user retries", async ({ page }) => {
+  await fixture(page);
+  await page.goto("/");
+  const restart = page.getByRole("button", { name: "Restart to Update", exact: true });
+  await expect(restart).toBeVisible();
+  await page.evaluate(() => Object.assign(window, { __restartFailure: "busy" }));
+  await restart.click();
+  await expect(page.getByRole("alert", { name: "Update error" })).toContainText("Finish or close active tasks");
+  await page.waitForTimeout(1200);
+  await expect(page.getByRole("alert", { name: "Update error" })).toContainText("Finish or close active tasks");
+  await expect(page.locator("#root")).not.toHaveAttribute("inert");
+  await expect(restart).toBeEnabled();
+  await page.evaluate(() => Object.assign(window, { __restartFailure: null }));
+  await restart.click();
+  await expect.poll(() => lastPrepared(page)).toMatchObject({ ready: true, inert: true });
+});
+
+test("restart waits for active drafts to close and deduplicates pending requests", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("pageerror", error => errors.push(error.message));
+  await fixture(page);
+  await page.goto("/");
+  const restart = page.getByRole("button", { name: "Restart to Update", exact: true });
+  await expect(restart).toBeVisible();
+  await page.evaluate(() => {
+    const draft = document.createElement("section"); draft.id = "restart-draft"; draft.dataset.updateBlocking = "true"; document.body.append(draft);
+  });
+  await restart.click();
+  await expect(page.getByRole("alert", { name: "Update error" })).toContainText("unsaved work");
+  expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.some(call => call.command === "update_restart"))).toBe(false);
+  await page.evaluate(() => { document.getElementById("restart-draft")!.remove(); Object.assign(window, { __holdRestart: true }); });
+  await restart.click();
+  await expect(restart).toHaveAttribute("aria-busy", "true");
+  await restart.dispatchEvent("click");
+  expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.filter(call => call.command === "update_restart").length)).toBe(1);
+  await page.evaluate(() => (window as unknown as { __releaseRestart: () => void }).__releaseRestart());
+  await expect.poll(() => lastPrepared(page)).toMatchObject({ ready: true, inert: true });
+  expect(errors).toEqual([]);
 });
 
 test("dialogs and hidden editable drafts pause installation; dismissing and removing drafts resumes readiness", async ({ page }) => {

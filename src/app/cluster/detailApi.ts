@@ -2,6 +2,7 @@ import { invoke, isTauri } from "@tauri-apps/api/core";
 import { errorCode, validResourceIdentity, type ResourceItem, type ResourceKind, type SessionRequest } from "./api";
 import { parseNode, validTimestamp } from "./nodeContract";
 import { resourceViews } from "./resourceViews";
+import { parseDetailMetadata, type DetailMetadata } from "./detailMetadata";
 
 export type ResourceReference = { kind: ResourceKind; namespace: string | null; name: string; uid?: string | null };
 export type DetailRequest = SessionRequest & { readId: number; reference: ResourceReference };
@@ -13,6 +14,7 @@ export type ResourceDetail = SessionRequest & {
   item: ResourceItem;
   related: Record<string, ResourceReference>;
   sections?: DetailSection[];
+  metadata?: DetailMetadata;
 };
 const kinds = new Set<string>(["nodes", ...resourceViews.flatMap((v) => v.kind ? [v.kind] : [])]);
 function record(v: unknown): v is Record<string, unknown> { return v !== null && typeof v === "object" && !Array.isArray(v); }
@@ -77,7 +79,7 @@ function allowedColumn(kind: ResourceKind, column: string) {
   return (kind === "horizontalPodAutoscalers" || kind === "verticalPodAutoscalers") && column === "target";
 }
 export function parseResourceDetail(value: unknown, request: DetailRequest): ResourceDetail {
-  if (!record(value) || !closed(value, ["clusterId", "sessionId", "readId", "reference", "item", "related", "sections"])
+  if (!record(value) || !closed(value, ["clusterId", "sessionId", "readId", "reference", "item", "related", "sections", "metadata"])
     || value.clusterId !== request.clusterId || value.sessionId !== request.sessionId || value.readId !== request.readId
     || !reference(value.reference) || value.reference.kind !== request.reference.kind || value.reference.name !== request.reference.name
     || value.reference.namespace !== request.reference.namespace || typeof value.reference.uid !== "string"
@@ -124,7 +126,8 @@ export function parseResourceDetail(value: unknown, request: DetailRequest): Res
   return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId,
     reference: { ...value.reference }, item: { name: item.name as string, namespace: item.namespace as string | null,
       uid: item.uid as string, resourceVersion: item.resourceVersion as string | null, createdAt: item.createdAt as string | null,
-      status: item.status, columns: { ...item.columns } as Record<string, string>, node }, related, sections };
+      status: item.status, columns: { ...item.columns } as Record<string, string>, node }, related, sections,
+    metadata: parseDetailMetadata(value.metadata, request.reference.kind) };
 }
 async function command(commandName: string, request: DetailRequest): Promise<unknown> {
   if (!validRequest(request)) throw "invalidInput";

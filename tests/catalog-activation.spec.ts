@@ -48,16 +48,24 @@ async function calls(page: Page) {
   return page.evaluate(() => (window as unknown as { __activationCalls: { command: string; request?: Record<string, unknown> }[] }).__activationCalls);
 }
 
-test("cluster row opens inset workspace and auto-collapses without changing catalog preference", async ({ page }, testInfo) => {
+async function expectCollapsedCatalog(page: Page) {
+  const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
+  await expect(sidebar).toBeVisible();
+  await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+  await expect(sidebar.getByRole("link", { name: "All Categories", exact: true })).toHaveAttribute("aria-label", "All Categories");
+  await expect(page.getByRole("button", { name: /^(Collapse|Expand) sidebar$/ })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
+}
+
+test("cluster row opens inset workspace while Catalog stays collapsed", async ({ page }, testInfo) => {
   await fixture(page);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await expectCollapsedCatalog(page);
   await page.getByRole("row", { name: "Open cluster Development", exact: true }).getByRole("cell", { name: "kubeconfig", exact: true }).click();
   await expect(page).toHaveURL(/#\/cluster\/cluster-one$/);
   await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
   await expect(page.getByRole("button", { name: "Switch cluster", exact: true })).toContainText("Development");
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
+  await expectCollapsedCatalog(page);
   const inset = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await expect(inset).toBeVisible();
   await expect(inset.getByRole("link", { name: "Nodes", exact: true })).toBeVisible();
@@ -77,13 +85,13 @@ test("cluster row opens inset workspace and auto-collapses without changing cata
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
   await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
+  await expectCollapsedCatalog(page);
 });
 
 test("row Enter/Space and pinned cluster activation work; pin/remove buttons do not activate rows", async ({ page }) => {
   await fixture(page);
   await page.goto("/");
-  await page.getByRole("button", { name: "Unpin Development", exact: true }).click();
+  await page.getByRole("row", { name: "Open cluster Development", exact: true }).getByRole("button", { name: "Unpin Development", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog$/);
   await page.getByRole("button", { name: "Remove Development", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
@@ -113,7 +121,7 @@ test("web-link rows and pinned links delegate saved ID to Rust without navigatio
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("button", { name: "Documentation", exact: true }).click();
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(3);
   expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").every((call) => JSON.stringify(call.request) === JSON.stringify({ id: "link-one" }))).toBe(true);
-  await page.getByRole("button", { name: "Unpin Documentation", exact: true }).click();
+  await page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true }).click();
   expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(3);
 });
 
@@ -132,7 +140,7 @@ test("direct missing cluster route does not select another cluster", async ({ pa
   await page.goto("/#/cluster/missing");
   await expect(page.getByRole("main").getByRole("heading", { name: "Cluster not found", exact: true })).toBeVisible();
   await expect(page.getByRole("main").getByRole("heading", { name: "Development", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await expectCollapsedCatalog(page);
 });
 
 test("cluster navigation is available in the narrow-window drawer", async ({ page }) => {
@@ -140,7 +148,11 @@ test("cluster navigation is available in the narrow-window drawer", async ({ pag
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/#/cluster/cluster-one");
   await expect(page.getByRole("heading", { level: 1, name: /^Development · / })).toBeAttached();
-  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  const rail = page.locator("#catalog-sidebar-narrow");
+  await expect(rail).toBeVisible();
+  await expect(rail).toHaveAttribute("data-collapsed", "true");
+  await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
+  await rail.getByRole("button", { name: "Open sidebar", exact: true }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("navigation", { name: "Cluster navigation", exact: true })).toBeVisible();
   await dialog.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Events", exact: true }).click();
@@ -149,35 +161,47 @@ test("cluster navigation is available in the narrow-window drawer", async ({ pag
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(360);
 });
 
-test("workspace sidebar expansion is temporary and history preserves section scope", async ({ page }) => {
-  await fixture(page);
-  await page.goto("/");
-  await page.getByRole("row", { name: "Open cluster Development", exact: true }).focus();
-  await page.keyboard.press("Enter");
-  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
-  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
-  await page.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Nodes", exact: true }).click();
-  await page.getByRole("button", { name: "Go back", exact: true }).click();
-  await expect(page).toHaveURL(/cluster\/cluster-one$/);
-  await page.getByRole("button", { name: "Go forward", exact: true }).click();
-  await expect(page).toHaveURL(/section=nodes$/);
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Collapse sidebar", exact: true })).toBeVisible();
-});
+for (const preference of ["false", "true"]) {
+  test(`Catalog stays collapsed through workspace, history and reload with stored preference ${preference}`, async ({ page }) => {
+    await fixture(page);
+    await page.addInitScript(value => {
+      if (localStorage.getItem("iceon.sidebar-collapsed.v1") === null) localStorage.setItem("iceon.sidebar-collapsed.v1", value);
+    }, preference);
+    await page.goto("/");
+    await expectCollapsedCatalog(page);
+    await page.getByRole("row", { name: "Open cluster Development", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await expectCollapsedCatalog(page);
+    await page.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Nodes", exact: true }).click();
+    await page.getByRole("button", { name: "Go back", exact: true }).click();
+    await expect(page).toHaveURL(/cluster\/cluster-one$/);
+    await expectCollapsedCatalog(page);
+    await page.getByRole("button", { name: "Go forward", exact: true }).click();
+    await expect(page).toHaveURL(/section=nodes$/);
+    await expectCollapsedCatalog(page);
+    await page.reload();
+    await expect(page).toHaveURL(/section=nodes$/);
+    await expectCollapsedCatalog(page);
+    await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
+    await expectCollapsedCatalog(page);
+    await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
+    await expectCollapsedCatalog(page);
+    await page.reload();
+    await expectCollapsedCatalog(page);
+    expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe(preference);
+  });
+}
 
 test("pending web-link opens are serialized and never launch from Pin/Remove", async ({ page }) => {
   await fixture(page, { slow: true });
   await page.goto("/");
   const row = page.getByRole("row", { name: "Open web link Documentation", exact: true });
-  await expect(page.getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
+  await expect(page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
   await row.focus();
   await page.keyboard.press("Enter");
   await page.keyboard.press("Space");
   await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(1);
-  await expect(page.getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
+  await expect(page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
   await page.getByRole("button", { name: "Remove Documentation", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(1);

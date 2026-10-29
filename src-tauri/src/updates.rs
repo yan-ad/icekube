@@ -257,13 +257,9 @@ impl UpdateEngine {
             engine.launch(provider, tauri::async_runtime::handle().inner());
             let owner = engine.clone();
             engine.tasks.spawn_on(async move {
-                let mut ticks = tokio::time::interval(Duration::from_secs(1));
-                loop {
-                    tokio::select! { biased; _ = owner.cancel.cancelled() => break, _ = ticks.tick() => {} }
-                    if matches!(owner.snapshot().phase, Phase::Ready | Phase::Preparing) {
-                        let _ = owner.install_ready(&app).await;
-                    }
-                }
+                owner.run_preparations(|| async {
+                    let _ = owner.install_ready(&app).await;
+                }).await;
             }, tauri::async_runtime::handle().inner());
         }
         engine
@@ -339,6 +335,21 @@ impl UpdateEngine {
     }
     pub fn snapshot(&self) -> UpdateSnapshot {
         self.inner.lock().unwrap().snapshot.clone()
+    }
+    async fn run_preparations<F, Fut>(&self, mut install: F)
+    where
+        F: FnMut() -> Fut,
+        Fut: std::future::Future<Output = ()>,
+    {
+        let mut ticks = tokio::time::interval(Duration::from_secs(1));
+        ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            tokio::select! { biased; _ = self.cancel.cancelled() => break, _ = ticks.tick() => {} }
+            // Only update_restart may authorize preparation; readiness is not consent.
+            if self.snapshot().phase == Phase::Preparing {
+                install().await;
+            }
+        }
     }
     pub fn shutdown(&self) {
         self.cancel.cancel();
@@ -471,10 +482,6 @@ impl UpdateEngine {
         Ok(staged)
     }
     async fn install_ready(&self, app: &AppHandle) -> Result<(), UpdateError> {
-        if self.snapshot().phase == Phase::Ready {
-            // Even a manual restart only starts preparation; receipts arrive on later IPC turns.
-            return self.begin_preparation();
-        }
         let staged = self.take_ready(|| {
             let connections = app.state::<Arc<crate::connection::ConnectionEngine>>();
             connections.prepare_update_shutdown()

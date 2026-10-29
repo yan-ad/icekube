@@ -10,6 +10,8 @@ async function fixture(page: Page, options: { fail?: boolean; delay?: number; ma
   await page.exposeFunction("__pinInvoke", async (command: string, args?: { request: Record<string, unknown> }) => {
     calls.push({ command, request: args?.request });
     const request = args?.request;
+    if (command === "catalog_pin_menu_show") return "unpin";
+    if (command === "catalog_pin_menu_cancel") return;
     if (command === "catalog_set_pin") {
       const cluster = state.clusters.find(item => item.id === request?.id)!;
       cluster.pinned = !!request?.pinned;
@@ -145,7 +147,7 @@ for (const dark of [false, true]) test(`section pins preserve cluster identity, 
   await expect(pins.getByRole("link", { name: "Development", exact: true })).not.toHaveAttribute("aria-current", "page");
   await page.reload();
   await expect(pins.getByRole("link", { name: "Development · Pods", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toHaveCount(0);
   await page.screenshot({ path: testInfo.outputPath("section-pins-expanded.png") });
   await testInfo.attach("pin-control-review", { contentType: "application/json", body: JSON.stringify(await nav.getByRole("button", { name: "Unpin Pods for Development", exact: true }).evaluate(element => {
     const style = getComputedStyle(element);
@@ -153,7 +155,7 @@ for (const dark of [false, true]) test(`section pins preserve cluster identity, 
     return { width: bounds.width, height: bounds.height, foreground: style.color,
       backgrounds: [element, element.parentElement, element.closest("nav"), document.body, document.documentElement].filter(Boolean).map(node => getComputedStyle(node!).backgroundColor) };
   })) });
-  await pins.getByRole("button", { name: "Unpin Pods for Development", exact: true }).click();
+  await pins.getByRole("link", { name: "Development · Pods", exact: true }).click({ button: "right" });
   await expect(pins.getByRole("link", { name: "Development · Pods", exact: true })).toHaveCount(0);
   await expect(page).toHaveURL(/cluster\/one\?section=pods$/);
   await pins.getByRole("link", { name: "Staging · Pods", exact: true }).click();

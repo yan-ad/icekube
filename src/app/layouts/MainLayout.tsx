@@ -2,17 +2,25 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Outlet, useParams, useRouterState } from "@tanstack/react-router";
-import { AppShell } from "@astryxdesign/core/AppShell";
+import { AppShell, useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { MobileNav } from "@astryxdesign/core/MobileNav";
 import { AppSearch } from "../components/AppSearch";
 import { AppToolbar } from "../components/AppToolbar";
 import { CatalogSidebar } from "../components/CatalogSidebar";
 import { WindowFrame } from "./WindowFrame";
 import { getWindowLayout } from "./window-layout";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, StackItem } from "@astryxdesign/core/Stack";
 import { Divider } from "@astryxdesign/core/Divider";
 import { ClusterSidebar } from "../cluster/ClusterSidebar";
 import { NativeNavigation } from "./NativeNavigation";
+
+function WorkspaceContent() {
+  const { isMobile } = useAppShellMobile();
+  return <HStack gap={0} height="100%" style={{ width: "100%", minHeight: 0, minWidth: 0 }}>
+    {isMobile && <CatalogSidebar id="catalog-sidebar-narrow" onNavigate={() => {}} />}
+    <StackItem size="fill" style={{ width: 0, minWidth: 0, minHeight: 0, height: "100%", overflow: "hidden" }}><Outlet /></StackItem>
+  </HStack>;
+}
 
 export default function MainLayout() {
   const pathname = useRouterState({ select: (state) => state.location.pathname });
@@ -27,21 +35,6 @@ export default function MainLayout() {
   const [isSearchOpen, setSearchOpen] = useState(false);
   const openSearch = useCallback(() => setSearchOpen(true), []);
   const [isMobileNavOpen, setMobileNavOpen] = useState(false);
-  const [isSidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    try { return localStorage.getItem("iceon.sidebar-collapsed.v1") === "true"; }
-    catch { return false; }
-  });
-  const [workspaceCollapse, setWorkspaceCollapse] = useState<{ clusterId: string; collapsed: boolean } | null>(null);
-  const collapsed = clusterId ? workspaceCollapse?.clusterId === clusterId ? workspaceCollapse.collapsed : true : isSidebarCollapsed;
-  function toggleSidebar() {
-    if (clusterId) setWorkspaceCollapse({ clusterId, collapsed: !collapsed });
-    else setSidebarCollapsed((previous) => !previous);
-  }
-  useEffect(() => {
-    try { localStorage.setItem("iceon.sidebar-collapsed.v1", String(isSidebarCollapsed)); }
-    catch { /* Collapse remains available when preference storage is blocked. */ }
-  }, [isSidebarCollapsed]);
-  useEffect(() => { setWorkspaceCollapse(null); }, [clusterId]);
 
   useEffect(() => { setMobileNavOpen(false); }, [pathname]);
   useEffect(() => {
@@ -65,13 +58,13 @@ export default function MainLayout() {
         style={{ height: "100%", minHeight: 0 }}
         variant="section"
         contentPadding={0}
-        mobileNav={{ isOpen: isMobileNavOpen, onOpenChange: setMobileNavOpen, content: <MobileNav header="Catalog navigation">
+        mobileNav={{ hasToggle: false, isOpen: isMobileNavOpen, onOpenChange: setMobileNavOpen, content: <MobileNav header="Catalog navigation">
           <CatalogSidebar id="catalog-sidebar-drawer" onNavigate={closeNavigation} />
           {clusterId && <ClusterSidebar clusterId={clusterId} id="cluster-sidebar-drawer" onNavigate={closeNavigation} />}
         </MobileNav> }}
-        topNav={<AppToolbar onSearch={() => setSearchOpen(true)} isSidebarCollapsed={collapsed} onToggleSidebar={toggleSidebar} />}
+        topNav={<AppToolbar onSearch={() => setSearchOpen(true)} />}
         sideNav={<HStack gap={0} height="100%" style={{ minHeight: 0 }}>
-          <CatalogSidebar onNavigate={closeNavigation} isCollapsed={collapsed} />
+          <CatalogSidebar onNavigate={closeNavigation} />
           {sidebarClusterId && <HStack gap={0} height="100%" className="cluster-sidebar-motion"
             data-open={!!clusterId} inert={!clusterId} aria-hidden={!clusterId}>
             <Divider orientation="vertical" />
@@ -79,7 +72,7 @@ export default function MainLayout() {
           </HStack>}
         </HStack>}
       >
-        <Outlet />
+        <WorkspaceContent />
       </AppShell>
       </WindowFrame>
       <AppSearch isOpen={isSearchOpen} onOpenChange={setSearchOpen} />

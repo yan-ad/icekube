@@ -17,6 +17,9 @@ import { StatusBadge, NodeConditionBadge } from "./StatusBadge";
 import { clusterDestinations } from "./navigation";
 import { PermissionGate } from "./PermissionGate";
 import { usePermissionChecks } from "./PermissionProvider";
+import { DetailCollections } from "./DetailCollections";
+import { DetailMetadataView } from "./ResourceMetadata";
+import { WorkloadActions } from "./WorkloadActions";
 
 export type ResourceSummary = { title: string; facts: { label: string; value: string }[]; status?: string };
 type Selection = { type: "resource"; reference: ResourceReference; edit: boolean; relatedColumn?: string; serial: number }
@@ -200,6 +203,7 @@ function InspectedPod({ clusterId, sessionId, reference, edit, revision, onLoadi
 }
 function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingChange }: SessionRequest & { selection: Extract<Selection, { type: "resource" }>; revision: number; onLoadingChange: (loading: boolean) => void }) {
   const { navigateResource } = useResourceInspector();
+  const [actionRevision, setActionRevision] = useState(0);
   const [detail, setDetail] = useState<ResourceDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -218,7 +222,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
       if (!disposed) setError(reason === "conflict" ? "This resource was replaced. Close details and select its current row." : reason === "resourceUnavailable" || reason === "notFound" ? "This resource or relationship is no longer available. Refresh the list and try again." : connectionMessage(errorCode(reason)));
     }).finally(() => { if (!disposed) { setLoading(false); onLoadingChange(false); } });
     return () => { disposed = true; void cancelResourceDetail(request).catch(() => {}); };
-  }, [clusterId, sessionId, selection, revision, navigateResource, onLoadingChange]);
+  }, [clusterId, sessionId, selection, revision, actionRevision, navigateResource, onLoadingChange]);
   const view = resourceViews.find(view => view.kind === selection.reference.kind);
   const labels = new Map(view?.columns.map(column => [column.key, column.label]) ?? []);
   return <VStack padding={4} gap={4} style={{ flex: "1 1 auto", minHeight: "100%", minWidth: 0, overflowWrap: "anywhere" }}>
@@ -226,6 +230,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
     {error && <ContentError title="Resource details unavailable" message={`${detail ? "Retained details may be stale. " : ""}${error}`} retained={!!detail} />}
     {detail && <>
       <StatusBadge status={detail.item.status} />
+      {!loading && !error && <WorkloadActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       <MetadataList label={{ position: "top" }}>
         <MetadataListItem label="Name">{detail.item.name}</MetadataListItem>
         {detail.item.namespace && <MetadataListItem label="Namespace"><ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: detail.item.namespace }}>{detail.item.namespace}</ResourceRelationLink></MetadataListItem>}
@@ -236,11 +241,12 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
           {detail.related[key] ? <ResourceRelationLink reference={detail.related[key]}>{value}</ResourceRelationLink> : <Text>{value || "Unknown"}</Text>}
         </MetadataListItem>)}
       </MetadataList>
+      {detail.metadata && <DetailMetadataView metadata={detail.metadata} />}
       {detail.item.node && <VStack gap={2}><Text as="h3">Conditions</Text><HStack gap={2} wrap="wrap">{detail.item.node.conditions.map(condition => <NodeConditionBadge key={condition.type} condition={condition} />)}</HStack></VStack>}
       {detail.sections?.map((section, index) => <MetadataList key={`${section.title}-${index}`} title={section.title} label={{ position: "top" }}>
         {section.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}><Text wordBreak="break-all">{fact.value}</Text></MetadataListItem>)}
       </MetadataList>)}
-      <DetailCollections clusterId={clusterId} sessionId={sessionId} reference={selection.reference} revision={revision} />
+      <DetailCollections clusterId={clusterId} sessionId={sessionId} reference={detail.reference} revision={revision + actionRevision} />
       <Text type="supporting">Only reviewed inventory metadata is shown. Raw objects, credentials, and configuration contents are not exposed.</Text>
     </>}
   </VStack>;

@@ -16,6 +16,87 @@ pub(crate) struct DetailMetadata {
     pub deletion_timestamp: Option<String>,
     pub partial: bool,
 }
+fn timestamp(value: Option<&Value>, partial: &mut bool) -> Option<String> {
+    let s = optional(value, partial)?;
+    let b = s.as_bytes();
+    let fixed = b.len() >= 20
+        && b[4] == b'-'
+        && b[7] == b'-'
+        && matches!(b[10], b'T' | b't')
+        && b[13] == b':'
+        && b[16] == b':'
+        && [0..4, 5..7, 8..10, 11..13, 14..16, 17..19]
+            .iter()
+            .all(|r| b[r.clone()].iter().all(u8::is_ascii_digit))
+        && &s[17..19] <= "59";
+    let mut end = 19;
+    if fixed && b.get(end) == Some(&b'.') {
+        end += 1;
+        let start = end;
+        while b.get(end).is_some_and(u8::is_ascii_digit) {
+            end += 1;
+        }
+        if !(1..=9).contains(&(end - start)) {
+            *partial = true;
+            return None;
+        }
+    }
+    let zone = b.get(end..).unwrap_or_default();
+    let valid_zone = matches!(zone, [b'Z' | b'z'])
+        || (zone.len() == 6
+            && matches!(zone[0], b'+' | b'-')
+            && zone[3] == b':'
+            && zone[1..3].iter().all(u8::is_ascii_digit)
+            && zone[4..6].iter().all(u8::is_ascii_digit)
+            && &zone[1..3] <= b"23".as_slice()
+            && &zone[4..6] <= b"59".as_slice());
+    if fixed && valid_zone && s.parse::<jiff::Timestamp>().is_ok() {
+        Some(s)
+    } else {
+        *partial = true;
+        None
+    }
+}
+// Heuristics catch recognizable credentials, not every possible secret in free text.
+fn credential_value(s: &str) -> bool {
+    let lower = s.to_ascii_lowercase();
+    if lower.contains("-----begin") && lower.contains("private key-----") {
+        return true;
+    }
+    let words: Vec<&str> = lower
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+        .filter(|s| !s.is_empty())
+        .collect();
+    if words.windows(2).any(|w| matches!(w[0], "bearer" | "basic")) {
+        return true;
+    }
+    for (start, _) in lower.char_indices() {
+        if start > 0 && lower.as_bytes()[start - 1].is_ascii_alphanumeric() {
+            continue;
+        }
+        let rest = &lower[start..];
+        for name in [
+            "password",
+            "passwd",
+            "pwd",
+            "token",
+            "access_token",
+            "client_secret",
+            "authorization",
+            "credential",
+            "private_key",
+            "api_key",
+        ] {
+            if let Some(tail) = rest.strip_prefix(name) {
+                let tail = tail.trim_start_matches([' ', '\t', '\"', '\'']);
+                if tail.starts_with(['=', ':']) {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct MetadataEntry {
@@ -35,6 +116,7 @@ pub(crate) struct ManagedField {
 }
 fn safe(s: &str) -> bool {
     s.len() <= TEXT_BYTES
+        && !credential_value(s)
         && !s.chars().any(|c| {
             c.is_control()
                 || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
@@ -60,19 +142,14 @@ fn denied_annotation(key: &str) -> bool {
 fn optional(value: Option<&Value>, partial: &mut bool) -> Option<String> {
     match value {
         None | Some(Value::Null) => None,
-        Some(Value::String(s)) if safe(s) => Some(s.clone()),
+        Some(Value::String(s)) if !s.is_empty() && safe(s) => Some(s.clone()),
         _ => {
             *partial = true;
             None
         }
     }
 }
-fn entries(
-    value: Option<&Value>,
-    limit: usize,
-    annotations: bool,
-    partial: &mut bool,
-) -> Vec<MetadataEntry> {
+fn entries(value: Option<&Value>, limit: usize, partial: &mut bool) -> Vec<MetadataEntry> {
     let Some(value) = value else {
         return Vec::new();
     };
@@ -82,11 +159,7 @@ fn entries(
     };
     let mut result = Vec::new();
     for (key, value) in map {
-        if result.len() == limit
-            || key.is_empty()
-            || !safe(key)
-            || annotations && denied_annotation(key)
-        {
+        if result.len() == limit || key.is_empty() || !safe(key) || denied_annotation(key) {
             *partial = true;
             continue;
         }
@@ -148,6 +221,7 @@ fn ownership(
         } else if let Some(field) = key.strip_prefix("f:").filter(|s| {
             !s.is_empty()
                 && safe(s)
+                && !denied_annotation(s)
                 && s.bytes()
                     .all(|b| b.is_ascii_alphanumeric() || b"_./-".contains(&b))
         }) {
@@ -211,7 +285,7 @@ fn managed(value: Option<&Value>, partial: &mut bool) -> Vec<ManagedField> {
                 manager,
                 operation,
                 api_version: optional(map.get("apiVersion"), partial),
-                time: optional(map.get("time"), partial),
+                time: timestamp(map.get("time"), partial),
                 subresource: optional(map.get("subresource"), partial),
                 fields,
             })
@@ -228,8 +302,8 @@ pub(super) fn project(kind: ResourceKind, value: &Value) -> Option<DetailMetadat
         partial = true;
     }
     let get = |key: &str| meta.and_then(|m| m.get(key));
-    let labels = entries(get("labels"), 32, false, &mut partial);
-    let annotations = entries(get("annotations"), 32, true, &mut partial);
+    let labels = entries(get("labels"), 32, &mut partial);
+    let annotations = entries(get("annotations"), 32, &mut partial);
     let mut finalizers = Vec::new();
     if let Some(value) = get("finalizers") {
         if let Some(list) = value.as_array() {
@@ -248,7 +322,7 @@ pub(super) fn project(kind: ResourceKind, value: &Value) -> Option<DetailMetadat
         }
     }
     let managed_fields = managed(get("managedFields"), &mut partial);
-    let deletion_timestamp = optional(get("deletionTimestamp"), &mut partial);
+    let deletion_timestamp = timestamp(get("deletionTimestamp"), &mut partial);
     let mut result = DetailMetadata {
         labels,
         annotations,
@@ -279,6 +353,108 @@ pub(super) fn project(kind: ResourceKind, value: &Value) -> Option<DetailMetadat
 mod tests {
     use super::*;
     use serde_json::json;
+    #[test]
+    fn wire_budget_counts_utf8_and_json_escapes() {
+        for text in [
+            "é".repeat(512),
+            "😀".repeat(256),
+            "\"\\".repeat(512),
+            "\u{2028}".repeat(341),
+        ] {
+            let result = project(
+                ResourceKind::Pods,
+                &json!({"metadata":{"labels":{"app":text}}}),
+            )
+            .unwrap();
+            assert_eq!(result.labels[0].value, text);
+            assert!(!result.partial);
+        }
+        let labels: serde_json::Map<String, Value> = (0..32)
+            .map(|i| (format!("label-{i}"), json!("\"\\".repeat(512))))
+            .collect();
+        let result = project(ResourceKind::Pods, &json!({"metadata":{"labels":labels}})).unwrap();
+        assert!(result.partial);
+        assert!(serde_json::to_vec(&result).unwrap().len() <= TOTAL_BYTES);
+        assert!(serde_json::to_string(&result).unwrap().contains("\\\"\\\\"));
+    }
+    #[test]
+    fn credentials_are_omitted_from_all_text_and_sensitive_ownership_names() {
+        for value in [
+            "Bearer abc",
+            "Authorization: Basic abc",
+            "password = abc",
+            "{\"client_secret\":\"abc\"}",
+            "-----BEGIN RSA PRIVATE KEY-----abc",
+        ] {
+            let result = project(
+                ResourceKind::Pods,
+                &json!({"metadata": {
+                    "labels":{"app":value}, "annotations":{"example/note":value},
+                    "finalizers":[value], "managedFields":[{"manager":value,"operation":"Update"}]
+                }}),
+            )
+            .unwrap();
+            assert!(result.partial);
+            assert!(
+                result.labels.is_empty()
+                    && result.annotations.is_empty()
+                    && result.finalizers.is_empty()
+                    && result.managed_fields.is_empty()
+            );
+        }
+        let result = project(ResourceKind::Pods, &json!({"metadata": {
+            "labels":{"app":"my-app", "example/secret":"hidden"},
+            "annotations":{"meta.helm.sh/release-name":"my-app", "kubectl.kubernetes.io/last-applied-configuration":"hidden"},
+            "managedFields":[{"manager":"helm","operation":"Update","fieldsType":"FieldsV1","fieldsV1":{
+                "f:metadata":{"f:labels":{"f:example/secret":{},"f:app":{}},"f:annotations":{"f:example/password":{},"f:meta.helm.sh/release-name":{}}},
+                "f:spec":{"f:items":{"k:{\"value\":\"hidden\"}":{"f:name":{}}, "v:hidden":{}}}
+            }}]
+        }})).unwrap();
+        assert!(result.partial);
+        assert_eq!(result.labels[0].value, "my-app");
+        assert_eq!(result.annotations[0].key, "meta.helm.sh/release-name");
+        let wire = serde_json::to_string(&result).unwrap();
+        for forbidden in ["hidden", "example/secret", "example/password", "k:", "v:"] {
+            assert!(!wire.contains(forbidden));
+        }
+        assert!(result.managed_fields[0].fields.contains("[keyed item]"));
+        assert!(
+            result.managed_fields[0]
+                .fields
+                .contains("meta.helm.sh/release-name")
+        );
+    }
+    #[test]
+    fn timestamps_require_rfc3339_calendar_and_offset() {
+        for value in [
+            "2024-02-29T23:59:59.123456789+23:59",
+            "2026-10-29t12:00:00z",
+            "0000-01-01T00:00:00Z",
+        ] {
+            let mut partial = false;
+            assert_eq!(
+                timestamp(Some(&json!(value)), &mut partial).as_deref(),
+                Some(value)
+            );
+            assert!(!partial);
+        }
+        for value in [
+            "",
+            "tomorrow",
+            "2023-02-29T00:00:00Z",
+            "2024-01-01 00:00:00Z",
+            "2024-01-01T24:00:00Z",
+            "2024-01-01T00:00:60Z",
+            "2024-01-01T00:00:00+24:00",
+            "2024-01-01T00:00:00.1234567890Z",
+            "2024-01-01T00:00:00Z[UTC]",
+        ] {
+            let result = project(ResourceKind::Pods, &json!({"metadata":{"deletionTimestamp":value,"managedFields":[{"manager":"controller","operation":"Update","time":value,"fieldsType":"FieldsV1","fieldsV1":{}}]}})).unwrap();
+            assert!(result.partial, "{value}");
+            assert_eq!(result.deletion_timestamp, None, "{value}");
+            assert_eq!(result.managed_fields[0].time, None, "{value}");
+        }
+    }
     #[test]
     fn sensitive_kinds_have_no_shared_metadata() {
         for kind in [ResourceKind::Secrets, ResourceKind::ConfigMaps] {

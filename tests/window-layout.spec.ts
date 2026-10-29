@@ -36,14 +36,19 @@ for (const platform of ["macos", "windows", "linux"]) {
     await expect(toolbar.locator("[data-tauri-drag-region]").first()).toBeVisible();
     for (const width of [1100, 800, 360]) {
       await page.setViewportSize({ width, height: 600 });
-      await expect(page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true })).toBeVisible();
+      await expect(toolbar.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
+      await expect(page.getByRole("button", { name: /^(?:Collapse|Expand) sidebar$/ })).toHaveCount(0);
+      if (width < 768) {
+        const rail = page.getByRole("main").getByRole("navigation", { name: "Catalog navigation", exact: true });
+        await expect(rail.getByRole("button", { name: "Open sidebar", exact: true })).toBeVisible();
+      }
       await expect(toolbar).toBeVisible();
       const chrome = await toolbar.boundingBox();
       const main = await page.getByRole("main").boundingBox();
       expect(chrome!.height).toBeGreaterThanOrEqual(44);
       expect(chrome!.y).toBe(0);
       expect(chrome!.height).toBeLessThanOrEqual(48);
-      for (const name of [width < 768 ? "Open sidebar" : "Collapse sidebar", "Go back", "Go forward", "Refresh catalog", ...(width < 768 ? ["Toolbar actions"] : ["Preferences", "Search"])]) {
+      for (const name of ["Go back", "Go forward", "Refresh catalog", ...(width < 768 ? ["Toolbar actions"] : ["Preferences", "Search"])]) {
         const action = page.getByRole("button", { name, exact: true });
         await expect(action).toBeVisible();
         const bounds = await action.boundingBox();
@@ -60,9 +65,11 @@ for (const platform of ["macos", "windows", "linux"]) {
       const forward = (await toolbar.getByRole("button", { name: "Go forward", exact: true }).boundingBox())!;
       const refresh = (await toolbar.getByRole("button", { name: "Refresh catalog", exact: true }).boundingBox())!;
       expect(refresh.x).toBeGreaterThanOrEqual(forward.x + forward.width);
-      const home = await page.getByRole("button", { name: width < 768 ? "Open sidebar" : "Collapse sidebar", exact: true }).boundingBox();
+      const firstControl = toolbar.getByRole("button").first();
+      await expect(firstControl).toHaveAccessibleName("Go back");
+      const back = await firstControl.boundingBox();
       if (platform === "macos") {
-        expect(home!.x).toBeGreaterThanOrEqual(80);
+        expect(back!.x).toBeGreaterThanOrEqual(80);
         const lastAction = (await toolbar.getByRole("button", { name: width < 768 ? "Toolbar actions" : "Open Iceon on GitHub", exact: true }).boundingBox())!;
         const clearance = await toolbar.evaluate(element => Number.parseFloat(getComputedStyle(element).paddingRight));
         expect(clearance).toBeGreaterThan(0);
@@ -136,12 +143,13 @@ test("failed native actions show an accessible error", async ({ page }) => {
   await expect(page.getByRole("alert").filter({ hasText: "Window action failed" })).toBeVisible();
 });
 
-test("compact toolbar keeps narrow-window navigation accessible", async ({ page }) => {
+test("sidebar-local control keeps narrow-window navigation accessible", async ({ page }) => {
   await mockWindow(page, "macos");
   await page.setViewportSize({ width: 360, height: 600 });
   await page.goto("/");
   await expect(page).toHaveURL(/#\/catalog$/);
-  const toggle = page.getByRole("button", { name: "Open sidebar", exact: true });
+  await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
+  const toggle = page.getByRole("main").getByRole("button", { name: "Open sidebar", exact: true });
   await toggle.click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -175,37 +183,56 @@ test("categories cannot be pinned and there is only one sidebar", async ({ page 
   await expect(page.getByRole("dialog")).toHaveCount(0);
 });
 
-test("toolbar toggle collapses one sidebar and persists the desktop preference", async ({ page }, testInfo) => {
+test("Catalog navigation stays fixed collapsed across reload without preference access", async ({ page }, testInfo) => {
+  await page.addInitScript(() => {
+    localStorage.setItem("iceon.sidebar-collapsed.v1", "false");
+    const accesses: string[] = [];
+    Object.assign(window, { __sidebarPreferenceAccesses: accesses });
+    for (const method of ["getItem", "setItem", "removeItem"] as const) {
+      const original = Storage.prototype[method];
+      Storage.prototype[method] = function (...args: string[]) {
+        if (args[0] === "iceon.sidebar-collapsed.v1") accesses.push(method);
+        return Reflect.apply(original, this, args);
+      };
+    }
+  });
   await page.setViewportSize({ width: 1100, height: 700 });
   await page.goto("/");
   const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
   await expect(sidebar).toHaveCount(1);
-  const expanded = await sidebar.boundingBox();
-  const toggle = page.getByRole("button", { name: "Collapse sidebar", exact: true });
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(toggle).toHaveAttribute("aria-controls", "catalog-sidebar");
-  await toggle.focus();
-  await page.keyboard.press("Enter");
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toHaveAttribute("aria-expanded", "false");
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeLessThan(expanded!.width);
-  await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
-  await sidebar.getByRole("link", { name: "Clusters", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toHaveCount(0);
-  await page.reload();
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("sidebar-collapsed.png") });
-  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
-  await expect.poll(async () => (await sidebar.boundingBox())!.width).toBeGreaterThan(expanded!.width - 1);
-  await expect(sidebar.getByText("Categories", { exact: true })).toBeVisible();
-  await page.screenshot({ path: testInfo.outputPath("sidebar-expanded.png") });
+  await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+  const width = (await sidebar.boundingBox())!.width;
+  expect(width).toBeGreaterThan(0);
+  expect(width).toBeLessThanOrEqual(64);
+  for (const reload of [false, true]) {
+    if (reload) await page.reload();
+    await expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
+    const categoryLabel = sidebar.getByText("Categories", { exact: true });
+    expect(await categoryLabel.evaluate(element => {
+      for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
+        const style = getComputedStyle(ancestor);
+        const bounds = ancestor.getBoundingClientRect();
+        if (style.position === "absolute" && style.overflow === "hidden" && bounds.width <= 1 && bounds.height <= 1) return true;
+      }
+      return false;
+    })).toBe(true);
+    await expect(sidebar.getByRole("group", { name: "Categories", exact: true })).toBeAttached();
+    await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
+    await sidebar.getByRole("link", { name: "Clusters", exact: true }).click();
+    await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Clusters", exact: true })).toHaveCount(0);
+    expect((await sidebar.boundingBox())!.width).toBeCloseTo(width, 1);
+    expect(await page.evaluate(() => (window as unknown as { __sidebarPreferenceAccesses: string[] }).__sidebarPreferenceAccesses)).toEqual([]);
+  }
+  await page.screenshot({ path: testInfo.outputPath("sidebar-fixed-collapsed.png") });
 });
 
-test("narrow sidebar drawer ignores desktop collapse and closes after navigation", async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem("iceon.sidebar-collapsed.v1", "true"));
+test("narrow sidebar-local drawer closes after navigation and returns to the fixed desktop rail", async ({ page }) => {
   await page.setViewportSize({ width: 360, height: 700 });
   await page.goto("/");
-  const toggle = page.getByRole("button", { name: "Open sidebar", exact: true });
+  await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
+  const toggle = page.getByRole("main").getByRole("button", { name: "Open sidebar", exact: true });
   await toggle.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveCount(1);
@@ -215,5 +242,6 @@ test("narrow sidebar drawer ignores desktop collapse and closes after navigation
   await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
   await expect(page.getByRole("table", { name: "Web links", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 1100, height: 700 });
-  await expect(page.getByRole("button", { name: "Expand sidebar", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveAttribute("data-collapsed", "true");
 });

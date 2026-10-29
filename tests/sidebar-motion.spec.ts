@@ -24,23 +24,25 @@ async function fixture(page: Page) {
   await expect(page.getByRole("table")).toBeVisible();
 }
 
-test("Catalog width transitions preserve its preference across workspace entry and exit", async ({ page }) => {
+test("Catalog rail keeps constant width without a toggle across workspace entry and exit", async ({ page }) => {
   await fixture(page);
   const catalog = page.locator("#catalog-sidebar");
-  const expanded = await catalog.evaluate(el => el.getBoundingClientRect().width);
-  await expect(catalog).toHaveCSS("transition-property", "width");
-  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  const width = (await catalog.boundingBox())!.width;
+  expect(width).toBeGreaterThan(0);
+  expect(width).toBeLessThanOrEqual(64);
   await expect(catalog).toHaveAttribute("data-collapsed", "true");
-  await expect.poll(() => catalog.evaluate(el => el.getBoundingClientRect().width)).toBeLessThan(expanded);
-  await page.getByRole("button", { name: "Expand sidebar", exact: true }).click();
+  await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
   await catalog.getByRole("link", { name: "Development", exact: true }).click();
   await expect(catalog).toHaveAttribute("data-collapsed", "true");
   await expect(page.locator(".cluster-sidebar-motion")).toHaveAttribute("data-open", "true");
   await expect(page.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveCount(1);
+  expect((await catalog.boundingBox())!.width).toBeCloseTo(width, 1);
   await catalog.getByRole("link", { name: "All Categories", exact: true }).click();
-  await expect(catalog).toHaveAttribute("data-collapsed", "false");
+  await expect(catalog).toHaveAttribute("data-collapsed", "true");
   await expect(page.locator(".cluster-sidebar-motion")).toHaveCount(0);
-  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBe("false");
+  expect((await catalog.boundingBox())!.width).toBeCloseTo(width, 1);
+  await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
+  expect(await page.evaluate(() => localStorage.getItem("iceon.sidebar-collapsed.v1"))).toBeNull();
 });
 
 test("reduced motion disables navigation transitions and collapsed groups stay inert", async ({ page }) => {
@@ -72,4 +74,23 @@ test("leaving a cluster retains only an inert exit panel, then removes it", asyn
   });
   expect(exit).toEqual({ open: "false", inert: true, selected: false });
   await expect(page.locator(".cluster-sidebar-motion")).toHaveCount(0);
+});
+
+test("narrow cluster navigation stays in the drawer beside the Catalog rail", async ({ page }) => {
+  await fixture(page);
+  await page.setViewportSize({ width: 360, height: 700 });
+  const rail = page.getByRole("main").getByRole("navigation", { name: "Catalog navigation", exact: true });
+  await rail.getByRole("link", { name: "Development", exact: true }).click();
+  await expect(page.locator("#cluster-sidebar")).toBeHidden();
+  const toggle = rail.getByRole("button", { name: "Open sidebar", exact: true });
+  await expect(toggle).toHaveAttribute("aria-expanded", "false");
+  await toggle.focus();
+  await page.keyboard.press("Enter");
+  const drawer = page.getByRole("dialog");
+  await expect(drawer).toBeVisible();
+  await expect(drawer.locator("#cluster-sidebar-drawer")).toBeVisible();
+  await expect(drawer.getByRole("navigation", { name: "Catalog navigation", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(drawer).toBeHidden();
+  await expect(toggle).toBeFocused();
 });

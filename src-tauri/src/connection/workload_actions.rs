@@ -70,6 +70,12 @@ pub(super) struct WorkloadActionSlot {
 }
 
 impl WorkloadActionSlot {
+    pub(super) fn active(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|cancel| !cancel.is_cancelled())
+    }
+
     fn begin(&mut self, id: u64, cancel: CancellationToken) -> Result<()> {
         if id <= self.high_water {
             return Err(ConnectionError::StaleSession);
@@ -396,7 +402,8 @@ async fn mutate(
     dispatched: &AtomicBool,
 ) -> Result<Option<ResourceReference>> {
     let path = named_path(&request.reference)?;
-    let (get_status, current) = send(client, cancel, Method::GET, &path, None, "application/json").await?;
+    let (get_status, current) =
+        send(client, cancel, Method::GET, &path, None, "application/json").await?;
     if get_status != 200 {
         return Err(ConnectionError::InvalidResponse);
     }

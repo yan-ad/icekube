@@ -405,6 +405,7 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
         }
     }
     store.reconcile_pins();
+    validate_size(&store).map_err(|_| CatalogError::StoreCorrupt)?;
     Ok(store)
 }
 pub(super) fn validate_size(store: &Store) -> Result<()> {

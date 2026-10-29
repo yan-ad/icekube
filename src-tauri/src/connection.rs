@@ -21,7 +21,9 @@ pub(crate) mod custom_resources;
 pub(crate) mod delete;
 #[cfg(test)]
 mod delete_tests;
+pub(crate) mod detail_collections;
 pub(crate) mod detail_facts;
+pub(crate) mod detail_metadata;
 pub(crate) mod details;
 pub(crate) mod helm;
 #[cfg(test)]
@@ -44,6 +46,7 @@ mod runtime_status_tests;
 #[cfg(test)]
 mod tests;
 mod transport;
+pub(crate) mod workload_actions;
 
 const DEADLINE: Duration = Duration::from_secs(15);
 type Result<T> = std::result::Result<T, ConnectionError>;
@@ -364,6 +367,8 @@ struct Session {
     creates: HashMap<ResourceKind, CreateSlot>,
     deletes: HashMap<ResourceKind, delete::DeleteSlot>,
     detail: details::DetailSlot,
+    collections: HashMap<detail_collections::CollectionKind, detail_collections::CollectionSlot>,
+    workload_action: workload_actions::WorkloadActionSlot,
     permissions: permissions::PermissionSession,
     rbac_users: Option<rbac::UsersSlot>,
     rbac_management: rbac_management::ManagementSlot,
@@ -461,6 +466,8 @@ impl ConnectionEngine {
             creates: HashMap::new(),
             deletes: HashMap::new(),
             detail: details::DetailSlot::default(),
+            collections: HashMap::new(),
+            workload_action: workload_actions::WorkloadActionSlot::default(),
             permissions: permissions::PermissionSession::default(),
             rbac_users: None,
             rbac_management: rbac_management::ManagementSlot::default(),
@@ -486,6 +493,7 @@ impl ConnectionEngine {
                 state.as_ref().is_some_and(|session| {
                     session.creates.values().any(|slot| slot.cancel.is_some())
                         || session.deletes.values().any(|slot| slot.cancel.is_some())
+                        || session.workload_action.active()
                 })
             })
     }

@@ -127,7 +127,10 @@ for (const group of clusterSections.filter((section) => "children" in section)) 
 
 test("narrow drawer keeps disclosures open but closes on leaf activation", async ({ page }) => {
   await fixture(page, "overview", true);
-  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await expect(page.locator("#catalog-sidebar-narrow")).toBeVisible();
+  await expect(page.locator("#catalog-sidebar-narrow")).toHaveAttribute("data-collapsed", "true");
+  await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: /^(Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
+  await page.locator("#catalog-sidebar-narrow").getByRole("button", { name: "Open sidebar", exact: true }).click();
   const dialog = page.getByRole("dialog");
   const nav = dialog.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await nav.getByRole("button", { name: "Expand Helm", exact: true }).focus();
@@ -139,7 +142,7 @@ test("narrow drawer keeps disclosures open but closes on leaf activation", async
   await expect(dialog).toBeHidden();
   await expect(page).toHaveURL(/section=helm-charts$/);
   await expect(page.getByRole("table", { name: "Helm Charts", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
+  await page.locator("#catalog-sidebar-narrow").getByRole("button", { name: "Open sidebar", exact: true }).click();
   await expect(nav.getByRole("link", { name: "Charts", exact: true })).toHaveAttribute("aria-current", "page");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();

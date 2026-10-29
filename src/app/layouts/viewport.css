@@ -5,6 +5,11 @@ body,
   overscroll-behavior: none;
 }
 
+[data-pin-key][data-drop-target="true"] {
+  outline: var(--spacing-0_5) solid var(--color-border-primary);
+  outline-offset: calc(-1 * var(--spacing-0_5));
+}
+
 /* Astryx's inline-only scroll hook strips overflow from plugin inline styles.
    Target its outer viewport, not the unbounded data-scroll-content child. */
 [data-iceon-table-viewport] {

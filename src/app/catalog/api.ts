@@ -14,8 +14,10 @@ export type ClusterSummary = {
   color: string;
 };
 export type WebLinkSummary = { id: string; name: string; url: string; source: string; labels: string[]; color: string; pinned: boolean };
-export type CatalogSnapshot = { revision: number; clusters: ClusterSummary[]; webLinks: WebLinkSummary[]; discoveryError: string | null };
-export type CatalogCommand = "catalog_list" | "catalog_import_kubeconfig" | "catalog_add_web_link" | "catalog_set_pin" | "catalog_set_section_pin" | "catalog_remove";
+export type PinTarget = { id: string; section: ClusterSectionId | null };
+export const pinKey = (target: PinTarget) => JSON.stringify([target.id, target.section]);
+export type CatalogSnapshot = { revision: number; clusters: ClusterSummary[]; webLinks: WebLinkSummary[]; pinnedItems: PinTarget[]; discoveryError: string | null };
+export type CatalogCommand = "catalog_list" | "catalog_import_kubeconfig" | "catalog_add_web_link" | "catalog_set_pin" | "catalog_set_section_pin" | "catalog_reorder_pins" | "catalog_remove";
 
 const messages: Record<string, string> = {
   invalidInput: "Check the name and URL. Use an HTTP(S) URL without credentials, query parameters, or fragments, or an absolute kubeconfig path.",
@@ -78,10 +80,28 @@ function parseSnapshot(value: unknown): CatalogSnapshot {
         && item.pinnedSections.every(section => clusterDestinations.some(destination => destination.id === section)))))
     || !value.webLinks.every((item) => summary(item) && typeof item.url === "string")
     || new Set([...value.clusters, ...value.webLinks].map((item) => item.id)).size !== value.clusters.length + value.webLinks.length) throw "invalidResponse";
-  return { ...value, clusters: value.clusters.map(item => ({ ...item,
+  const clusters = value.clusters.map(item => ({ ...item,
     pinned: item.pinned || (item.pinnedSections as string[] | undefined)?.includes("overview") === true,
     pinnedSections: ((item.pinnedSections ?? []) as string[]).filter(section => section !== "overview"),
-  })) } as CatalogSnapshot;
+  })) as ClusterSummary[];
+  const webLinks = value.webLinks as WebLinkSummary[];
+  const expected: PinTarget[] = [
+    ...clusters.filter(item => item.pinned).map(item => ({ id: item.id, section: null })),
+    ...webLinks.filter(item => item.pinned).map(item => ({ id: item.id, section: null })),
+    ...clusters.flatMap(item => clusterDestinations.filter(destination => item.pinnedSections.includes(destination.id))
+      .map(destination => ({ id: item.id, section: destination.id }))),
+  ];
+  const expectedKeys = new Set(expected.map(pinKey));
+  let pinnedItems = expected;
+  if (value.pinnedItems !== undefined) {
+    if (!Array.isArray(value.pinnedItems) || value.pinnedItems.length !== expected.length
+      || !value.pinnedItems.every(item => record(item) && typeof item.id === "string"
+        && Object.keys(item).every(key => key === "id" || key === "section")
+        && (item.section === null || typeof item.section === "string") && expectedKeys.has(pinKey(item as PinTarget)))
+      || new Set(value.pinnedItems.map(item => pinKey(item as PinTarget))).size !== expected.length) throw "invalidResponse";
+    pinnedItems = value.pinnedItems as PinTarget[];
+  }
+  return { ...value, clusters, webLinks, pinnedItems } as CatalogSnapshot;
 }
 
 export async function catalogRequest(command: CatalogCommand, request?: Record<string, unknown>): Promise<CatalogSnapshot> {

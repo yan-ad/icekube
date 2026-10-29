@@ -101,7 +101,7 @@ unused starter CSS, not design authority. The active brand theme lives in
 
 1. **Window frame:** device insets and a single toolbar with automatic native-control
    clearance when seamless is enabled. No app-name strip or extra title-bar row.
-2. **Toolbar:** Sidebar toggle, back/forward history, then Refresh immediately after
+2. **Toolbar:** Back/forward history, then Refresh immediately after
    Go forward. Cluster routes place the Switch cluster selector after Refresh.
    History controls disable when unavailable. Search opens from its icon button
    or Cmd/Ctrl+K. Preferences and Search use named icons and move into overflow at
@@ -114,16 +114,16 @@ unused starter CSS, not design authority. The active brand theme lives in
     `https://github.com/yan-ad/iceon`; browser preview disables the action and
     native failures return a safe error. This does not broaden arbitrary opener access.
 3. **Single sidebar:** No separate app rail, Home button, or Welcome destination.
-   `/` redirects to `/catalog`. The first toolbar control collapses/expands the
-   sidebar on desktop and opens the navigation drawer on narrow windows. Desktop
-   collapse preference is saved in non-sensitive localStorage; drawer navigation
-   stays fully expanded and does not change that preference.
+   `/` redirects to `/catalog`. Catalog navigation is always icon-only; there is
+   no toolbar collapse/expand control and the legacy collapse preference is no
+   longer read or written. Narrow windows retain this icon sidebar with a local
+   Open sidebar action for the existing drawer and readable cluster navigation.
    Pinned shortcuts identify individual clusters, web links, or cluster-scoped
    workspace destinations, never
    All Categories, Clusters, or Web Links category pages.
-   Opening `/cluster/<id>` temporarily auto-collapses this main navigation; it
-   does not overwrite the Catalog collapse preference. The toolbar can expand it
-   for the current workspace. Returning to Catalog restores its saved preference.
+   Opening `/cluster/<id>`, returning to Catalog, reloading and changing window
+   size all retain icon-only Catalog navigation. The inset cluster navigation
+   remains readable on desktop and available through the drawer on narrow windows.
 4. **Sidebar content:** Catalog categories and a pinned-items area share one
    navigation landmark. Collapsed mode keeps named category and pinned-entry
    icons usable, with labels available to assistive technology and tooltips.
@@ -342,18 +342,37 @@ the canonical representation, and unpinning cannot resurrect the old shortcut.
 
 Shortcuts use the existing section icon (Pods uses a cube) and the owning
 cluster's existing color renderer. Names include both cluster and destination
-to distinguish identical sections in different clusters. Expanded shortcuts
-offer Unpin; collapsed shortcuts retain accessible names and tooltips, with
-pin controls available in the cluster sidebar. No new palette or layout is added.
+to distinguish identical sections in different clusters. Shortcuts retain
+accessible names and tooltips. Right-click, Context Menu or Shift+F10 opens a
+Rust-created native menu with Unpin and Move up/down; the cluster sidebar retains
+its Pin/Unpin actions. There is no renderer imitation of a native menu. Browser
+preview reports that native menus require the desktop app.
 
 Rust `CatalogEngine::set_section_pin` owns persistence and validates an exact
-static section allowlist plus an existing cluster ID. SQLite schema 3 adds
-`pinned_sections` JSON, transactionally upgrading schema 1/2 without changing
+static section allowlist plus an existing cluster ID. SQLite schema 4 retains
+`pinned_sections` JSON and adds ordered `pin_order` rows, upgrading schema 1/2/3 without changing
 catalog revision, item pins, colors or provenance. Reimport retains section pins
 only for surviving cluster identities. Removing a cluster removes its pins.
 Repeated writes are idempotent; failed saves retain previous data and display
 the existing catalog error. Pins never read kubeconfig files or persist session,
 namespace, resource-selection or credential state.
+
+The Catalog snapshot's `pinnedItems` is the authoritative mixed ordering of
+cluster, web-link and section targets. Internal drag/drop reorders this list;
+Alt+Arrow Up/Down and native Move up/down provide keyboard alternatives. Reorder
+is a Rust-validated exact permutation, not an arbitrary list of routes. New pins
+append; unpin, removal and stale-import reconciliation remove only affected
+targets. Failed saves keep the last saved ordering. Dragging never activates the
+shortcut, accepts external pin data, reads dropped files, or opens a saved link.
+Tauri's file-drop handler is disabled at Rust window creation to allow HTML drag
+events on Windows; no filesystem/menu/opener capability is added.
+
+Native menu requests are bounded to approved window labels and the saved pin,
+use one-shot random native IDs, expire after 30 seconds, and are canceled on
+navigation, pin-list changes, disposal and window shutdown. Late replies cannot
+unpin another target or mutate a disposed route. Tests cover these IPC contracts
+with synthetic metadata in `tests/pinned-items.spec.ts`, Rust menu lifecycle
+tests in `pin_menu.rs`, and migration/reorder fixtures in `catalog/pin_order_tests.rs`.
 
 This is the requested Iceon workflow, not a newly verified Freelens port. The
 previous catalog reference is Freelens v1.10.3-533 at
@@ -557,8 +576,12 @@ macOS remains ad-hoc signed without Developer ID/notarization, and Windows has
 no Authenticode certificate. Existing 0.0.1/0.0.2 installations have no updater
 trust key and need a one-time manual 0.0.3 installation.
 
-After bootstrap, verified updates install and restart automatically only when
-safe. Every admitted native window must acknowledge the current preparation ID
+After bootstrap, verified updates download automatically, but installation and
+restart require the toolbar's **Restart to Update** action. This visible secondary
+button uses existing Astryx styling so the pending action is discoverable without
+interrupting work. Readiness is not consent, and clearing a blocker or timing out
+requires another click rather than an automatic retry.
+Every admitted native window must acknowledge the current preparation ID
 after freezing interaction. `WindowGate` blocks new windows during preparation
 and restart. Dirty editors, dialogs, mutations, terminals and forwards defer
 installation; the backend closes admission and drains session work before install.

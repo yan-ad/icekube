@@ -15,7 +15,7 @@ const statusFootprint = {
 } as const;
 
 function updateStatus(snapshot: NonNullable<ReturnType<typeof useUpdates>["snapshot"]>) {
-  if (snapshot.phase === "ready") return "Update verified; installs automatically when work is safe.";
+  if (snapshot.phase === "ready") return "Update downloaded and verified. Restart when you are ready.";
   if (snapshot.phase === "preparing") return "Preparing update; checking that work is safe.";
   if (snapshot.phase === "restarting") return "Installing update and restarting.";
   if (snapshot.progress) {
@@ -64,10 +64,16 @@ function CompactUpdateError({ message }: { message: string }) {
 }
 
 export function RestartUpdateButton() {
-  const { snapshot, error } = useUpdates();
+  const { snapshot, error, busy, restart } = useUpdates();
+  if (snapshot?.phase === "ready") return <HStack gap={1} vAlign="center" style={{ minWidth: 0 }}>
+    <Button label="Restart to Update" size="sm" variant="secondary"
+      tooltip={updateStatus(snapshot)} isLoading={busy} onClick={() => void restart()} />
+    {error && <CompactUpdateError message={error} />}
+  </HStack>;
   if (error) return <CompactUpdateError message={error} />;
   const phase = snapshot?.phase;
-  const showStatus = phase === "downloading" || phase === "ready" || phase === "preparing" || phase === "restarting";
+  const showStatus = phase === "downloading" || phase === "preparing" || phase === "restarting";
   if (snapshot && showStatus) return <CompactUpdateStatus message={updateStatus(snapshot)} phase={phase} />;
   return null;
 }
+import { Button } from "@astryxdesign/core/Button";

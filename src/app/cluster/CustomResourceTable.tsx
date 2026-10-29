@@ -6,7 +6,8 @@ import { ContentError } from "../components/ContentError";
 import { ContentLoading } from "../components/ContentLoading";
 import { connectionMessage, errorCode, nextReadId, type ConnectionErrorCode, type SessionRequest } from "./api";
 import { useCustomResources } from "./CustomResourcesProvider";
-import { cancelCustomRead, loadCustomInstances, type CustomDefinition, type CustomInstance, type CustomInstanceRead, type CustomPage } from "./customResourcesApi";
+import { cancelCustomRead, loadCustomInstances, type CustomDefinition, type CustomInstance, type CustomInstanceRead, type CustomInstancePage } from "./customResourcesApi";
+import { CustomInstanceInspector } from "./CustomInstanceInspector";
 import { NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar } from "./TableToolbar";
 import { useRegisterWorkspacePageActions, useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
@@ -30,8 +31,8 @@ function CustomResourceScope({ clusterId, sessionId, definition }: SessionReques
   </VStack>;
 }
 function CustomResourceSnapshot({ clusterId, sessionId, definition, namespace }: SessionRequest & { definition: CustomDefinition; namespace: string | null }) {
-  const [page, setPage] = useState<CustomPage<CustomInstance> | null>(null);
-  const firstPage = useRef<CustomPage<CustomInstance> | null>(null);
+  const [page, setPage] = useState<CustomInstancePage | null>(null);
+  const firstPage = useRef<CustomInstancePage | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<ConnectionErrorCode | null>(null);
   const [revision, setRevision] = useState(0);
@@ -60,7 +61,7 @@ function CustomResourceSnapshot({ clusterId, sessionId, definition, namespace }:
     {loading && <ContentLoading label={page ? "Refreshing custom resources…" : "Loading custom resources…"} refreshing={!!page} />}
     {error && <ContentError title={`Could not load ${definition.kind}`} message={`${connectionMessage(error)} (${error})`} retained={!!page} disabled={loading} onRetry={refresh} />}
     {page && <Table aria-label={`${definition.kind} custom resources`} data={page.items} idKey="uid" density="compact" aria-busy={loading} columns={[
-      { key: "name", header: "Name", renderCell: item => <Text>{item.name}</Text> },
+      { key: "name", header: "Name", renderCell: item => <CustomInstanceInspector item={item} page={page} /> },
       ...(definition.scope === "Namespaced" ? [{ key: "namespace", header: "Namespace", renderCell: (item: CustomInstance) => <Text>{item.namespace}</Text> }] : []),
       { key: "createdAt", header: "Created", renderCell: item => <Text>{item.createdAt ? new Date(item.createdAt).toLocaleString() : "Unknown"}</Text> },
       { key: "labelCount", header: "Labels", renderCell: item => <Text>{item.labelCount}</Text> },

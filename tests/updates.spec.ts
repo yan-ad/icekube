@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("updater snapshots accept only automatic lifecycle phases and bounded public fields", async ({ page }) => {
+test("updater snapshots accept only supported lifecycle phases and bounded public fields", async ({ page }) => {
   await page.goto("/");
   const result = await page.evaluate(async () => {
     // @ts-expect-error Vite serves source modules for the IPC fixture.
@@ -32,6 +32,7 @@ test("browser preview never invokes readiness or updater IPC", async ({ page }) 
     const api = await import("/src/app/updates/api.ts");
     await api.reportUpdateWindowReady(true);
     await api.reportUpdateWindowPrepared("0123456789abcdef0123456789abcdef", true);
+    await api.restartForUpdate();
     return await api.readUpdateState();
   })).toEqual({ phase: "disabled", version: null, error: null });
   await expect(page.getByRole("button", { name: /Restart to Update|Download update|Show download/ })).toHaveCount(0);

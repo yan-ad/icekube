@@ -45,10 +45,14 @@ export async function reportUpdateWindowReady(ready: boolean): Promise<void> {
   if (!hasUpdateEngine()) return;
   await invoke<void>("update_window_ready", { ready });
 }
+export async function restartForUpdate(): Promise<void> {
+  if (!hasUpdateEngine()) return;
+  await invoke<void>("update_restart");
+}
 export function updateError(reason: unknown): string {
   if (reason === "verificationFailed") return "The update could not be verified. It was not installed.";
   if (reason === "installFailed") return "The update could not be installed. Try checking again.";
-  if (reason === "busy") return "An update operation is already in progress.";
+  if (reason === "busy") return "Finish or close active tasks and unsaved work in all windows, then try Restart to Update again.";
   if (reason === "limitExceeded") return "The release exceeds the download size limit.";
   if (reason === "invalidRelease") return "The release is not a supported update.";
   return "The update could not be completed. Try checking again.";

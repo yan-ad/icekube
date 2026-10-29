@@ -88,8 +88,10 @@ Working 0.0.4 installations can receive 0.0.6 through automatic updates.
 Install 0.0.6 manually if 0.0.3 crashes during startup: the affected build cannot
 run its updater. Also install manually from 0.0.1/0.0.2. Those older versions
 shipped without an updater public key and cannot acquire automatic updates
-retroactively. Once 0.0.4 or newer is installed, later verified stable updates install and
-restart automatically when safe, without another manual installation step.
+retroactively. Those published builds install and restart automatically when safe.
+The current source changes that policy: verified updates download automatically,
+but installation and restart wait for **Restart to Update**. This does not change
+the behavior of already-installed older binaries until they receive the fix.
 
 ### Apple Silicon macOS
 

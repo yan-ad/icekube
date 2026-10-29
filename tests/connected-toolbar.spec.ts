@@ -99,6 +99,7 @@ for (const fontPercent of [100, 125]) {
       await page.evaluate(percent => { document.documentElement.style.fontSize = `${percent}%`; }, fontPercent);
       await page.evaluate(() => document.fonts.ready);
       const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
+      await expect(toolbar.getByRole("button", { name: /^(Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
       const statusBadge = toolbar.getByText("Connected", { exact: true }).filter({ visible: true });
       if (width >= 640) await expect(statusBadge).toBeVisible();
       else await expect(statusBadge).toHaveCount(0);
@@ -156,7 +157,7 @@ for (const fontPercent of [100, 125]) {
       await testInfo.attach("toolbar-geometry", { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
       console.log(JSON.stringify({ width, fontPercent, ...geometry }));
       expect.soft(geometry.controls.filter(control => control.label === "Connected")).toHaveLength(width >= 640 ? 1 : 0);
-      expect.soft(geometry.controls).toHaveLength(width >= 640 ? 10 : 7);
+      expect.soft(geometry.controls).toHaveLength(width >= 640 ? 9 : 6);
       if (width >= 640) expect.soft(geometry.statusText, "Connected label is measured").not.toBeNull();
       if (geometry.statusText) expect.soft(geometry.statusText.scrollWidth, "Connected label is not clipped").toBeLessThanOrEqual(geometry.statusText.clientWidth);
       for (const control of geometry.controls) {
@@ -193,11 +194,11 @@ for (const fontPercent of [100, 125]) {
       ];
       for (const snapshot of snapshots) {
         await page.evaluate(state => Object.assign(window, { __toolbarUpdateState: state }), snapshot);
-        const indicator = snapshot.error ? toolbar.getByRole("alert", { name: "Update error", exact: true }) : toolbar.getByRole("status", { name: /^(Update verified|Downloading update)/ });
+        const indicator = snapshot.error ? toolbar.getByRole("alert", { name: "Update error", exact: true }) : snapshot.phase === "ready" ? toolbar.getByRole("button", { name: "Restart to Update", exact: true }) : toolbar.getByRole("status", { name: /^Downloading update/ });
         if (snapshot.phase === "checking") await expect(indicator).toHaveCount(0);
         else {
           await expect(indicator).toBeVisible();
-          await expect(indicator).toContainText(snapshot.error ? "could not be installed" : snapshot.phase === "ready" ? "Update verified" : "42%");
+          await expect(indicator).toContainText(snapshot.error ? "could not be installed" : snapshot.phase === "ready" ? "Restart to Update" : "42%");
         }
         const geometry = await toolbar.evaluate(element => {
           const bounds = element.getBoundingClientRect();
@@ -210,7 +211,7 @@ for (const fontPercent of [100, 125]) {
         });
         await testInfo.attach(`${snapshot.phase}${snapshot.error ? "-error" : ""}-geometry`, { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
         expect(geometry.controls.filter(control => control.label === "Search" || control.label === "Preferences")).toHaveLength(width >= 640 ? 2 : 0);
-        expect(await toolbar.getByRole("button").count()).toBe(width >= 640 ? 9 : 7);
+        expect(await toolbar.getByRole("button").count()).toBe((width >= 640 ? 8 : 6) + (snapshot.phase === "ready" ? 1 : 0));
         for (const indicatorBounds of geometry.indicators) {
           expect(indicatorBounds.width).toBeLessThanOrEqual(fontPercent === 125 ? 20 : 16);
           expect(indicatorBounds.width).toBeGreaterThan(0);
@@ -232,7 +233,7 @@ for (const fontPercent of [100, 125]) {
         if (snapshot.phase === "ready" || snapshot.error) {
           await indicator.focus();
           await expect(indicator).toBeFocused();
-          await expect(page.getByRole("tooltip").filter({ hasText: snapshot.error ? "could not be installed" : "Update verified" })).toBeVisible();
+          await expect(page.getByRole("tooltip").filter({ hasText: snapshot.error ? "could not be installed" : "Update downloaded and verified" })).toBeVisible();
           await page.keyboard.press("Escape");
           await indicator.blur();
         }
