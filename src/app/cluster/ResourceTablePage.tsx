@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useDebouncedSearch } from "./useDebouncedSearch";
 import { ContentLoading } from "../components/ContentLoading";
 import { ContentError } from "../components/ContentError";
@@ -24,7 +24,7 @@ import { PortForwardTablePage } from "./PortForwardTablePage";
 import { ResourceActions } from "./ResourceActions";
 import { useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
-import { NamespaceFeedback, NamespaceSelector } from "./NamespaceScope";
+import { NamespaceFeedback, NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { StatusBadge } from "./StatusBadge";
 import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector";
@@ -47,13 +47,14 @@ function PodHealth({ item }: { item: ResourceItem }) {
 }
 const relationColumns = new Set(["node", "controlledBy", "storageClass", "volume", "claim", "roleRef", "policy", "target", "class", "involvedObject"]);
 const stateColumns = new Set(["phase", "suspend", "globalDefault", "readOnly", "allowExpansion", "privileged", "hostNetwork"]);
+const ResourceTable = memo(Table) as typeof Table;
 
-function columns(view: ResourceView, openResource: (reference: ResourceReference) => void, openRelated: (reference: ResourceReference, column: string) => void, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
+function columns(view: ResourceView, openResource: (reference: ResourceReference) => void, openRelated: (reference: ResourceReference, column: string) => void, onNamespace: (namespace: string) => void, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
   const reference = (item: ResourceItem): ResourceReference => ({ kind: view.kind!, namespace: item.namespace, name: item.name, uid: item.uid });
   return [
     { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openPod ? openPod(item, "details") : openResource(reference(item))} /> },
     ...(view.kind === "pods" ? [{ key: "health", header: "Health", renderCell: (item: ResourceItem) => <PodHealth item={item} /> }] : []),
-    ...(view.namespaced ? [{ key: "namespace", header: "Namespace", renderCell: (item: ResourceItem) => item.namespace ? <ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: item.namespace }}>{item.namespace}</ResourceRelationLink> : <Text>N/A</Text> }] : []),
+    ...(view.namespaced ? [{ key: "namespace", header: "Namespace", renderCell: (item: ResourceItem) => item.namespace ? <Button label={item.namespace} aria-label={`Filter to namespace ${item.namespace}`} variant="ghost" size="sm" onClick={() => onNamespace(item.namespace!)} /> : <Text>N/A</Text> }] : []),
     ...view.columns.map((column) => ({ key: column.key, header: column.label,
       renderCell: (item: ResourceItem) => relationColumns.has(column.key) && item.columns[column.key]
         ? column.key === "class" && view.kind === "ingresses" ? <ResourceRelationLink reference={{ kind: "ingressClasses", namespace: null, name: item.columns[column.key] }}>{item.columns[column.key]}</ResourceRelationLink>
@@ -66,11 +67,18 @@ function columns(view: ResourceView, openResource: (reference: ResourceReference
 }
 
 export function ResourceTablePage({ view, clusterId, sessionId }: SessionRequest & { view: ResourceView }) {
-  const [namespace, setNamespace] = useState("");
+  const [selectedNamespace, setNamespace] = useNamespaceSelection();
+  const [filters, setFilters] = useState({ query: "", status: "", group: "" });
+  const namespace = view.namespaced ? selectedNamespace : "";
+  return <ResourceTableScope key={JSON.stringify([clusterId, sessionId, view.section, namespace])} view={view} clusterId={clusterId} sessionId={sessionId} namespace={namespace} setNamespace={setNamespace} filters={filters} setFilters={setFilters} />;
+}
+
+type TableFilters = { query: string; status: string; group: string };
+function ResourceTableScope({ view, clusterId, sessionId, namespace, setNamespace, filters, setFilters }: SessionRequest & { view: ResourceView; namespace: string; setNamespace: (namespace: string) => void;
+  filters: TableFilters; setFilters: React.Dispatch<React.SetStateAction<TableFilters>> }) {
   const [tokens, setTokens] = useState<(string | null)[]>([null]);
   const [index, setIndex] = useState(0);
-  const [filters, setFilters] = useState({ query: "", status: "", group: "" });
-  const scope = (next: string) => { setNamespace(next); setTokens([null]); setIndex(0); };
+  const scope = useCallback((next: string) => { setNamespace(next); setTokens([null]); setIndex(0); }, [setNamespace]);
   const filter = (next: Partial<typeof filters>) => { setFilters(current => ({ ...current, ...next })); setTokens([null]); setIndex(0); };
   return <VStack gap={0} style={{ flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {!view.kind ? view.service === "port-forwarding" ? <PortForwardTablePage clusterId={clusterId} sessionId={sessionId} /> :
@@ -94,9 +102,10 @@ function ResourceSnapshot(props: SnapshotProps) {
 }
 function PodSnapshot(props: SnapshotProps) {
   const { openPod } = usePodDock();
-  return <ResourceSnapshotContent {...props} openPod={(item, mode) => {
+  const open = useCallback((item: ResourceItem, mode: PodMode) => {
     if (item.namespace) openPod({ namespace: item.namespace, name: item.name, ...(item.uid ? { uid: item.uid } : {}) }, mode);
-  }} />;
+  }, [openPod]);
+  return <ResourceSnapshotContent {...props} openPod={open} />;
 }
 function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token, index, previous, next, openPod, filters, onFilter, onNamespace }: SnapshotProps & {
   openPod?: (item: ResourceItem, mode: PodMode) => void;
@@ -189,13 +198,17 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const rows = useMemo(() => page?.items ?? [], [page]);
   const statuses = useMemo(() => [...new Set([...rows.map(item => item.status), ...(filters.status ? [filters.status] : [])])].sort(), [rows, filters.status]);
   const groups = useMemo(() => [...new Set([...rows.map(item => item.columns.group).filter(Boolean), ...(filters.group ? [filters.group] : [])])].sort(), [rows, filters.group]);
-  const actionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, filters, syncing]);
-  const selectionScope = JSON.stringify([actionScope, rows]);
+  const actionScope = JSON.stringify([clusterId, sessionId, view.kind, namespace, token, index, query, status, group, pending, syncing]);
+  const rowsFingerprint = useMemo(() => JSON.stringify(rows), [rows]);
+  const selectionScope = useMemo(() => JSON.stringify([actionScope, rowsFingerprint]), [actionScope, rowsFingerprint]);
   const visibleLoading = loading && !auto.background.current;
   const inventoryUnavailable = !readable || pending || visibleLoading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
-  const tableColumns = useMemo(() => columns(view, openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
+  const tableColumns = useMemo(() => columns(view, openResource, openRelated, onNamespace, openPod), [view, openResource, openRelated, onNamespace, openPod]);
+  const plugins = useMemo(() => ({ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }), [selection.plugin, rowMenu.plugin]);
+  const emptyFiltered = rows.length === 0 && filtered;
+  const emptyState = useMemo(() => <VStack gap={2} padding={6}><Text>{emptyFiltered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>, [emptyFiltered, view.label]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={view.label} count={readable && page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}
       context={view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden showFeedback={false} />}
@@ -219,9 +232,8 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
       disabled={loading || pending} onRetry={() => setRevision(value => value + 1)} />}
     {view.kind && <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
       selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
-    {page && <Table aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={visibleLoading || pending}
-      plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
-      emptyState={<VStack gap={2} padding={6}><Text>{filtered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>} />}
+    {page && <ResourceTable aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={visibleLoading || pending}
+      plugins={plugins} emptyState={emptyState} />}
     </>}
   </VStack>;
 }

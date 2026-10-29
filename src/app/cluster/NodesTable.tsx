@@ -12,6 +12,7 @@ import type { NodeCondition, Usage } from "./nodeContract";
 import { tableViewport } from "./TableToolbar";
 import { resourceRowKey } from "./deleteApi";
 import { ResourceAge } from "./ResourceAge";
+const MemoTable = memo(Table) as typeof Table;
 
 function cores(value: number): string {
   return value === 0 ? "0" : value < 0.01 ? "<0.01" : value.toFixed(value < 10 ? 2 : 1);
@@ -73,10 +74,13 @@ export const NodesTable = memo(function NodesTable({ items, loading, filtered, s
       </HStack>;
     } },
   ], [conditionsWidth, openResource]);
-  return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate" style={{ minWidth: "100rem" }}
-    aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}), ...(rowContext ? { rowContext } : {}) }}
-    emptyState={<VStack padding={6} gap={2}>
-      <Text>{filtered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
-      <Text color="secondary">{filtered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>
-    </VStack>} />;
+  const plugins = useMemo(() => ({ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}), ...(rowContext ? { rowContext } : {}) }), [selection, rowContext]);
+  const emptyFiltered = items.length === 0 && filtered;
+  const emptyState = useMemo(() => <VStack padding={6} gap={2}>
+    <Text>{emptyFiltered ? "No matching nodes on this page." : "No nodes were returned."}</Text>
+    <Text color="secondary">{emptyFiltered ? "Try the next page if available, or clear or change the search." : "Refresh to check again."}</Text>
+  </VStack>, [emptyFiltered]);
+  return <MemoTable data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate" style={tableStyle}
+    aria-label="Nodes" aria-busy={loading} plugins={plugins} emptyState={emptyState} />;
 });
+const tableStyle = { minWidth: "100rem" };

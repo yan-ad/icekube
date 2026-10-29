@@ -42,6 +42,7 @@ pub struct ResourceDetail {
     pub related: BTreeMap<String, ResourceReference>,
     pub sections: Vec<super::detail_facts::DetailSection>,
     pub metadata: Option<super::detail_metadata::DetailMetadata>,
+    pub event_diagnostic: Option<super::event_diagnostic::EventDiagnostic>,
 }
 #[derive(Default)]
 pub(super) struct DetailSlot {
@@ -235,6 +236,7 @@ pub(super) fn project(r: &DetailRequest, value: Value) -> Result<ResourceDetail>
     }
     let sections = super::detail_facts::project(reference.kind, &value);
     let metadata = super::detail_metadata::project(reference.kind, &value);
+    let event_diagnostic = super::event_diagnostic::project(reference.kind, &value);
     let related = related(reference.kind, &value, reference.namespace.as_deref());
     let mut item = super::resources::project(reference.kind, value)?;
     for column in ["controlledBy", "serviceAccount", "involvedObject"] {
@@ -258,6 +260,7 @@ pub(super) fn project(r: &DetailRequest, value: Value) -> Result<ResourceDetail>
         related,
         sections,
         metadata,
+        event_diagnostic,
     })
 }
 fn related(

@@ -256,11 +256,16 @@ impl UpdateEngine {
             });
             engine.launch(provider, tauri::async_runtime::handle().inner());
             let owner = engine.clone();
-            engine.tasks.spawn_on(async move {
-                owner.run_preparations(|| async {
-                    let _ = owner.install_ready(&app).await;
-                }).await;
-            }, tauri::async_runtime::handle().inner());
+            engine.tasks.spawn_on(
+                async move {
+                    owner
+                        .run_preparations(|| async {
+                            let _ = owner.install_ready(&app).await;
+                        })
+                        .await;
+                },
+                tauri::async_runtime::handle().inner(),
+            );
         }
         engine
     }

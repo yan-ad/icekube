@@ -29,6 +29,7 @@ export function usePinnedItems() {
       const requestId = menu.current;
       menu.current = null;
       drag.current = null;
+      focus.current = null;
       if (requestId) void invoke("catalog_pin_menu_cancel", { request: { requestId } }).catch(() => {});
     };
   }, [location, keys]);

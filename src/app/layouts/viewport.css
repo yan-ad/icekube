@@ -5,9 +5,20 @@ body,
   overscroll-behavior: none;
 }
 
+.pin-menu-error {
+  position: fixed;
+  inset-inline: var(--spacing-4);
+  bottom: var(--spacing-4);
+  z-index: 3;
+  padding: var(--spacing-3);
+  background: var(--color-background-surface);
+  border: var(--border-width) solid var(--color-border-emphasized);
+  overflow-wrap: anywhere;
+}
+
 [data-pin-key][data-drop-target="true"] {
-  outline: var(--spacing-0_5) solid var(--color-border-primary);
-  outline-offset: calc(-1 * var(--spacing-0_5));
+  outline: var(--spacing-0-5) solid var(--color-border-emphasized);
+  outline-offset: calc(-1 * var(--spacing-0-5));
 }
 
 /* Astryx's inline-only scroll hook strips overflow from plugin inline styles.

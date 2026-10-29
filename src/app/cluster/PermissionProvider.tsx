@@ -28,6 +28,7 @@ export class PermissionStore {
   subscribe = (listener: () => void) => { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; };
   snapshot = () => this.version;
   authorizationEpoch = () => this.epoch;
+  ownsCluster = (clusterId: string) => this.context?.clusterId === clusterId;
   get revisionSnapshot() { return this.revision; }
   get versionSnapshot() { return this.version; }
   private emit() { this.version++; this.listeners.forEach(listener => listener()); }

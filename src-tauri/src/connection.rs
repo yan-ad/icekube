@@ -25,10 +25,12 @@ pub(crate) mod detail_collections;
 pub(crate) mod detail_facts;
 pub(crate) mod detail_metadata;
 pub(crate) mod details;
+pub(crate) mod event_diagnostic;
 pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
 mod metrics;
+pub(crate) mod node_actions;
 #[cfg(test)]
 mod node_tests;
 pub(crate) mod permissions;
@@ -38,11 +40,13 @@ pub(crate) mod pods;
 pub(crate) mod rbac;
 pub(crate) mod rbac_management;
 mod renewal;
+pub(crate) mod resource_edit;
 #[cfg(test)]
 mod resource_tests;
 mod resources;
 #[cfg(test)]
 mod runtime_status_tests;
+pub(crate) mod service_forward;
 #[cfg(test)]
 mod tests;
 mod transport;
@@ -369,6 +373,9 @@ struct Session {
     detail: details::DetailSlot,
     collections: HashMap<detail_collections::CollectionKind, detail_collections::CollectionSlot>,
     workload_action: workload_actions::WorkloadActionSlot,
+    resource_edit: resource_edit::EditSlot,
+    service_forward: service_forward::ServiceForwardSlot,
+    node_action: node_actions::NodeActionSlot,
     permissions: permissions::PermissionSession,
     rbac_users: Option<rbac::UsersSlot>,
     rbac_management: rbac_management::ManagementSlot,
@@ -468,6 +475,9 @@ impl ConnectionEngine {
             detail: details::DetailSlot::default(),
             collections: HashMap::new(),
             workload_action: workload_actions::WorkloadActionSlot::default(),
+            resource_edit: resource_edit::EditSlot::default(),
+            service_forward: service_forward::ServiceForwardSlot::default(),
+            node_action: node_actions::NodeActionSlot::default(),
             permissions: permissions::PermissionSession::default(),
             rbac_users: None,
             rbac_management: rbac_management::ManagementSlot::default(),
@@ -494,6 +504,9 @@ impl ConnectionEngine {
                     session.creates.values().any(|slot| slot.cancel.is_some())
                         || session.deletes.values().any(|slot| slot.cancel.is_some())
                         || session.workload_action.active()
+                        || session.resource_edit.active()
+                        || session.service_forward.active()
+                        || session.node_action.active()
                 })
             })
     }

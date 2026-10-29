@@ -637,10 +637,8 @@ mod tests {
         s["spec"]["ports"][0]["protocol"] = json!("UDP");
         assert!(target(&s, 80).is_err());
         s = service();
-        s["spec"]["ports"]
-            .as_array_mut()
-            .unwrap()
-            .push(s["spec"]["ports"][0].clone());
+        let duplicate = s["spec"]["ports"][0].clone();
+        s["spec"]["ports"].as_array_mut().unwrap().push(duplicate);
         assert!(target(&s, 80).is_err());
         let mut p = pod("web", "uid");
         assert_eq!(remote_port(&p, &json!(80)), Ok(80));

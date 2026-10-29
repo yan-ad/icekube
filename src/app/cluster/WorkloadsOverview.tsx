@@ -6,7 +6,7 @@ import { Link } from "@astryxdesign/core/Link";
 import { Text } from "@astryxdesign/core/Text";
 import { Table } from "@astryxdesign/core/Table";
 import { Button } from "@astryxdesign/core/Button";
-import { NamespaceSelector } from "./NamespaceScope";
+import { NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
 import { useResourceInspector } from "./ResourceInspector";
 import { useRowContextMenu } from "./RowContextMenu";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceRequest, type SessionRequest } from "./api";
@@ -104,7 +104,7 @@ function InventoryState({ label, inventory }: { label: string; inventory: Invent
 }
 
 export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
-  const [namespace, setNamespace] = useState("");
+  const [namespace, setNamespace] = useNamespaceSelection();
   const [revision, setRevision] = useState(0);
   const scope = JSON.stringify([clusterId, sessionId, namespace]);
   const [stateScope, setStateScope] = useState(scope);

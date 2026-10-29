@@ -25,14 +25,20 @@ async function fixture(page: Page, control: Control = {}) {
         throw new Error(`Unexpected fixture IPC: ${command}`);
       } } });
   }, control);
+  const main = await (await page.request.get("/src/main.tsx")).text();
+  const reactPath = main.match(/from ["']([^"']*\/react\.js(?:\?[^"']*)?)["']/)?.[1];
+  const domPath = main.match(/from ["']([^"']*\/react-dom_client\.js(?:\?[^"']*)?)["']/)?.[1];
+  expect(reactPath).toBeTruthy();
+  expect(domPath).toBeTruthy();
   await page.route("**/__workload_fixture", route => route.fulfill({ contentType: "text/html", body: `<!doctype html><html><body><main id="root"></main><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window);
     window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type;
     window.__vite_plugin_react_preamble_installed__ = true;
     </script><script type="module">
-    import React from '/node_modules/@tanstack/redact/dist/react/index.js';
-    import {createRoot} from '/node_modules/@tanstack/redact/dist/dom/client.js';
+    import React from ${JSON.stringify(reactPath)};
+    import ReactDOM from ${JSON.stringify(domPath)};
+    const {createRoot}=ReactDOM;
     import {WorkloadActions} from '/src/app/cluster/WorkloadActions.tsx';
     import {PermissionProvider, PermissionSession} from '/src/app/cluster/PermissionProvider.tsx';
     import '/node_modules/@astryxdesign/core/src/reset.css';

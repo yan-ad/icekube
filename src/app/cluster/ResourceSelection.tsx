@@ -9,6 +9,8 @@ import type { ResourceItem } from "./api";
 import { hasDeleteIdentity, resourceRowKey } from "./deleteApi";
 
 export function useResourceSelection(items: ResourceItem[], scope: string, enabled: boolean) {
+  const enabledRef = useRef(enabled);
+  enabledRef.current = enabled;
   const [stored, setStored] = useState({ scope, keys: new Set<string>() });
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -23,6 +25,7 @@ export function useResourceSelection(items: ResourceItem[], scope: string, enabl
       && [...previous.keys].every(key => selectedKeys.has(key)) ? previous : { scope, keys: selectedKeys });
   }, [scope, selectedKeys]);
   const setSelectedKeys = useCallback((update: Set<string> | ((previous: Set<string>) => Set<string>)) => {
+    if (!enabledRef.current) return;
     setStored(previous => ({
       scope: scopeRef.current,
       keys: typeof update === "function" ? update(previous.scope === scopeRef.current ? previous.keys : new Set()) : update,
@@ -34,7 +37,8 @@ export function useResourceSelection(items: ResourceItem[], scope: string, enabl
     setSelectedKeys,
     getIsItemEnabled,
   });
-  const selectionPlugin = useTableSelection({ ...selectionConfig, getRowLabel: item => item.namespace ? `${item.namespace}/${item.name}` : item.name });
+  const getRowLabel = useCallback((item: ResourceItem) => item.namespace ? `${item.namespace}/${item.name}` : item.name, []);
+  const selectionPlugin = useTableSelection({ ...selectionConfig, getRowLabel });
   const selected = useMemo(() => selectedKeys.size === 0 ? EMPTY_SELECTED : items.filter(item => selectedKeys.has(resourceRowKey(item)) && hasDeleteIdentity(item)), [items, selectedKeys]);
   const selectedCount = selected.length;
   const clear = selectionState.clearSelection;
@@ -50,7 +54,7 @@ export function useResourceSelection(items: ResourceItem[], scope: string, enabl
       </HStack> };
       return { ...transformed, content: <HStack gap={0} className="table-selection-muted-label">{transformed.content}</HStack> };
     },
-  }), [selectionPlugin, selectedCount, clear]);
+  }), [selectionPlugin, selectedCount, clear, enabled]);
   const remove = useCallback((keys: Set<string>) => {
     setStored(previous => previous.scope !== scope ? previous : { scope, keys: new Set([...previous.keys].filter(key => !keys.has(key))) });
   }, [scope]);

@@ -172,6 +172,22 @@ fn helm_cancel(
 }
 
 #[tauri::command]
+async fn helm_detail(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::HelmDetailRequest,
+) -> Result<connection::helm::HelmDetail, connection::ConnectionError> {
+    engine.helm_detail(request).await
+}
+
+#[tauri::command]
+fn helm_detail_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::helm::HelmCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.helm_detail_cancel(request)
+}
+
+#[tauri::command]
 async fn cluster_pod_detail(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::pods::PodRequest,
@@ -397,6 +413,54 @@ fn cluster_workload_action_cancel(
     request: connection::workload_actions::Cancel,
 ) -> Result<(), connection::ConnectionError> {
     engine.cancel_workload_action(request)
+}
+
+#[tauri::command]
+async fn cluster_resource_edit(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::resource_edit::EditRequest,
+) -> Result<connection::resource_edit::EditResult, connection::ConnectionError> {
+    engine.resource_edit(request).await
+}
+
+#[tauri::command]
+fn cluster_resource_edit_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::resource_edit::EditCancelRequest,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_resource_edit(request)
+}
+
+#[tauri::command]
+async fn cluster_service_forward_start(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::service_forward::ServiceForwardRequest,
+) -> Result<connection::service_forward::ServiceForwardResult, connection::ConnectionError> {
+    engine.service_forward_start(request).await
+}
+
+#[tauri::command]
+fn cluster_service_forward_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::service_forward::ServiceForwardCancel,
+) -> Result<(), connection::ConnectionError> {
+    engine.service_forward_cancel(request)
+}
+
+#[tauri::command]
+async fn cluster_node_action(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::node_actions::NodeActionRequest,
+) -> Result<connection::node_actions::NodeActionResult, connection::ConnectionError> {
+    engine.resource_node_action(request).await
+}
+
+#[tauri::command]
+fn cluster_node_action_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::node_actions::Cancel,
+) -> Result<(), connection::ConnectionError> {
+    engine.cancel_node_action(request)
 }
 
 #[tauri::command]
@@ -655,6 +719,12 @@ pub fn run() {
             cluster_resource_collection_cancel,
             cluster_workload_action,
             cluster_workload_action_cancel,
+            cluster_resource_edit,
+            cluster_resource_edit_cancel,
+            cluster_service_forward_start,
+            cluster_service_forward_cancel,
+            cluster_node_action,
+            cluster_node_action_cancel,
             cluster_custom_resources,
             cluster_custom_resources_cancel,
             cluster_custom_resource_definitions,
@@ -687,6 +757,8 @@ pub fn run() {
             helm_install_cancel,
             helm_table,
             helm_cancel,
+            helm_detail,
+            helm_detail_cancel,
             preferences_get,
             preferences_save,
             route_history_get,

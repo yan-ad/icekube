@@ -56,6 +56,11 @@ pub(crate) struct EditSlot {
     cancel: Option<CancellationToken>,
 }
 impl EditSlot {
+    pub(super) fn active(&self) -> bool {
+        self.cancel
+            .as_ref()
+            .is_some_and(|cancel| !cancel.is_cancelled())
+    }
     fn start(&mut self, id: u64, cancel: CancellationToken) -> Result<()> {
         if id <= self.high_water {
             return Err(ConnectionError::StaleSession);
@@ -76,10 +81,55 @@ impl EditSlot {
             cancel.cancel();
         }
     }
+}
+#[cfg(test)]
+mod transport_tests {
+    use super::*;
+    #[tokio::test]
+    async fn permission_denial_never_reads_or_writes_the_resource() {
+        let (_root, _, engine, id, _) = super::super::tests::fixture();
+        let reviews = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let lease = super::super::tests::connected(
+            &engine,
+            id,
+            super::super::tests::denied_permission_client(reviews.clone(), Some(false)),
+        )
+        .await;
+        let (mut r, raw) = super::tests::fixture();
+        r.cluster_id = lease.cluster_id;
+        r.session_id = lease.session_id;
+        r.yaml = Some(serde_yaml_ng::to_string(&projection(&raw, &r.reference).unwrap()).unwrap());
+        assert_eq!(
+            engine.resource_edit(r).await,
+            Err(ConnectionError::PermissionDenied)
+        );
+        assert_eq!(reviews.lock().unwrap()[0]["resource"], "deployments");
+    }
 
     #[tokio::test]
+    async fn fresh_version_conflict_prevents_patch() {
+        let (mut r, raw) = super::tests::fixture();
+        r.resource_version = Some("old".into());
+        let client = Client::new(
+            tower::service_fn(move |request: Request<Body>| {
+                let response = raw.clone();
+                async move {
+                    assert_eq!(request.method(), Method::GET);
+                    Ok::<_, std::io::Error>(http::Response::new(Body::from(
+                        serde_json::to_vec(&response).unwrap(),
+                    )))
+                }
+            }),
+            "default",
+        );
+        assert_eq!(
+            run(&client, &CancellationToken::new(), &r, Some(&json!({}))).await,
+            Err(ConnectionError::Conflict)
+        );
+    }
+    #[tokio::test]
     async fn fake_api_reads_then_patches_only_leaves_with_server_dry_run() {
-        let (r, raw) = fixture();
+        let (r, raw) = super::tests::fixture();
         let mut edited = projection(&raw, &r.reference).unwrap();
         edited["spec"]["template"]["spec"]["containers"][0]["image"] = json!("demo:v2");
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -331,9 +381,10 @@ fn closed_shape(base: &Value, edited: &Value, depth: usize) -> bool {
         (Value::Array(b), Value::Array(e)) => {
             b.len() == e.len() && b.iter().zip(e).all(|(b, e)| closed_shape(b, e, depth + 1))
         }
-        (Value::String(_), Value::String(_))
-        | (Value::Number(_), Value::Number(_))
-        | (Value::Bool(_), Value::Bool(_)) => true,
+        (
+            Value::String(_) | Value::Number(_) | Value::Bool(_),
+            Value::String(_) | Value::Number(_) | Value::Bool(_),
+        ) => true,
         _ => false,
     }
 }
@@ -483,8 +534,10 @@ impl ConnectionEngine {
                 });
             }
             let epoch = self.require_permissions(&identity, &checks).await?;
-            let client = super::permissions::authorized_client(client, epoch);
-            run(&client, &cancel, &r, edited.as_ref()).await
+            let client = super::permissions::authorized_client(client, epoch.clone());
+            let result = run(&client, &cancel, &r, edited.as_ref()).await?;
+            epoch.validate()?;
+            Ok(result)
         })
         .await;
         let mut state = self
@@ -607,7 +660,26 @@ async fn send(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn fixture() -> (EditRequest, Value) {
+    #[test]
+    fn integer_percentage_changes_use_reviewed_scalar_schema() {
+        let (r, mut raw) = fixture();
+        raw["spec"]["strategy"] =
+            json!({"type":"RollingUpdate","rollingUpdate":{"maxSurge":1,"maxUnavailable":"25%"}});
+        let mut edited = projection(&raw, &r.reference).unwrap();
+        edited["spec"]["strategy"]["rollingUpdate"]["maxSurge"] = json!("30%");
+        edited["spec"]["strategy"]["rollingUpdate"]["maxUnavailable"] = json!(0);
+        let ops = patch(&raw, &edited, &r).unwrap();
+        let ops = ops.as_array().unwrap();
+        assert!(ops.iter().any(
+            |op| op["path"] == "/spec/strategy/rollingUpdate/maxSurge" && op["value"] == "30%"
+        ));
+        assert!(ops.iter().any(
+            |op| op["path"] == "/spec/strategy/rollingUpdate/maxUnavailable" && op["value"] == 0
+        ));
+        edited["spec"]["replicas"] = json!("30%");
+        assert_eq!(patch(&raw, &edited, &r), Err(ConnectionError::InvalidInput));
+    }
+    pub(super) fn fixture() -> (EditRequest, Value) {
         (
             EditRequest {
                 cluster_id: "fixture".into(),

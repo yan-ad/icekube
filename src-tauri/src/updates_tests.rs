@@ -13,62 +13,6 @@ fn updater_transport_constructs_in_a_fresh_process_without_network() {
                 .build();
             panic!("negative control unexpectedly constructed an uninitialized client");
         }
-#[tokio::test(start_paused = true)]
-async fn automatic_download_waits_for_consent_and_aborted_restart_needs_new_consent() {
-    let engine = UpdateEngine::new(Phase::Idle, None);
-    admit(&engine, "main", 1);
-    let fake = Arc::new(Fake {
-        calls: AtomicUsize::new(0),
-        delay: Duration::from_secs(1),
-        ready: true,
-    });
-    let attempts = Arc::new(AtomicUsize::new(0));
-    let owner = engine.clone();
-    let observed = attempts.clone();
-    let worker = tokio::spawn(async move {
-        owner.run_preparations(|| {
-            observed.fetch_add(1, Ordering::SeqCst);
-            // Simulate a backend refusing shutdown while a task is active.
-            assert!(matches!(owner.take_ready(|| false), Err(UpdateError::Busy)));
-            std::future::ready(())
-        }).await;
-    });
-    engine.launch(fake.clone(), &tokio::runtime::Handle::current());
-    settle().await;
-    tokio::time::advance(Duration::from_secs(1)).await;
-    settle().await;
-    assert_eq!(engine.snapshot().phase, Phase::Ready);
-    for _ in 0..3 {
-        engine.report_ready("main", 1, true);
-        engine.request_check();
-        tokio::time::advance(INTERVAL).await;
-        settle().await;
-        assert_eq!(engine.snapshot().phase, Phase::Ready);
-        assert!(engine.snapshot().preparation_id.is_none());
-        assert!(engine.inner.lock().unwrap().staged.is_some());
-        assert_eq!(attempts.load(Ordering::SeqCst), 0);
-    }
-    assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
-    let extra = engine.gate.admit("iceon-1").unwrap();
-    engine.gate.forget("iceon-1", extra);
-    engine.report_ready("main", 1, true);
-    engine.begin_preparation().unwrap();
-    acknowledge(&engine, "main", 1);
-    tokio::time::advance(Duration::from_secs(1)).await;
-    settle().await;
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    assert_eq!(engine.snapshot().phase, Phase::Ready);
-    tokio::time::advance(INTERVAL).await;
-    settle().await;
-    engine.report_ready("main", 1, true);
-    tokio::time::advance(Duration::from_secs(1)).await;
-    settle().await;
-    assert_eq!(attempts.load(Ordering::SeqCst), 1);
-    assert_eq!(engine.snapshot().phase, Phase::Ready);
-    engine.shutdown();
-    engine.drain().await;
-    worker.await.unwrap();
-}
         let negative = std::process::Command::new(std::env::current_exe().unwrap())
             .args([
                 "--exact",
@@ -467,6 +411,64 @@ async fn settle() {
     for _ in 0..8 {
         tokio::task::yield_now().await;
     }
+}
+#[tokio::test(start_paused = true)]
+async fn automatic_download_waits_for_consent_and_aborted_restart_needs_new_consent() {
+    let engine = UpdateEngine::new(Phase::Idle, None);
+    admit(&engine, "main", 1);
+    let fake = Arc::new(Fake {
+        calls: AtomicUsize::new(0),
+        delay: Duration::from_secs(1),
+        ready: true,
+    });
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let owner = engine.clone();
+    let observed = attempts.clone();
+    let worker = tokio::spawn(async move {
+        owner
+            .run_preparations(|| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                // Simulate a backend refusing shutdown while a task is active.
+                assert!(matches!(owner.take_ready(|| false), Err(UpdateError::Busy)));
+                std::future::ready(())
+            })
+            .await;
+    });
+    engine.launch(fake.clone(), &tokio::runtime::Handle::current());
+    settle().await;
+    tokio::time::advance(Duration::from_secs(1)).await;
+    settle().await;
+    assert_eq!(engine.snapshot().phase, Phase::Ready);
+    for _ in 0..3 {
+        engine.report_ready("main", 1, true);
+        engine.request_check();
+        tokio::time::advance(INTERVAL).await;
+        settle().await;
+        assert_eq!(engine.snapshot().phase, Phase::Ready);
+        assert!(engine.snapshot().preparation_id.is_none());
+        assert!(engine.inner.lock().unwrap().staged.is_some());
+        assert_eq!(attempts.load(Ordering::SeqCst), 0);
+    }
+    assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
+    let extra = engine.gate.admit("iceon-1").unwrap();
+    engine.gate.forget("iceon-1", extra);
+    engine.report_ready("main", 1, true);
+    engine.begin_preparation().unwrap();
+    acknowledge(&engine, "main", 1);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    settle().await;
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(engine.snapshot().phase, Phase::Ready);
+    tokio::time::advance(INTERVAL).await;
+    settle().await;
+    engine.report_ready("main", 1, true);
+    tokio::time::advance(Duration::from_secs(1)).await;
+    settle().await;
+    assert_eq!(attempts.load(Ordering::SeqCst), 1);
+    assert_eq!(engine.snapshot().phase, Phase::Ready);
+    engine.shutdown();
+    engine.drain().await;
+    worker.await.unwrap();
 }
 #[tokio::test(start_paused = true)]
 async fn startup_cadence_errors_retry_and_cancellation() {

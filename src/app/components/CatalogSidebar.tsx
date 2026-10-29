@@ -2,7 +2,7 @@ import { useRouterState } from "@tanstack/react-router";
 import { Divider } from "@astryxdesign/core/Divider";
 import { SideNav, SideNavItem, SideNavSection } from "@astryxdesign/core/SideNav";
 import { Text } from "@astryxdesign/core/Text";
-import { IconMenu2 } from "@tabler/icons-react";
+import { IconMenu2, IconPin } from "@tabler/icons-react";
 import { categories } from "../navigation";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { RecordIcon } from "../catalog/RecordIcon";
@@ -15,7 +15,7 @@ import { clusterDestinations } from "../cluster/navigation";
 export function CatalogSidebar({ onNavigate, id = "catalog-sidebar" }: { onNavigate: () => void; id?: string }) {
   const mobile = useAppShellMobile();
   const pathname = useRouterState({ select: state => state.location.pathname });
-  const { snapshot, busy, openWebLink } = useCatalog();
+  const { snapshot, loading, busy, openWebLink } = useCatalog();
   const activeClusterId = useRouterState({ select: state => state.matches.find(match => "clusterId" in match.params)?.params as { clusterId?: string } | undefined });
   const activeSection = useRouterState({ select: state => (state.location.search as { section?: string }).section ?? "overview" });
   const pins = usePinnedItems();
@@ -34,6 +34,7 @@ export function CatalogSidebar({ onNavigate, id = "catalog-sidebar" }: { onNavig
       </SideNavSection>
       <Divider />
       <SideNavSection title="Pinned items">
+        {!pins.items.length && <SideNavItem label={loading ? "Loading pinned items…" : "No pinned items"} icon={IconPin} isDisabled />}
         {pins.items.map(target => {
           const cluster = snapshot?.clusters.find(item => item.id === target.id);
           const destination = target.section ? clusterDestinations.find(item => item.id === target.section) : null;
@@ -51,6 +52,6 @@ export function CatalogSidebar({ onNavigate, id = "catalog-sidebar" }: { onNavig
         })}
       </SideNavSection>
     </SideNav>
-    {pins.error && <Text role="alert">{pins.error}</Text>}
+    {pins.error && <Text role="alert" className="pin-menu-error">{pins.error}</Text>}
   </>;
 }

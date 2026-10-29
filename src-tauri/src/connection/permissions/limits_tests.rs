@@ -6,6 +6,204 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+#[derive(Default)]
+struct BatchActivity {
+    active: AtomicUsize,
+    maximum: AtomicUsize,
+    started: Mutex<Vec<CancellationToken>>,
+    started_changed: tokio::sync::Notify,
+    completed: Mutex<Vec<String>>,
+}
+
+struct ActiveReview(Arc<BatchActivity>);
+
+impl Drop for ActiveReview {
+    fn drop(&mut self) {
+        self.0.active.fetch_sub(1, Ordering::SeqCst);
+    }
+}
+
+fn delayed_client(activity: Arc<BatchActivity>) -> Client {
+    Client::new(
+        tower::service_fn(move |request: Request<Body>| {
+            let activity = activity.clone();
+            async move {
+                if request.uri().path() == "/version" {
+                    return Ok::<_, std::io::Error>(Response::new(Body::from(
+                        serde_json::to_vec(&json!({"gitVersion":"v1.36.0"})).unwrap(),
+                    )));
+                }
+                assert_eq!(request.uri().path(), REVIEW_PATH);
+                let cancel = request
+                    .extensions()
+                    .get::<CancellationToken>()
+                    .unwrap()
+                    .clone();
+                activity.started.lock().unwrap().push(cancel);
+                let active = activity.active.fetch_add(1, Ordering::SeqCst) + 1;
+                activity.maximum.fetch_max(active, Ordering::SeqCst);
+                let _active = ActiveReview(activity.clone());
+                activity.started_changed.notify_one();
+                let bytes = request.into_body().collect().await.unwrap().to_bytes();
+                let mut value: Value = serde_json::from_slice(&bytes).unwrap();
+                let name = value["spec"]["resourceAttributes"]["name"]
+                    .as_str()
+                    .unwrap()
+                    .to_owned();
+                tokio::time::sleep(Duration::from_millis(400)).await;
+                if name == "node-0" {
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
+                activity.completed.lock().unwrap().push(name);
+                value["status"] = json!({"allowed":true});
+                Ok(Response::new(Body::from(
+                    serde_json::to_vec(&value).unwrap(),
+                )))
+            }
+        }),
+        "default",
+    )
+}
+
+fn batch_request(identity: &SessionRequest) -> ReviewRequest {
+    ReviewRequest {
+        cluster_id: identity.cluster_id.clone(),
+        session_id: identity.session_id.clone(),
+        read_id: 1,
+        checks: (0..32)
+            .map(|index| PermissionCheck {
+                kind: ResourceKind::Nodes,
+                action: PermissionAction::Get,
+                namespace: None,
+                name: Some(format!("node-{index}")),
+            })
+            .collect(),
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let activity = Arc::new(BatchActivity::default());
+    let snapshot =
+        crate::connection::tests::connected(&engine, id, delayed_client(activity.clone())).await;
+    let mut request = batch_request(&identity(&snapshot));
+    let started = tokio::time::Instant::now();
+    let response = engine.review_permissions(request.clone()).await.unwrap();
+    assert!(started.elapsed() < Duration::from_secs(10));
+    assert_eq!(activity.maximum.load(Ordering::SeqCst), 2);
+    assert_eq!(activity.active.load(Ordering::SeqCst), 0);
+    assert_eq!(activity.started.lock().unwrap().len(), 32);
+    assert_eq!(activity.completed.lock().unwrap()[0], "node-1");
+    assert_eq!(
+        response
+            .items
+            .iter()
+            .map(|item| item.check.clone())
+            .collect::<Vec<_>>(),
+        request.checks
+    );
+    assert!(
+        response
+            .items
+            .iter()
+            .all(|item| item.decision == PermissionDecision::Allowed)
+    );
+    request.read_id += 1;
+    engine.review_permissions(request).await.unwrap();
+    assert_eq!(activity.started.lock().unwrap().len(), 32);
+}
+
+#[tokio::test(start_paused = true)]
+async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
+    for invalidate in [false, true] {
+        let (_root, _catalog, engine, id, _) = fixture();
+        let activity = Arc::new(BatchActivity::default());
+        let snapshot =
+            crate::connection::tests::connected(&engine, id, delayed_client(activity.clone()))
+                .await;
+        let identity = identity(&snapshot);
+        let request = batch_request(&identity);
+        let review = engine.review_permissions(request.clone());
+        let cancel = async {
+            tokio::time::timeout(Duration::from_secs(1), async {
+                while activity.started.lock().unwrap().len() < 2 {
+                    activity.started_changed.notified().await;
+                }
+            })
+            .await
+            .expect("two concurrent reviews must reach the fake endpoint before cancellation");
+            assert_eq!(activity.active.load(Ordering::SeqCst), 2);
+            if invalidate {
+                engine.refresh_permissions(identity).unwrap();
+            } else {
+                engine.cancel_permissions(request).unwrap();
+            }
+        };
+        let (result, _) = tokio::time::timeout(Duration::from_secs(2), async {
+            tokio::join!(review, cancel)
+        })
+        .await
+        .expect("cancelled or invalidated review batch must finish");
+        assert!(matches!(result, Err(ConnectionError::StaleSession)));
+        assert!(
+            engine
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .permissions
+                .cache
+                .is_empty()
+        );
+        assert_eq!(activity.started.lock().unwrap().len(), 2);
+        assert_eq!(activity.maximum.load(Ordering::SeqCst), 2);
+        assert!(
+            activity
+                .started
+                .lock()
+                .unwrap()
+                .iter()
+                .all(CancellationToken::is_cancelled)
+        );
+    }
+}
+
+#[tokio::test(start_paused = true)]
+async fn concurrent_batch_rejects_cached_item_expiring_before_publication() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let activity = Arc::new(BatchActivity::default());
+    let snapshot =
+        crate::connection::tests::connected(&engine, id, delayed_client(activity.clone())).await;
+    let mut request = batch_request(&identity(&snapshot));
+    request.checks.truncate(3);
+    let check = request.checks[0].clone();
+    {
+        let mut state = engine.session.lock().unwrap();
+        let permissions = &mut state.as_mut().unwrap().permissions;
+        permissions.synchronize(&engine.authentication_generation);
+        permissions.cache.insert(
+            check.clone(),
+            Cached {
+                item: PermissionItem {
+                    check,
+                    decision: PermissionDecision::Allowed,
+                    reason: None,
+                },
+                expires: now() + 30_000,
+                deadline: tokio::time::Instant::now() + Duration::from_millis(1),
+                used: 1,
+            },
+        );
+    }
+    assert!(matches!(
+        engine.review_permissions(request).await,
+        Err(ConnectionError::StaleSession)
+    ));
+    assert_eq!(activity.started.lock().unwrap().len(), 2);
+}
+
 #[tokio::test(start_paused = true)]
 async fn review_timeout_and_cancel_drop_pending_transport() {
     let pending = Client::new(

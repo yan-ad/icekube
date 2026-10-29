@@ -18,11 +18,10 @@ import { HelmInstall } from "./HelmInstall";
 import { useRowContextMenu, type RowMenuAction } from "./RowContextMenu";
 import { NamespaceFeedback, NamespaceSelector } from "./NamespaceScope";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
-
 const HelmTable = memo(Table) as typeof Table;
 
 export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & { view: HelmView }) {
-  const { openResource, openSummary } = useResourceInspector();
+  const { openResource, openHelm } = useResourceInspector();
   const [installTarget, setInstallTarget] = useState<{ item: HelmItem; identity: object } | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
@@ -57,25 +56,16 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
   const rows = useMemo(() => scopedPage?.items ?? [], [scopedPage]);
   const deferredQuery = useDeferredValue(query);
   const pending = query !== deferredQuery;
-  useRegisterWorkspaceRefresh({ clusterId, section: `helm-${view}`, enabled: !loading && !pending, refresh: () => setRevision((value) => value + 1) });
+  useRegisterWorkspaceRefresh({ clusterId, section: `helm-${view}`, enabled: !loading, refresh: () => setRevision((value) => value + 1) });
   const needle = deferredQuery.trim().toLocaleLowerCase();
   const searchable = useMemo(() => rows.map(item => ({ item, text: [item.name, item.namespace, item.version, item.appVersion, item.description, item.status].join(" ").toLocaleLowerCase() })), [rows]);
-  const items = useMemo(() => searchable.filter(({ item, text }) => (!status || item.status === status) && (!needle || text.includes(needle))).map(({ item }) => item), [searchable, status, needle]);
+  const items = useMemo(() => {
+    const matches = searchable.filter(({ item, text }) => (!status || item.status === status) && (!needle || text.includes(needle)));
+    return matches.length === rows.length ? rows : matches.map(({ item }) => item);
+  }, [rows, searchable, status, needle]);
   const statuses = useMemo(() => [...new Set(rows.flatMap((item) => item.status ? [item.status] : []))].sort(), [rows]);
-  const inspect = useCallback((item: HelmItem) => openSummary({
-      title: item.name,
-      facts: [
-        { label: "Kind", value: view === "charts" ? "Helm chart" : "Helm release" },
-        { label: "Name", value: item.name },
-        { label: view === "charts" ? "Version" : "Chart", value: item.version },
-        { label: "App version", value: item.appVersion || "N/A" },
-        ...(item.namespace ? [{ label: "Namespace", value: item.namespace }] : []),
-        ...(item.description ? [{ label: "Description", value: item.description }] : []),
-        ...(item.revision !== null ? [{ label: "Revision", value: String(item.revision) }] : []),
-        ...(item.updated ? [{ label: "Updated", value: item.updated }] : []),
-      ],
-      ...(item.status ? { status: item.status } : {}),
-    }), [openSummary, view]);
+  const inspect = useCallback((item: HelmItem) => openHelm({ view, name: item.name, namespace: item.namespace,
+    version: view === "charts" ? item.version : null }), [openHelm, view]);
   const visibleLoading = loading && !auto.background.current;
   const installIdentity = useMemo(() => ({ scope, rows, loading: visibleLoading, error, query, status }), [scope, rows, visibleLoading, error, query, status]);
   const contextChart = installTarget?.identity === installIdentity ? installTarget.item : null;
@@ -97,7 +87,7 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
     ]),
   ], [view, inspect, openResource]);
   const plugins = useMemo(() => ({ viewport: tableViewport<HelmItem>(), rowContext: rowMenu }), [rowMenu]);
-  const hasFilters = !!(deferredQuery || status);
+  const hasFilters = items.length === 0 && !!(deferredQuery || status);
   const emptyState = useMemo(() => <VStack gap={2} padding={6}><Text>{hasFilters ? `No ${view} match your filters.` : `No ${view} were returned.`}</Text>
     <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>, [hasFilters, view]);
   return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
@@ -109,7 +99,6 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
     </TableToolbar>
     <ContentLoading label={`Loading Helm ${view}…`} refreshing active={visibleLoading && !!scopedPage} />
     {loading && !scopedPage && <ContentLoading label={`Loading Helm ${view}…`} />}
-    {pending && <Text role="status">Updating search results…</Text>}
     {error?.scope === scope && <ContentError title={`Could not load Helm ${view}`} message={error.message} retained={!!scopedPage}
       disabled={loading || pending} onRetry={() => setRevision(value => value + 1)} />}
     {scopedPage && <>

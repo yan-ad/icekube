@@ -23,7 +23,22 @@ type NamespaceScopeValue = {
   retry: () => void;
 };
 const Context = createContext<NamespaceScopeValue | null>(null);
+type NamespaceSelection = readonly [string, (namespace: string) => void];
+const SelectionContext = createContext<NamespaceSelection | null>(null);
+
+export function useNamespaceSelection(): NamespaceSelection {
+  const selection = useContext(SelectionContext);
+  if (!selection) throw new Error("NamespaceScopeProvider is required");
+  return selection;
+}
+
 export function NamespaceScopeProvider({ clusterId, sessionId, children }: SessionRequest & { children: ReactNode }) {
+  return <NamespaceSessionScope key={JSON.stringify([clusterId, sessionId])} clusterId={clusterId} sessionId={sessionId}>{children}</NamespaceSessionScope>;
+}
+
+function NamespaceSessionScope({ clusterId, sessionId, children }: SessionRequest & { children: ReactNode }) {
+  const [namespace, setNamespace] = useState("");
+  const selection = useMemo<NamespaceSelection>(() => [namespace, setNamespace], [namespace]);
   const owner = useMemo(() => createNamespaceStore({ clusterId, sessionId }), [clusterId, sessionId]);
   const { namespaces, loading, error, partial, subscribers, subscribeSelector: subscribe, retry } = useStore(owner.store);
   useEffect(() => owner.retain(), [owner]);
@@ -37,7 +52,7 @@ export function NamespaceScopeProvider({ clusterId, sessionId, children }: Sessi
   const denied = decision === "denied";
   const unverified = !permissions.loading && decision === "unknown";
   const value = useMemo(() => ({ namespaces: denied ? [] : namespaces, loading, error, partial, denied, unverified, subscribe, retry }), [namespaces, loading, error, partial, denied, unverified, subscribe, retry]);
-  return <Context.Provider value={value}>{children}</Context.Provider>;
+  return <SelectionContext.Provider value={selection}><Context.Provider value={value}>{children}</Context.Provider></SelectionContext.Provider>;
 }
 
 type NamespaceSelectorProps = {

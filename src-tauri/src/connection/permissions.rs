@@ -2,6 +2,7 @@ use super::{
     ConnectionEngine, ConnectionError, ResourceKind, Result, SessionRequest, current_mut,
     resources, transport, validate_read_id, validate_request,
 };
+use futures::{StreamExt, TryStreamExt, stream};
 use http::Request;
 use http_body_util::BodyExt;
 use kube::{Client, client::Body};
@@ -373,10 +374,15 @@ impl ConnectionEngine {
         };
         let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
         let _worker = tokio::select! { biased; _ = cancel.cancelled() => return Err(ConnectionError::StaleSession), permit = tokio::time::timeout_at(deadline, self.workers.acquire()) => permit.map_err(|_| ConnectionError::Timeout)?.map_err(|_| ConnectionError::Busy)? };
-        let mut items = Vec::with_capacity(request.checks.len());
         let mut expires_at = now() + 30_000;
         let mut expires_deadline = tokio::time::Instant::now() + Duration::from_secs(30);
-        for check in &request.checks {
+        let mut reviewed = stream::iter(request.checks.clone().into_iter().enumerate())
+            .map(|(index, check)| {
+                let client = &client;
+                let identity = &identity;
+                let cancel = &cancel;
+                async move {
+                    let check = &check;
             let cached = {
                 let mut state = self
                     .session
@@ -442,6 +448,15 @@ impl ConnectionEngine {
                 );
                 (item, expiry, expiry_deadline)
             };
+                    Ok::<_, ConnectionError>((index, item, expiry, expiry_deadline))
+                }
+            })
+            .buffer_unordered(2)
+            .try_collect::<Vec<_>>()
+            .await?;
+        reviewed.sort_unstable_by_key(|(index, ..)| *index);
+        let mut items = Vec::with_capacity(reviewed.len());
+        for (_, item, expiry, expiry_deadline) in reviewed {
             expires_at = expires_at.min(expiry);
             expires_deadline = expires_deadline.min(expiry_deadline);
             items.push(item);

@@ -11,20 +11,20 @@ export type ResourceCollectionResponse = CollectionRequest & { state: "complete"
 
 const namespaced = new Set<ResourceKind>(["pods", "replicaSets", "jobs", "endpointSlices", "events", "resourceQuotas", "limitRanges"]);
 const projectedColumns: Record<ResourceCollection, readonly string[]> = {
-  pods: ["ready", "restarts", "node", "qos", "health", "warning", "controlledBy"],
+  pods: ["ready", "restarts", "node", "qos", "health", "warning", "controlledBy", "podReady", "terminating"],
   replicaSets: ["replicas", "desired", "ready", "updated", "available"],
   jobs: ["active", "completions", "failed", "desiredCompletions", "parallelism", "suspend"],
   endpointSlices: ["addressType", "endpoints", "ports", "ready"],
   events: ["type", "reason", "message", "count", "lastSeen", "occurrenceTime", "source", "involvedObject"],
-  resourceQuotas: ["cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "cpuLimitUsed", "cpuLimitHard", "memoryLimitUsed", "memoryLimitHard", "scopes"],
-  limitRanges: ["types", "minCpu", "maxCpu"],
+  resourceQuotas: ["cpuUsed", "cpuHard", "memoryUsed", "memoryHard", "podsUsed", "podsHard", "cpuLimitUsed", "cpuLimitHard", "memoryLimitUsed", "memoryLimitHard", "storageHard", "storageUsed"],
+  limitRanges: ["limits", "types", "minCpu", "maxCpu", "minMemory", "maxMemory", "defaultCpu", "defaultMemory", "defaultRequestCpu", "defaultRequestMemory"],
 };
 const allowed: Record<ResourceKind, readonly ResourceCollection[]> = {
   nodes: ["pods", "events"], namespaces: ["resourceQuotas", "limitRanges", "events"],
   deployments: ["pods", "replicaSets", "events"], daemonSets: ["pods", "events"], statefulSets: ["pods", "events"],
   replicaSets: ["pods", "events"], replicationControllers: ["pods", "events"], jobs: ["pods", "events"], cronJobs: ["jobs", "events"],
   services: ["endpointSlices", "events"], resourceQuotas: ["events"], limitRanges: ["events"],
-  pods: ["events"], endpointSlices: ["events"], events: ["events"],
+  pods: ["events"], endpointSlices: ["events"], events: [],
   configMaps: [], secrets: [], horizontalPodAutoscalers: ["events"], verticalPodAutoscalers: ["events"], podDisruptionBudgets: ["events"],
   priorityClasses: ["events"], runtimeClasses: ["events"], leases: ["events"], endpoints: ["events"], ingresses: ["events"], ingressClasses: ["events"],
   networkPolicies: ["events"], mutatingWebhookConfigurations: ["events"], validatingWebhookConfigurations: ["events"], validatingAdmissionPolicies: ["events"],
@@ -63,11 +63,15 @@ export function parseResourceCollection(value: unknown, request: CollectionReque
     || value.reference.uid !== request.reference.uid || !["complete", "partial", "denied", "unavailable"].includes(value.state as string)
     || !Array.isArray(value.items) || value.items.length > 100 || new TextEncoder().encode(JSON.stringify(value)).length > 64 * 1024) throw "invalidResponse";
   if ((value.state === "denied" || value.state === "unavailable") && value.items.length !== 0) throw "invalidResponse";
+  const identities = new Set<string>();
   const items = value.items.map(item => {
     if (!record(item) || !closed(item, ["reference", "status", "columns"]) || !reference(item.reference, request.collection)
       || !text(item.status, 256) || !record(item.columns) || Object.keys(item.columns).length > 12
       || !Object.entries(item.columns).every(([key, column]) => text(key, 128) && typeof column === "string" && column.length <= 256 && !/[\u0000-\u001f\u007f-\u009f]/.test(column))) throw "invalidResponse";
     const ref = item.reference as ResourceReference;
+    const identity = JSON.stringify([ref.namespace, ref.name]);
+    if (identities.has(identity)) throw "invalidResponse";
+    identities.add(identity);
     const expectedNamespace = request.reference.kind === "namespaces" ? request.reference.name : request.reference.namespace;
     if (expectedNamespace !== null && ref.namespace !== expectedNamespace) throw "invalidResponse";
     if (!Object.keys(item.columns).every(key => projectedColumns[request.collection].includes(key))) throw "invalidResponse";

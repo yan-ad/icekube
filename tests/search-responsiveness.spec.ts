@@ -52,6 +52,55 @@ async function fixture(page: Page, section: string, controlledClock = false) {
 const calls = (page: Page, command: string, kind?: string) => page.evaluate(({ command, kind }) =>
   (window as SearchWindow).__searchCalls.filter(call => call.command === command && (!kind || call.request.kind === kind)), { command, kind });
 
+test.describe("production input latency", () => {
+  test.skip(process.env.ICEON_TEST_PRODUCTION !== "1", "Run against bun run build with ICEON_TEST_PRODUCTION=1.");
+
+for (const [section, label, inputLabel, text] of [
+  ["catalog", "All Categories", "Filter catalog", "cluster-49"],
+  ["helm-charts", "Helm Charts", "Search Charts", "repo/chart-49"],
+  ["pods", "Pods", "Search Pods", "resource-49"],
+  ["nodes", "Nodes", "Search nodes", "resource-49"],
+] as const) test(`${label}: real-clock typing paints each character promptly and retains caret/focus`, async ({ page }) => {
+  test.setTimeout(90_000);
+  await fixture(page, section);
+  const grid = page.getByRole("table", { name: label, exact: true });
+  await expect(grid).toBeVisible();
+  const input = page.getByRole("textbox", { name: inputLabel, exact: true });
+  await input.focus();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  await page.evaluate(() => {
+    const delays: number[] = [];
+    Object.assign(window, { __typingPaintDelays: delays });
+    document.activeElement!.addEventListener("beforeinput", () => {
+      const started = performance.now();
+      requestAnimationFrame(() => delays.push(performance.now() - started));
+    });
+  });
+  // Focus is already established; don't rescan a dense accessibility tree while timing input.
+  await page.keyboard.type(text, { delay: 20 });
+  // Exercise edits with both the dense retained inventory and narrowing results.
+  for (let edit = 0; edit < 5; edit++) {
+    await page.keyboard.press("Backspace");
+    await page.keyboard.type(text.slice(-1), { delay: 20 });
+  }
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const delays = await page.evaluate(() => (window as any).__typingPaintDelays as number[]);
+  await expect(input).toHaveValue(text);
+  await expect(input).toBeFocused();
+  expect(delays.length).toBeGreaterThanOrEqual(text.length + 5);
+  delays.sort((a, b) => a - b);
+  const p95 = delays[Math.ceil(delays.length * .95) - 1];
+  console.log(`${label} input-to-frame: p95=${p95.toFixed(1)}ms, max=${Math.max(...delays).toFixed(1)}ms`);
+  expect(p95).toBeLessThan(100);
+  expect(Math.max(...delays)).toBeLessThan(250);
+  await input.evaluate(element => (element as HTMLInputElement).setSelectionRange(0, 0));
+  await input.pressSequentially("z");
+  await expect(input).toHaveValue(`z${text}`);
+  expect(await input.evaluate(element => (element as HTMLInputElement).selectionStart)).toBe(1);
+});
+
+});
+
 for (const [section, label, inputLabel, command, needle, count] of [
   ["catalog", "All Categories", "Filter catalog", "catalog_list", "cluster-499", 500],
   ["helm-charts", "Helm Charts", "Search Charts", "helm_table", "chart-499", 500],

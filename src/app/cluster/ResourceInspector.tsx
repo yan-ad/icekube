@@ -20,15 +20,23 @@ import { usePermissionChecks } from "./PermissionProvider";
 import { DetailCollections } from "./DetailCollections";
 import { DetailMetadataView } from "./ResourceMetadata";
 import { WorkloadActions } from "./WorkloadActions";
+import { ResourceEditor } from "./ResourceEditor";
+import { ServiceForwardActions } from "./ServiceForwardActions";
+import { NodeActions } from "./NodeActions";
+import { EventDiagnosticView } from "./ResourceEventDiagnostic";
+import { HelmDetails } from "./HelmDetails";
+import type { HelmReference } from "./helmDetailsApi";
 
 export type ResourceSummary = { title: string; facts: { label: string; value: string }[]; status?: string };
 type Selection = { type: "resource"; reference: ResourceReference; edit: boolean; relatedColumn?: string; serial: number }
-  | { type: "summary"; summary: ResourceSummary; serial: number };
+  | { type: "summary"; summary: ResourceSummary; serial: number }
+  | { type: "helm"; reference: HelmReference; serial: number };
 type InspectorApi = {
   selection: Selection | null; isOpen: boolean; closeInspector: () => void;
   openResource: (reference: ResourceReference) => void;
   openPodDetails: (reference: ResourceReference, edit: boolean) => void;
   openSummary: (summary: ResourceSummary) => void;
+  openHelm: (reference: HelmReference) => void;
   openRelated: (reference: ResourceReference, column: string) => void;
   navigateResource: (reference: ResourceReference) => void;
 };
@@ -48,6 +56,10 @@ export function ResourceInspectorProvider({ clusterId, children }: { clusterId: 
     setOpen(false);
     const previous = trigger.current;
     requestAnimationFrame(() => { if (previous?.isConnected) previous.focus(); });
+  }, []);
+  const openHelm = useCallback((reference: HelmReference) => {
+    if (!document.activeElement?.closest('[aria-label="Resource details"]')) trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setSelection({ type: "helm", reference: { ...reference }, serial: ++serial.current }); setOpen(true);
   }, []);
   const serial = useRef(0);
   const openPodDetails = useCallback((reference: ResourceReference, edit: boolean) => {
@@ -69,7 +81,9 @@ export function ResourceInspectorProvider({ clusterId, children }: { clusterId: 
     if (!document.activeElement?.closest('[aria-label="Resource details"]')) trigger.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setSelection({ type: "resource", reference: { ...reference }, edit: false, relatedColumn: column, serial: ++serial.current }); setOpen(true);
   }, []);
-  return <Context.Provider value={{ selection, isOpen, closeInspector, openResource, openPodDetails, openSummary, openRelated, navigateResource }}>{children}</Context.Provider>;
+  const value = useMemo(() => ({ selection, isOpen, closeInspector, openResource, openPodDetails, openSummary, openHelm, openRelated, navigateResource }),
+    [selection, isOpen, closeInspector, openResource, openPodDetails, openSummary, openHelm, openRelated, navigateResource]);
+  return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 export function useResourceInspector() {
   const context = useContext(Context);
@@ -173,7 +187,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
         {podReference && ([{ mode: "logs", permission: "logs", label: "Logs", icon: IconList }, { mode: "shell", permission: "exec", label: "Shell", icon: IconTerminal2 }, { mode: "attach", permission: "attach", label: "Attach", icon: IconLogin }, { mode: "forward", permission: "portForward", label: "Port forward", icon: IconPlug }] as const).filter(action => podChecks.decision({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action: action.permission }) !== "denied" && podChecks.decision({ kind: "pods", namespace: podReference.namespace, name: podReference.name, action: "get" }) !== "denied").map(action =>
           <IconButton key={action.mode} label={action.label} tooltip={action.label} icon={<Icon icon={action.icon} />} size="sm" variant="ghost" isDisabled={loading || !podReference.uid || !podAllowed("get") || !podAllowed(action.permission)}
             onClick={() => { if (podAllowed("get") && podAllowed(action.permission)) openPod({ namespace: podReference.namespace!, name: podReference.name, uid: podReference.uid ?? undefined }, action.mode); }} />)}
-        {selection.type === "resource" && <IconButton label="Refresh details" tooltip="Refresh details (Cmd/Ctrl+R)" aria-keyshortcuts="Meta+r Control+r" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
+        {selection.type !== "summary" && <IconButton label="Refresh details" tooltip="Refresh details (Cmd/Ctrl+R)" aria-keyshortcuts="Meta+r Control+r" icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" isDisabled={loading} onClick={() => setRevision(value => value + 1)} />}
         <IconButton label={expanded ? "Restore inspector width" : "Expand inspector"} tooltip={expanded ? "Restore inspector width" : "Expand inspector"} icon={<Icon icon={expanded ? IconArrowsMinimize : IconArrowsMaximize} />} size="sm" variant="ghost" onClick={() => { endDrag(); setExpanded(value => !value); }} />
         <IconButton label="Close inspector" tooltip="Close inspector" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={closeInspector} />
       </HStack>
@@ -182,7 +196,7 @@ export function ResourceInspector({ clusterId, sessionId }: SessionRequest) {
       {selection && isOpen && (selection.type === "summary" ? <VStack padding={4} gap={3}>
         {selection.summary.status && <StatusBadge status={selection.summary.status} />}
         <MetadataList label={{ position: "top" }}>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</MetadataList>
-      </VStack> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
+      </VStack> : selection.type === "helm" ? <HelmDetails key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} revision={revision} onLoadingChange={onLoadingChange} /> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
         <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} revision={revision} onLoadingChange={onLoadingChange} /> :
         <PermissionGate check={{ kind: selection.reference.kind, namespace: selection.reference.namespace, name: selection.reference.name, action: "get" }}><ResourceDetails key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} /></PermissionGate>)}
     </VStack>
@@ -231,6 +245,9 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
     {detail && <>
       <StatusBadge status={detail.item.status} />
       {!loading && !error && <WorkloadActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
+      {!loading && !error && <ResourceEditor clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
+      {!loading && !error && <ServiceForwardActions clusterId={clusterId} sessionId={sessionId} detail={detail} />}
+      {!loading && !error && <NodeActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       <MetadataList label={{ position: "top" }}>
         <MetadataListItem label="Name">{detail.item.name}</MetadataListItem>
         {detail.item.namespace && <MetadataListItem label="Namespace"><ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: detail.item.namespace }}>{detail.item.namespace}</ResourceRelationLink></MetadataListItem>}
@@ -242,6 +259,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
         </MetadataListItem>)}
       </MetadataList>
       {detail.metadata && <DetailMetadataView metadata={detail.metadata} />}
+      {detail.eventDiagnostic && <EventDiagnosticView diagnostic={detail.eventDiagnostic} />}
       {detail.item.node && <VStack gap={2}><Text as="h3">Conditions</Text><HStack gap={2} wrap="wrap">{detail.item.node.conditions.map(condition => <NodeConditionBadge key={condition.type} condition={condition} />)}</HStack></VStack>}
       {detail.sections?.map((section, index) => <MetadataList key={`${section.title}-${index}`} title={section.title} label={{ position: "top" }}>
         {section.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}><Text wordBreak="break-all">{fact.value}</Text></MetadataListItem>)}

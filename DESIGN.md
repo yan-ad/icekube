@@ -214,6 +214,35 @@ Long identifiers must not push actions or window controls off-screen.
 
 ## Search, loading and detail feedback
 
+The global Cmd/Ctrl+K palette searches saved cluster names, contexts, file labels,
+and static cluster menu destinations alongside the existing Catalog pages.
+`appSearchSource.ts` indexes normalized metadata once per Catalog snapshot and
+matches it against shared menu templates, without a cluster/menu Cartesian index,
+network traffic or an input debounce. Results are capped at 60; users can combine
+cluster/context and menu words to refine them. Every result resolves an exact saved
+cluster ID and validated section, including when cluster names are duplicated.
+
+Search uses the shared Rust-backed `PermissionStore` observations for the current
+connected lease. Known denied cluster-scoped destinations are omitted, including
+during review renewal; known all-namespace denials retain namespaced menus with
+guidance to choose a namespace. Unknown access and other clusters are explicitly
+Access unverified, not permission grants. Search never connects clusters merely
+to enumerate permissions. Selection rechecks the current cached navigation policy;
+the destination and Rust resource services retain their existing authorization.
+Open-query results update when metadata or permission observations change. Loading,
+failed/retained and empty Catalog states remain visible inside the palette.
+
+This is an Iceon-requested workflow, not a verified Freelens port. The local
+`freelens` checkout was unavailable for this change; the prior recorded reference
+is v1.10.3-533 at `cd07118f843c4a69f937a319a37a7c12ef2c92d8`.
+Rust owners remain CatalogEngine/ConnectionEngine and `connection/permissions.rs`;
+no new renderer networking or backend endpoint is introduced. Acceptance:
+`tests/app-search.spec.ts` covers combined searches, duplicate identities, keyboard
+selection, open-query updates, denial/namespace/session isolation, browser fallback,
+both themes at narrow widths, and a bounded 1,000-cluster local-search benchmark.
+All fixtures are synthetic and IPC is mocked; they do not verify live RBAC or
+native webview performance.
+
 The renderer hook `src/app/cluster/useDebouncedSearch.ts` commits controlled search drafts
 after 160 ms of quiet input. Resource reads cancel obsolete work immediately;
 retained rows are marked stale and scope-dependent actions disable while the
@@ -221,7 +250,32 @@ draft is pending. Catalog and cached Helm/forward filtering instead use
 deferred local queries and memoized searchable fields; namespace options filter
 their loaded cache locally. Row-menu fingerprints are
 memoized by rows/actions, rather than serializing the full inventory on every
-keystroke. This describes scheduling and invalidation, not measured FPS.
+keystroke. Resource action/selection scopes use the committed query plus pending
+state, so subsequent draft characters do not remount actions or rerender retained
+cells. Row-menu transforms keep their identity while validating the current scope
+on open/selection; permission fingerprints cover the active row, not every loaded
+row. Checkbox enabled-state changes still invalidate the selection plugin, and
+handlers reject selection while unavailable. Search drafts survive namespace changes
+while inventory readers remount with the new namespace and cancel the old request.
+
+The app uses React directly. The `@tanstack/redact` Vite runtime replacement was
+removed after CPU profiling identified synchronous element/owner-stack bookkeeping
+in the input path; its synchronous runtime also undermined deferred rendering.
+React DevTools stays opt-in via `ICEON_REACT_DEVTOOLS=1`. Helm's local query no longer
+re-registers global Refresh on each pending/settled transition, and unchanged filter
+results retain their row-array identity. No credentials, network or backend ownership
+move into the renderer.
+
+Repeatable latency check: `bun run build`, then
+`ICEON_TEST_PRODUCTION=1 bun run test:e2e tests/search-responsiveness.spec.ts -g
+"production input latency" --workers=1`. This serves the optimized bundle on port
+1422 with trace snapshots disabled so profiling/DOM capture do not skew input frames.
+Synthetic IPC fixtures cover 500 Catalog/Helm rows and 100 Pod/Node rows. The measured
+run had input-to-next-frame p95 of 15.7–17.3 ms; maximum observed delays were
+27 ms (Catalog), 189.6 ms (Helm), 143 ms (Pods), and 142.7 ms (Nodes), including
+first-edit setup. These are Chromium fixture measurements, not native-webview,
+live-cluster response time or FPS claims. Development render-count and cancellation
+tests remain separate from this production timing check.
 
 `TableToolbar.tsx` keeps search compact (at most 18rem) on the right, beside status
 and other filters, rather than stretching across the remaining space. Resource and

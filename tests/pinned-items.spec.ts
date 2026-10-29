@@ -155,6 +155,9 @@ test("external drops and self drops cannot save an order", async ({ page }) => {
   await pin.dispatchEvent("dragover", { dataTransfer });
   await pin.dispatchEvent("drop", { dataTransfer });
   await pin.dispatchEvent("dragstart", { dataTransfer });
+  await pin.dispatchEvent("dragover", { dataTransfer });
+  await expect(pin).toHaveCSS("outline-style", "solid");
+  await expect(pin).toHaveCSS("outline-width", "2px");
   await pin.dispatchEvent("drop", { dataTransfer });
   expect(calls.filter(call => call.command === "catalog_reorder_pins")).toHaveLength(0);
   await expect.poll(() => pinLabels(page)).toEqual(names);

@@ -54,6 +54,37 @@ async function fixture(page: Page, section: string, count: number, controlledClo
 }
 const reads = (page: Page, kind: string) => page.evaluate(kind => (window as SearchWindow).__searchCalls.filter(c => c.command === "cluster_resources" && c.request.kind === kind), kind);
 
+for (const section of ["pods", "deployments"]) {
+  test(`${section}: draft characters do not rerender retained resource cells or remount actions`, async ({ page }) => {
+    await page.route("**/src/app/cluster/ResourceTablePage.tsx*", async route => {
+      const response = await route.fetch();
+      const source = await response.text();
+      const marker = "label: item.name,";
+      expect(source).toContain(marker);
+      await route.fulfill({ response, body: source.replace(marker, "label: (window.__resourceCellRenders = (window.__resourceCellRenders ?? 0) + 1, item.name),") });
+    });
+    await fixture(page, section, 100, true);
+    const label = section === "pods" ? "Pods" : "Deployments";
+    const grid = page.getByRole("table", { name: label, exact: true });
+    await expect(grid.getByRole("row")).toHaveCount(101);
+    const input = page.getByRole("textbox", { name: `Search ${label}`, exact: true });
+    await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1_000));
+    await input.pressSequentially("r");
+    await expect(grid).toHaveAttribute("aria-busy", "true");
+    const before = await page.evaluate(() => ({ renders: (window as any).__resourceCellRenders, permissionReads: (window as SearchWindow).__searchCalls.filter(call => call.command === "cluster_permissions_review").length }));
+    expect(before.renders).toBeGreaterThan(0);
+    await input.pressSequentially("esource-abcdefghijklmnopqrst");
+    await expect(input).toHaveValue("resource-abcdefghijklmnopqrst");
+    await expect(input).toBeFocused();
+    expect(await page.evaluate(() => (window as any).__resourceCellRenders)).toBe(before.renders);
+    expect(await page.evaluate(() => (window as SearchWindow).__searchCalls.filter(call => call.command === "cluster_permissions_review").length)).toBe(before.permissionReads);
+    await page.clock.fastForward(160);
+    await page.clock.resume();
+    await expect(grid).toContainText("resource-abcdefghijklmnopqrst");
+    await expect(grid).toHaveAttribute("aria-busy", "false");
+  });
+}
+
 test("500 cached Helm charts filter locally without extra Rust reads", async ({ page }) => {
   await fixture(page, "helm-charts", 500);
   const grid = page.getByRole("table", { name: "Helm Charts", exact: true });

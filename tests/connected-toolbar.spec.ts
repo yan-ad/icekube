@@ -211,7 +211,7 @@ for (const fontPercent of [100, 125]) {
         });
         await testInfo.attach(`${snapshot.phase}${snapshot.error ? "-error" : ""}-geometry`, { body: JSON.stringify(geometry, null, 2), contentType: "application/json" });
         expect(geometry.controls.filter(control => control.label === "Search" || control.label === "Preferences")).toHaveLength(width >= 640 ? 2 : 0);
-        expect(await toolbar.getByRole("button").count()).toBe((width >= 640 ? 8 : 6) + (snapshot.phase === "ready" ? 1 : 0));
+        await expect(toolbar.getByRole("button")).toHaveCount((width >= 640 ? 8 : 6) + (snapshot.phase === "ready" ? 1 : 0));
         for (const indicatorBounds of geometry.indicators) {
           expect(indicatorBounds.width).toBeLessThanOrEqual(fontPercent === 125 ? 20 : 16);
           expect(indicatorBounds.width).toBeGreaterThan(0);

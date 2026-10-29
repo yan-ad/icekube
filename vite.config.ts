@@ -1,7 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
-import { redact } from '@tanstack/redact/vite'
 import process from "node:process";
 const host = process.env.TAURI_DEV_HOST;
 
@@ -29,7 +28,6 @@ export default defineConfig(({ command }) => ({
         };
       },
     },
-    redact()
   ],
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

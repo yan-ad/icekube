@@ -41,6 +41,11 @@ async function setup(page: Page, phase = "idle") {
       },
     });
   }, phase);
+  const main = await (await page.request.get("/src/main.tsx")).text();
+  const reactPath = main.match(/import React from "([^"]+)"/)?.[1];
+  const domPath = main.match(/import ReactDOM from "([^"]+)"/)?.[1];
+  expect(reactPath).toBeTruthy();
+  expect(domPath).toBeTruthy();
   await page.route("**/update-performance-fixture", route => route.fulfill({
     contentType: "text/html; charset=utf-8",
     body: `<!doctype html><html><body><main id="root"></main><script type="module">
@@ -48,8 +53,8 @@ async function setup(page: Page, phase = "idle") {
       RefreshRuntime.injectIntoGlobalHook(window);
       window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type;
       window.__vite_plugin_react_preamble_installed__ = true;
-      const { default: React } = await import('/node_modules/.vite/deps/react.js');
-      const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js');
+      const { default: React } = await import(${JSON.stringify(reactPath)});
+      const { default: ReactDOM } = await import(${JSON.stringify(domPath)});
       const { createRoot } = ReactDOM;
       const { UpdateProvider, useUpdates, useUpdateBlocker } = await import('/src/app/updates/UpdateProvider.tsx');
       function Probe() {

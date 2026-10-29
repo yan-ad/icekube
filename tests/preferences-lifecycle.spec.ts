@@ -4,8 +4,8 @@ import { defaultPreferences, type Preferences, type PreferencesSnapshot } from "
 for (const action of ["Save changes", "Reset to defaults"]) {
   test(`late ${action} completion does not affect a reopened dialog`, async ({ page }) => {
     const main = await (await page.request.get("/src/main.tsx")).text();
-    const reactPath = main.match(/import React from "([^"]+)"/)?.[1];
-    const domPath = main.match(/import ReactDOM from "([^"]+)"/)?.[1];
+    const reactPath = main.match(/from ["']([^"']*\/react\.js(?:\?[^"']*)?)["']/)?.[1];
+    const domPath = main.match(/from ["']([^"']*\/react-dom_client\.js(?:\?[^"']*)?)["']/)?.[1];
     expect(reactPath).toBeTruthy();
     expect(domPath).toBeTruthy();
     await page.route("**/preferences-harness", route => route.fulfill({

@@ -19,23 +19,31 @@ async function fixture(page: Page, control: { hold?: boolean; malformed?: boolea
       throw new Error(`Unexpected IPC ${command}`);
     } } });
   }, control);
+  const main = await (await page.request.get("/src/main.tsx")).text();
+  const reactPath = main.match(/from ["']([^"']*\/react\.js(?:\?[^"']*)?)["']/)?.[1];
+  const domPath = main.match(/from ["']([^"']*\/react-dom_client\.js(?:\?[^"']*)?)["']/)?.[1];
+  expect(reactPath).toBeTruthy();
+  expect(domPath).toBeTruthy();
+  await page.route("**/src/app/cluster/PermissionProvider.tsx*", route => route.fulfill({ contentType: "application/javascript", body: `export function usePermissionChecks(){return {loading:false,decision:()=>${JSON.stringify(control.decision ?? "allowed")}}}` }));
   await page.route("**/__service_fixture", route => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html><html><body><main id="root"></main><script type="module">
     import RefreshRuntime from '/@react-refresh'; RefreshRuntime.injectIntoGlobalHook(window);
     window.$RefreshReg$=()=>{};window.$RefreshSig$=()=>type=>type;window.__vite_plugin_react_preamble_installed__=true;
     </script><script type="module">
-    import React from '/node_modules/@tanstack/redact/dist/react/index.js';
-    import {createRoot} from '/node_modules/@tanstack/redact/dist/dom/client.js';
+    import React from ${JSON.stringify(reactPath)};
+    import ReactDOM from ${JSON.stringify(domPath)};
+    const {createRoot}=ReactDOM;
     import {ServiceForwardActions} from '/src/app/cluster/ServiceForwardActions.tsx';
-    import {PermissionProvider,PermissionSession} from '/src/app/cluster/PermissionProvider.tsx';
+
     import '/node_modules/@astryxdesign/core/src/reset.css';import '/node_modules/@astryxdesign/core/dist/astryx.css';
     const e=React.createElement, root=createRoot(document.getElementById('root'));
     const reference={kind:'services',namespace:'default',name:'web',uid:'service-uid'};
     const detail={clusterId:'one',sessionId:'lease',readId:1,reference,item:{name:'web',namespace:'default',uid:'service-uid',resourceVersion:'7',columns:{}},related:{},sections:[{title:'Service ports',facts:[{label:'1 · Port',value:'80'},{label:'1 · Protocol',value:'TCP'},{label:'2 · Port',value:'53'},{label:'2 · Protocol',value:'UDP'}]}]};
-    root.render(e(PermissionProvider,null,e(PermissionSession,{clusterId:'one',sessionId:'lease'},e(ServiceForwardActions,{clusterId:'one',sessionId:'lease',detail}))));
+    root.render(e(ServiceForwardActions,{clusterId:'one',sessionId:'lease',detail}));
     window.__dispose=()=>root.unmount();
     </script></body></html>` }));
   await page.goto("/__service_fixture");
   await expect(page.getByRole("button", { name: "Forward 80…", exact: true })).toBeVisible();
+
 }
 async function calls(page: Page, command: string) { return page.evaluate(command => (window as unknown as { __calls: Call[] }).__calls.filter(c => c.command === command), command); }
 
@@ -49,7 +57,7 @@ test("reviewed TCP port, explicit dialog, bounded local port and loopback result
   await page.getByRole("button", { name: "Cancel", exact: true }).click(); expect(await calls(page, "cluster_service_forward_start")).toEqual([]);
   await action.click(); await start.click();
   await expect(page.getByRole("status").filter({ hasText: "Local address" })).toHaveText("Local address: 127.0.0.1:32100");
-  await expect(page.getByText("Remote connection begins", { exact: false })).toBeVisible();
+  await expect(page.getByText("Service default/web:80", { exact: false })).toContainText("Remote connection begins when a local client connects.");
   expect((await calls(page, "cluster_service_forward_start"))[0].request).toMatchObject({ reference: { kind: "services", uid: "service-uid", name: "web" }, resourceVersion: "7", servicePort: 80, localPort: 0 });
 });
 
@@ -83,4 +91,14 @@ test("strict response rejects extra fields and changed Service/Pod identities", 
     return [result, { ...result, extra: true }, { ...result, reference: { ...reference, uid: "replaced" } }, { ...result, pod: { ...result.pod, uid: null } }, { ...result, forward: { ...result.forward, remotePort: 0 } }].map(v => { try { api.parseServiceForwardResult(v, r); return true; } catch { return false; } });
   });
   expect(checks).toEqual([true, false, false, false, false]);
+});
+
+test("denied or unknown read permissions keep forwarding disabled", async ({ page }) => {
+  for (const decision of ["denied", "unknown"]) {
+    await fixture(page, { decision });
+    await expect(page.getByRole("button", { name: "Forward 80…", exact: true })).toBeDisabled();
+    expect(await calls(page, "cluster_service_forward_start")).toEqual([]);
+    await page.unroute("**/__service_fixture");
+    await page.unroute("**/src/app/cluster/PermissionProvider.tsx*");
+  }
 });

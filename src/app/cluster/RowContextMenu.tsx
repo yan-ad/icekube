@@ -18,7 +18,7 @@ export type RowMenuAction = { action: RowAction; disabled?: boolean };
 type Options<T> = SessionRequest & { rows: T[]; scope: string; rowKey: (item: T) => string; rowLabel: (item: T) => string;
   target: (item: T) => NativeContextTarget; actions: (item: T) => RowMenuAction[]; onAction: (item: T, action: RowAction) => void;
   beforeOpen?: (item: T, signal: AbortSignal) => Promise<void>;
-  authorizationFingerprint?: () => string };
+  authorizationFingerprint?: (item: T) => string };
 
 /** Row transforms preserve table semantics; the browser menu is anchored to the Actions cell. */
 export function useRowContextMenu<T extends Record<string, unknown>>(options: Options<T>): TablePlugin<T> {
@@ -31,7 +31,8 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
   const current = useRef(fingerprint);
   current.current = fingerprint;
   const active = useRef<AbortController | null>(null);
-  const authorization = options.authorizationFingerprint?.();
+  const activeItem = useRef<T | null>(null);
+  const authorization = activeItem.current ? options.authorizationFingerprint?.(activeItem.current) : undefined;
   const activeAuthorization = useRef<string | undefined>(undefined);
   const [fallback, setFallback] = useState<{ key: string; fingerprint: typeof fingerprint; item: T; actions: RowMenuAction[]; controller: AbortController } | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -43,22 +44,24 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
   useLayoutEffect(() => {
     if (activeAuthorization.current !== undefined && activeAuthorization.current !== authorization) close();
   }, [authorization]);
-  function close() { active.current?.abort(); active.current = null; activeAuthorization.current = undefined; setFallback(null); }
+  function close() { active.current?.abort(); active.current = null; activeItem.current = null; activeAuthorization.current = undefined; setFallback(null); }
 
   async function open(item: T) {
     const options = latest.current;
+    const fingerprint = current.current;
     close(); setError(null);
     const controller = new AbortController();
     active.current = controller;
     const captured = structuredClone(item);
+    activeItem.current = captured;
     if (options.beforeOpen) await options.beforeOpen(captured, controller.signal);
     if (controller.signal.aborted || current.current !== fingerprint) return;
     const expiry = setTimeout(() => controller.abort(), 30_000);
     controller.signal.addEventListener("abort", () => clearTimeout(expiry), { once: true });
-    const capturedAuthorization = latest.current.authorizationFingerprint?.();
+    const capturedAuthorization = latest.current.authorizationFingerprint?.(captured);
     activeAuthorization.current = capturedAuthorization;
     const valid = () => !controller.signal.aborted && current.current === fingerprint
-      && latest.current.authorizationFingerprint?.() === capturedAuthorization;
+      && latest.current.authorizationFingerprint?.(captured) === capturedAuthorization;
     const actions = latest.current.actions(captured).map(action => ({ ...action }));
     const run = (action: RowAction) => {
       if (!valid() || !actions.some(entry => entry.action === action && !entry.disabled)
@@ -82,7 +85,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
     transformColumns: columns => [...columns.filter(column => column.key !== "actions"), {
       key: "actions", header: "Actions", width: pixel(80), renderCell: item => {
         const options = latest.current;
-        const menu = fallback?.fingerprint === fingerprint && fallback.key === options.rowKey(item) ? fallback : null;
+        const menu = fallback?.fingerprint === current.current && fallback.key === options.rowKey(item) ? fallback : null;
         return <DropdownMenu presentation="popover" alignment="end" hasChevron={false} isMenuOpen={!!menu}
           onOpenChange={value => { if (!value) close(); }}
           renderTrigger={() => <IconButton label={`Actions for ${options.rowLabel(item)}`} tooltip="Row actions" size="sm" variant="ghost"
@@ -90,7 +93,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
           items={(menu?.actions ?? options.actions(item)).map(entry => ({ label: labels[entry.action], isDisabled: entry.disabled,
             onClick: () => {
               if (!menu || menu.controller.signal.aborted || current.current !== menu.fingerprint || entry.disabled
-                || latest.current.authorizationFingerprint?.() !== activeAuthorization.current
+                || latest.current.authorizationFingerprint?.(menu.item) !== activeAuthorization.current
                 || !latest.current.actions(menu.item).some(action => action.action === entry.action && !action.disabled)) return;
               close(); latest.current.onAction(menu.item, entry.action);
             } }))} />;
@@ -104,7 +107,7 @@ export function useRowContextMenu<T extends Record<string, unknown>>(options: Op
       },
     } }),
     transformTableContext: children => <>{children}{error && <Text role="alert">{error}</Text>}</>,
-  }), [fingerprint, fallback, error]);
+  }), [fallback, error]);
 }
 
 export function useResourceRowMenu(options: SessionRequest & { rows: ResourceItem[]; scope: string; kind: ResourceKind; unavailable: boolean;
@@ -123,9 +126,9 @@ export function useResourceRowMenu(options: SessionRequest & { rows: ResourceIte
     { action: "delete", disabled: options.unavailable || !hasDeleteIdentity(item) || !can(item, "delete") },
   ], [hasPodActions, options.unavailable, options.kind, permissions]);
   const plugin = useRowContextMenu({ ...options, scope: JSON.stringify([options.scope, options.kind, options.unavailable]), rowKey: resourceRowKey, rowLabel: item => item.name,
-    authorizationFingerprint: () => JSON.stringify([permissions.authorizationEpoch(), permissions.fingerprint(options.rows.flatMap(item => [
+    authorizationFingerprint: item => JSON.stringify([permissions.authorizationEpoch(), permissions.fingerprint([
       check(item, "get"), check(item, "delete"), ...(hasPodActions ? Object.values(podAction).map(action => check(item, action)) : []),
-    ]))]),
+    ])]),
     target: item => ({ type: "resource", reference: { kind: options.kind, namespace: item.namespace, name: item.name, uid: item.uid } }),
     actions,
     beforeOpen: (item, signal) => reviewRowPermissions(permissions, [check(item, "get"), check(item, "delete"), ...(hasPodActions ? Object.values(podAction).map(action => check(item, action)) : [])], signal),

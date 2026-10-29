@@ -82,8 +82,9 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   }, [clusterId, sessionId, kind, revision, needle, token, index, pending]);
   const items = useMemo(() => page?.items ?? [], [page]);
   const metricState = kind === "nodes" ? page?.metrics : null;
-  const actionScope = JSON.stringify([clusterId, sessionId, kind, token, index, query]);
-  const selectionScope = JSON.stringify([actionScope, items]);
+  const actionScope = JSON.stringify([clusterId, sessionId, kind, token, index, needle, pending]);
+  const itemsFingerprint = useMemo(() => JSON.stringify(items), [items]);
+  const selectionScope = useMemo(() => JSON.stringify([actionScope, itemsFingerprint]), [actionScope, itemsFingerprint]);
   const visibleLoading = loading && !auto.background.current;
   const unavailable = pending || visibleLoading || !!error;
   const selection = useResourceSelection(items, selectionScope, !unavailable);
@@ -93,7 +94,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     {kind === "nodes" && <TableToolbar label="Nodes" count={page ? `${items.length}${page.truncated ? "+" : ""} items · Page ${index + 1}` : loading ? undefined : "Unavailable"}>
       <TextInput label="Search nodes" isLabelHidden value={query} onChange={(value) => {
-        setQuery(value); setTokens([null]); setIndex(0); setLoading(true);
+        setQuery(value); setTokens([null]); setIndex(0);
       }} placeholder="Search Nodes…"
         startIcon={IconSearch} hasClear size="sm" width="min(17rem, 100%)" />
       <IconButton label="Previous nodes page" tooltip="Previous page" icon={<Icon icon={IconChevronLeft} />} size="sm" variant="ghost"

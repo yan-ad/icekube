@@ -50,16 +50,24 @@ async function fixture(page: Page, phase = "ready", error: string | null = null,
 
 async function blockerFixture(page: Page) {
   await fixture(page);
+  const main = await (await page.request.get("/src/main.tsx")).text();
+  const reactPath = main.match(/import React from "([^"]+)"/)?.[1];
+  const domPath = main.match(/import ReactDOM from "([^"]+)"/)?.[1];
+  const preferences = await (await page.request.get("/src/app/preferences/PreferencesProvider.tsx")).text();
+  const themePath = preferences.match(/import \{ Theme \} from "([^"]+)"/)?.[1];
+  expect(reactPath).toBeTruthy();
+  expect(domPath).toBeTruthy();
+  expect(themePath).toBeTruthy();
   await page.route("**/update-blocker-fixture", route => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html>
     <html><body><main id="fixture"></main><script type="module">
       import RefreshRuntime from '/@react-refresh';
       RefreshRuntime.injectIntoGlobalHook(window);
       window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type;
       window.__vite_plugin_react_preamble_installed__ = true;
-      const { default: React } = await import('/node_modules/.vite/deps/react.js');
-      const { default: ReactDOM } = await import('/node_modules/.vite/deps/react-dom_client.js');
+      const { default: React } = await import(${JSON.stringify(reactPath)});
+      const { default: ReactDOM } = await import(${JSON.stringify(domPath)});
       const { createRoot } = ReactDOM;
-      const { Theme } = await import('/node_modules/.vite/deps/@astryxdesign_core_theme.js');
+      const { Theme } = await import(${JSON.stringify(themePath)});
       const { brandTheme } = await import('/src/themes/brand.ts');
       const { UpdateProvider, useUpdateBlocker } = await import('/src/app/updates/UpdateProvider.tsx');
       function Work({ active }) {
@@ -131,6 +139,54 @@ test("verified updates stay interactive until Restart to Update is explicitly ac
   await expect.poll(() => lastPrepared(page)).toMatchObject({ ready: true, inert: true });
   expect(await page.evaluate(() => (window as unknown as { __updateCalls: Call[] }).__updateCalls.filter(call => call.command === "update_restart").length)).toBe(1);
 });
+
+for (const theme of ["light", "dark"] as const) {
+  test(`restart action is keyboard accessible with readable contrast in ${theme} mode`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.emulateMedia({ colorScheme: theme });
+    await fixture(page);
+    await page.goto("/");
+    const restart = page.getByRole("button", { name: "Restart to Update", exact: true });
+    await expect(restart).toBeVisible();
+    for (const width of [360, 800, 1440]) {
+      await page.setViewportSize({ width, height: 800 });
+      await expect(restart).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      const box = await restart.boundingBox();
+      expect(box!.x).toBeGreaterThanOrEqual(80);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+    }
+    await page.keyboard.press("Tab");
+    for (let i = 0; i < 20 && !await restart.evaluate(element => element === document.activeElement); i++) await page.keyboard.press("Tab");
+    await expect(restart).toBeFocused();
+    const contrast = await restart.evaluate(element => {
+      const parse = (value: string) => value.match(/[\d.]+/g)!.map(Number);
+      const style = getComputedStyle(element);
+      const color = parse(style.color);
+      let background = [255, 255, 255];
+      const ancestors: Element[] = [];
+      for (let node: Element | null = element; node; node = node.parentElement) ancestors.unshift(node);
+      for (const node of ancestors) {
+        const rgba = parse(getComputedStyle(node).backgroundColor);
+        const alpha = rgba[3] ?? 1;
+        background = background.map((channel, index) => rgba[index] * alpha + channel * (1 - alpha));
+      }
+      const luminance = (rgb: number[]) => rgb.slice(0, 3).map(channel => {
+        const value = channel / 255;
+        return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+      }).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index], 0);
+      const a = luminance(color), b = luminance(background);
+      return { ratio: (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05), outline: style.outlineStyle, shadow: style.boxShadow };
+    });
+    expect(contrast.ratio).toBeGreaterThanOrEqual(4.5);
+    expect(contrast.outline !== "none" || contrast.shadow !== "none").toBe(true);
+    await page.screenshot({ path: `/tmp/iceon-update-${theme}.png` });
+    await page.keyboard.press("Space");
+    await expect.poll(() => lastPrepared(page)).toMatchObject({ ready: true, inert: true });
+    expect(errors).toEqual([]);
+  });
+}
 
 test("restart refusal preserves the action and error until the user retries", async ({ page }) => {
   await fixture(page);
