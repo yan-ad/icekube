@@ -8,7 +8,8 @@ async function setup(page: Page, scope: "Namespaced" | "Cluster" = "Namespaced")
       (window as any).__instanceCalls.push({ command, request });
       if (command === "cluster_permissions_review") return { ...request, authorizationEpoch: request.sessionId, revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
         items: request.checks.map((check: unknown) => ({ check, decision: "allowed", reason: null })) };
-      if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: false }] };
+       if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], pinnedItems: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: false, pinnedSections: [] }] };
+       if (command === "catalog_connection_states") return [];
       if (command === "cluster_session_open") return { ...request, sessionId: "session-one", contextName: "dev", status: "disconnected", apiVersion: null, error: null };
       if (command === "cluster_connect") return { ...request, contextName: "dev", status: "connected", apiVersion: "v1.35", error: null };
       if (command === "cluster_pod_forward_list") return [];
@@ -18,8 +19,8 @@ async function setup(page: Page, scope: "Namespaced" | "Cluster" = "Namespaced")
           columns: { group: "example.test", kind: "Widget", plural: "widgets", scope, versions: "v1beta1,v1" } }] };
       if (command === "cluster_custom_resources") {
         revision++;
-        return { ...request, group: "example.test", version: "v1", plural: "widgets", kind: "Widget", namespaced: scope === "Namespaced", continueToken: null, truncated: true,
-          items: (scope === "Namespaced" ? ["alpha", "beta"] : [null]).map((namespace, index) => ({ name: "shared-widget", uid: `widget-${index}-${revision}`, namespace,
+        return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, target: { definitionName: request.definitionName, definitionUid: request.definitionUid }, group: "example.test", version: "v1", plural: "widgets", kind: "Widget", namespaced: scope === "Namespaced", namespace: request.namespace ?? null, continueToken: null, truncated: true,
+          items: (scope === "Namespaced" ? ["alpha", "beta"] : [null]).map((namespace, index) => ({ name: "shared-widget", uid: `widget-${index}-1`, namespace,
             createdAt: index === 0 ? "2026-10-20T10:00:00Z" : null, labelCount: index + 2 })) };
       }
       if (command.endsWith("_cancel") || ["cluster_disconnect", "cluster_permissions_refresh"].includes(command)) return null;

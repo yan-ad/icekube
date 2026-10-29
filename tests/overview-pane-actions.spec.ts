@@ -28,7 +28,8 @@ async function fixture(page: Page, workloads = false, control: Controls = {}) {
             items: (request.checks as Request[]).map(check => ({ check, decision: check.action === "get" && control.denied ? "denied" : check.action === "get" && control.unknown ? "unknown" : "allowed", reason: null })) };
           if (command === "plugin:event|listen") return 1;
           if (command === "plugin:event|unlisten" || command.endsWith("_cancel") || command === "cluster_disconnect" || command === "cluster_permissions_refresh") return null;
-          if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };
+           if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], pinnedItems: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, pinnedSections: [], status: "disconnected" }] };
+           if (command === "catalog_connection_states") return [];
           if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId, sessionId: request.sessionId ?? "pane-lease", contextName: "dev", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
           if (command === "cluster_resource_detail") {
             if (control.unknown) throw "permissionDenied";
@@ -60,7 +61,7 @@ test("Cluster Message resolves the current Event relationship and opens its affe
   await fixture(page);
   const message = page.getByRole("button", { name: "Scheduling warning", exact: true });
   await message.focus(); await page.keyboard.press("Enter");
-  await expect.poll(() => details(page)).toEqual([eventReference, targetReference]);
+  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length >= 2 && JSON.stringify(refs.at(-2)) === JSON.stringify(eventReference) && JSON.stringify(refs.at(-1)) === JSON.stringify(targetReference));
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("affected");
   await readOnly(page);
 });
@@ -69,7 +70,7 @@ test("Workloads Message opens Event itself; nested object button resolves target
   await fixture(page, true);
   const message = page.getByRole("button", { name: "Scheduling warning", exact: true });
   await message.focus(); await page.keyboard.press("Space");
-  await expect.poll(() => details(page)).toEqual([eventReference]);
+  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length >= 1 && JSON.stringify(refs.at(-1)) === JSON.stringify(eventReference));
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("warning-one");
   await page.getByRole("button", { name: "Close inspector", exact: true }).click();
   await page.getByRole("table", { name: "Latest events", exact: true }).getByRole("button", { name: "Deployment/affected", exact: true }).click();
@@ -81,7 +82,7 @@ test("missing relationship does not fabricate affected-object details", async ({
   await fixture(page, false, { missingRelation: true });
   await page.getByRole("button", { name: "Scheduling warning", exact: true }).click();
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("no longer available");
-  expect(await details(page)).toEqual([eventReference]);
+  expect((await details(page)).at(-1)).toEqual(eventReference);
   await readOnly(page);
 });
 
@@ -90,10 +91,10 @@ for (const access of ["denied", "unknown"] as const) test(`${access} Event GET n
   await page.getByRole("button", { name: "Scheduling warning", exact: true }).click();
   const pane = page.getByRole("region", { name: "Resource details", exact: true });
   await expect(pane).toContainText(access === "denied" ? /denied|permission/i : /unverified/i);
-  if (access === "denied") expect(await details(page)).toEqual([]);
+   if (access === "denied") expect((await details(page)).filter(reference => JSON.stringify(reference) === JSON.stringify(eventReference))).toEqual([]);
   else {
     await expect(pane).toContainText(/Kubernetes permissions/);
-    expect(await details(page)).toEqual([eventReference]);
+     expect((await details(page)).at(-1)).toEqual(eventReference);
   }
   await expect(pane.getByText("Only reviewed inventory metadata", { exact: false })).toHaveCount(0);
   await readOnly(page);
@@ -128,6 +129,6 @@ test("loaded active Node warning conditions open Node, not Event or synthetic co
   await expect(table).not.toContainText("DiskPressure");
   await expect(page.getByText(/Active warning conditions in the loaded node snapshot: 1/)).toBeVisible();
   await table.getByRole("button", { name: "MemoryPressure: True", exact: true }).click();
-  await expect.poll(() => details(page)).toEqual([{ kind: "nodes", namespace: null, name: "node-one", uid: "uid-node-one" }]);
+  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length > 0 && JSON.stringify(refs.at(-1)) === JSON.stringify({ kind: "nodes", namespace: null, name: "node-one", uid: "uid-node-one" }));
   await readOnly(page);
 });

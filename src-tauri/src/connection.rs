@@ -30,6 +30,7 @@ pub(crate) mod helm;
 #[cfg(test)]
 mod lifecycle_tests;
 mod metrics;
+pub(crate) mod namespace_cache;
 pub(crate) mod node_actions;
 #[cfg(test)]
 mod node_tests;
@@ -361,6 +362,7 @@ pub struct Usage {
 }
 
 struct Session {
+    namespace_cache: namespace_cache::LeaseCache,
     target: ConnectionTarget,
     snapshot: ConnectionSnapshot,
     client: Option<Client>,
@@ -463,6 +465,7 @@ impl ConnectionEngine {
             return Err(ConnectionError::StaleSession);
         }
         *state = Some(Session {
+            namespace_cache: namespace_cache::LeaseCache::default(),
             target,
             snapshot: snapshot.clone(),
             client: None,
@@ -595,16 +598,31 @@ impl ConnectionEngine {
                 .map_err(|_| ConnectionError::StoreUnavailable)?;
             current(&state, &request)?.cancel.child_token()
         };
-        self.connect_with(request, |target| {
-            config::build_client_owned(
-                target,
+        let cache_identity = Arc::new(Mutex::new(None));
+        let captured_identity = cache_identity.clone();
+        let response = self.connect_with(request.clone(), |target| async move {
+            let before = namespace_cache::source_identity_async(target.clone()).await?;
+            let client = config::build_client_owned(
+                target.clone(),
                 self.file_workers.clone(),
                 self.auth_tasks.clone(),
                 cancel,
                 self.authentication_generation.clone(),
-            )
+            ).await?;
+            let after = namespace_cache::source_identity_async(target).await?;
+            if before != after { return Err(ConnectionError::SourceChanged); }
+            *captured_identity.lock().map_err(|_| ConnectionError::StoreUnavailable)? = Some(after);
+            Ok(client)
         })
-        .await
+        .await?;
+        if let Some(identity) = cache_identity.lock().map_err(|_| ConnectionError::StoreUnavailable)?.take() {
+            let mut state = self.session.lock().map_err(|_| ConnectionError::StoreUnavailable)?;
+            let session = current_mut(&mut state, &request)?;
+            if response.status == "connected" {
+                session.namespace_cache.bind(identity, self.authentication_generation.load(Ordering::SeqCst));
+            }
+        }
+        Ok(response)
     }
     async fn connect_with<F, Fut>(
         &self,

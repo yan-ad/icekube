@@ -126,6 +126,7 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
         let request = batch_request(&identity);
         let review = engine.review_permissions(request.clone());
         let cancel = async {
+            tokio::task::yield_now().await;
             tokio::time::timeout(Duration::from_secs(1), async {
                 while activity.started.lock().unwrap().len() < 2 {
                     activity.started_changed.notified().await;

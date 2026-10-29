@@ -366,6 +366,15 @@ pub struct CatalogEngine {
     operations: Mutex<()>,
 }
 impl CatalogEngine {
+    pub(crate) fn namespace_cache_storage<T>(
+        &self,
+        operation: impl FnOnce(&mut rusqlite::Connection) -> Result<T>,
+    ) -> Result<T> {
+        let _guard = self.operations.lock().map_err(|_| CatalogError::StoreUnavailable)?;
+        let _lock = storage::lock(&self.directory)?;
+        let mut connection = storage::open(&self.directory)?;
+        operation(&mut connection)
+    }
     #[cfg(test)]
     pub fn new(directory: PathBuf) -> Self {
         Self::new_with_home(directory, None)
