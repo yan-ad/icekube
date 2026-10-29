@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import type { SessionRequest } from "./api";
 import type { HelmCancelRequest, HelmView } from "./helmApi";
 

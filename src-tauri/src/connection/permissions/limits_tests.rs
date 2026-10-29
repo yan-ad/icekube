@@ -98,13 +98,14 @@ fn batch_request(identity: &SessionRequest) -> ReviewRequest {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
     let (_root, _catalog, engine, id, _) = fixture();
     let activity = Arc::new(BatchActivity::default());
     let snapshot =
         crate::connection::tests::connected(&engine, id, delayed_client(activity.clone())).await;
     let mut request = batch_request(&identity(&snapshot));
+    tokio::time::pause();
     let started = tokio::time::Instant::now();
     let response = engine.review_permissions(request.clone()).await.unwrap();
     assert!(started.elapsed() < Duration::from_secs(10));
@@ -191,7 +192,7 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
     }
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn concurrent_batch_rejects_cached_item_expiring_before_publication() {
     let (_root, _catalog, engine, id, _) = fixture();
     let activity = Arc::new(BatchActivity::default());
@@ -218,6 +219,7 @@ async fn concurrent_batch_rejects_cached_item_expiring_before_publication() {
             },
         );
     }
+    tokio::time::pause();
     assert!(matches!(
         engine.review_permissions(request).await,
         Err(ConnectionError::StaleSession)
@@ -251,7 +253,7 @@ async fn review_timeout_and_cancel_drop_pending_transport() {
     );
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn monotonic_expiry_rejects_a_cached_deny_after_ttl() {
     let (_root, _catalog, engine, id, _) = fixture();
     let snapshot = engine
@@ -283,6 +285,7 @@ async fn monotonic_expiry_rejects_a_cached_deny_after_ttl() {
             },
         );
     }
+    tokio::time::pause();
     assert_eq!(
         engine.reject_known_denied_read(&identity, &check),
         Err(ConnectionError::PermissionDenied)
@@ -294,18 +297,18 @@ async fn monotonic_expiry_rejects_a_cached_deny_after_ttl() {
 #[tokio::test]
 async fn replaced_batch_does_not_publish_late_permission() {
     let (_root, _catalog, engine, id, _) = fixture();
-    let seen = Arc::new(AtomicUsize::new(0));
-    let count = seen.clone();
+    let started = Arc::new(tokio::sync::Semaphore::new(0));
+    let transport_started = started.clone();
     let client = Client::new(
         tower::service_fn(move |request: Request<Body>| {
-            let count = count.clone();
+            let started = transport_started.clone();
             async move {
                 if request.uri().path() == "/version" {
                     return Ok::<_, std::io::Error>(Response::new(Body::from(
                         serde_json::to_vec(&json!({"gitVersion":"v1.36.0"})).unwrap(),
                     )));
                 }
-                count.fetch_add(1, Ordering::SeqCst);
+                started.add_permits(1);
                 std::future::pending::<std::result::Result<Response<Body>, std::io::Error>>().await
             }
         }),
@@ -326,14 +329,16 @@ async fn replaced_batch_does_not_publish_late_permission() {
     };
     let review = engine.review_permissions(request.clone());
     let cancel = async {
-        while seen.load(Ordering::SeqCst) == 0 {
-            tokio::task::yield_now().await;
-        }
+        started.acquire().await.unwrap().forget();
         let mut newer = request.clone();
         newer.read_id = 2;
         engine.cancel_permissions(newer).unwrap();
     };
-    let (result, _) = tokio::join!(review, cancel);
+    let (result, _) = tokio::time::timeout(Duration::from_secs(2), async {
+        tokio::join!(review, cancel)
+    })
+    .await
+    .expect("replaced review batch must finish");
     assert!(matches!(result, Err(ConnectionError::StaleSession)));
     let state = engine.session.lock().unwrap();
     assert!(state.as_ref().unwrap().permissions.cache.is_empty());

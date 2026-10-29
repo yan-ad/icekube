@@ -28,6 +28,39 @@ const calls = (page: Page, kind?: string) => page.evaluate((kind) => (window as 
   call.command === "cluster_resources" && (!kind || call.request.kind === kind)), kind);
 const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
 
+test("snapshot fixture wraps direct IPC without an isTauri flag and preserves backend errors", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.assign(window, { __TAURI_INTERNALS__: { invoke: async (command: string) => {
+      if (command === "cluster_resources") throw "permissionDenied";
+      return null;
+    } } });
+  });
+  await installNamespaceSnapshotMock(page);
+  await page.goto("/");
+  expect(await page.evaluate(async () => {
+    const invoke = (window as unknown as { __TAURI_INTERNALS__: { invoke: (command: string, args: unknown) => Promise<unknown> } }).__TAURI_INTERNALS__.invoke;
+    const request = { clusterId: "one", sessionId: "session", readId: 5 };
+    const cached = await invoke("cluster_namespace_cache_get", { request });
+    try { await invoke("cluster_namespace_cache_refresh", { request }); return { cached, error: null }; }
+    catch (error) { return { cached, error }; }
+  })).toEqual({ cached: null, error: "permissionDenied" });
+});
+
+test("paginated snapshot disposal cancels its original read ID without allocating a page lease", async ({ page }) => {
+  await fixture(page, { namespacePages: true, holdNamespaces: true });
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(1);
+  const first = (await calls(page, "namespaces"))[0].request;
+  await page.evaluate(() => (window as MockWindow).__releaseNamespaces());
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(2);
+  const second = (await calls(page, "namespaces"))[1].request;
+  expect(second).toEqual({ ...first, continueToken: "page-2" });
+  await page.evaluate(() => { location.hash = "/catalog"; });
+  await expect.poll(() => page.evaluate(() => (window as MockWindow).__namespaceCalls.filter(call => call.command === "cluster_resources_cancel")))
+    .toContainEqual({ command: "cluster_resources_cancel", request: first });
+  await page.evaluate(() => (window as MockWindow).__releaseNamespaces());
+  await expect(selector(page)).toHaveCount(0);
+});
+
 test("namespace cache survives pages without filters and reappearing consumers", async ({ page }) => {
   await fixture(page); await connected(page);
   const initial = await calls(page, "namespaces");
@@ -350,6 +383,7 @@ test("follows both namespace pages before exposing the sorted complete list", as
   await expect(page.getByRole("option", { name: "team-d", exact: true })).toBeVisible();
   await expect(page.getByText(/namespace list is partial/)).toHaveCount(0);
   expect((await calls(page, "namespaces"))[1].request).toMatchObject({ continueToken: "page-2" });
+  expect((await calls(page, "namespaces"))[1].request.readId).toBe((await calls(page, "namespaces"))[0].request.readId);
   await expect(page.getByRole("option")).toHaveText(["All namespaces", "team-a", "team-b", "team-c", "team-d"]);
 });
 

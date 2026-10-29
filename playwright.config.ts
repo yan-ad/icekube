@@ -5,6 +5,7 @@ const baseURL = production ? "http://127.0.0.1:1422" : "http://127.0.0.1:1420";
 
 export default defineConfig({
   testDir: "./tests",
+  testIgnore: "dev-engine.spec.ts",
   forbidOnly: !!process.env.CI,
   reporter: process.env.CI ? [["line"], ["blob"]] : [["list"]],
   use: {

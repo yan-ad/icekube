@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import { errorCode, connectionMessage, type SessionRequest } from "./api";
 
 export type PodIdentity = { namespace: string; name: string; uid?: string };

@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine } from "../engine";
 import { clusterDestinations, type ClusterSectionId } from "../cluster/navigation";
 
 export type ClusterConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
@@ -56,7 +56,7 @@ export async function openSavedWebLink(id: string): Promise<void> {
   await invoke<void>("catalog_open_web_link", { request: { id } });
 }
 
-export function hasCatalogEngine() { return isTauri(); }
+export function hasCatalogEngine() { return hasEngine(); }
 
 function record(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);

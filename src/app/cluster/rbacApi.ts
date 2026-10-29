@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import type { SessionRequest } from "./api";
 
 export type UsersRequest = SessionRequest & { readId: number; namespace: string | null };

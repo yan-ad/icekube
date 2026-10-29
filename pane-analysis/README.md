@@ -2,6 +2,8 @@
 
 **Expanded scope:** the audit now covers **all 41 built-in Kubernetes kinds**, dynamic custom resources, Users, Helm, Pod runtime/dock, forwarding and global dialogs, not only the original five workflows. Start with the [complete coverage matrix](00-coverage-matrix.md). This is source-and-fixture analysis, not a live walkthrough of every reference pane.
 
+**Current implementation follow-up:** [16: Implementation status and remaining gaps](16-implementation-status.md) reconciles these historical source-audit findings with the current dirty implementation tree. Substantial bounded readers, metadata, related collections and guarded operations are now implemented, but complete Freelens parity is not established. Read that ledger before treating the older missing-feature lists below as current; final validation totals remain coordinator-owned.
+
 ## Result
 
 **None of the originally requested workflows has complete information-and-action parity with the pinned Freelens implementation.** The expanded review also finds partial generic readers, a specialized but incomplete Pod inspector, metadata-only dynamic CR inventories without instance panes, and Helm summaries instead of full detail readers. Iceon has working inventories, permission feedback and guarded deletion; those capabilities do not establish every field/action integration.

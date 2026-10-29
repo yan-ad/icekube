@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import { errorCode, validResourceIdentity, type ConnectionErrorCode, type ResourcePage, type ResourceRequest } from "./api";
 
 export type PodSyncStatus = "opening" | "syncing" | "retrying" | "error" | "stopped";

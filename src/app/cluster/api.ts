@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import type { MetricState, NodeInfo } from "./nodeContract";
 import { metricStates, parseNode, validTimestamp } from "./nodeContract";
 import { resourceViews, type TableResourceKind } from "./resourceViews";

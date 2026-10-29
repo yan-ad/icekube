@@ -1,4 +1,5 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { isTauri } from "@tauri-apps/api/core";
+import { invoke, hasDevelopmentEngine } from "../engine";
 import { getWindowLayout } from "../layouts/window-layout";
 
 export type AppTheme = "system" | "light" | "dark";
@@ -97,6 +98,7 @@ export const defaultPreferences: Preferences = {
 };
 
 export function hasPreferencesEngine(): boolean {
+  if (hasDevelopmentEngine()) return true;
   if (typeof window === "undefined" || !isTauri()) return false;
   if ("__prefCalls" in window) return true;
   const win = window as unknown as Record<string, unknown>;

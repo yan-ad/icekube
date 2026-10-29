@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import type { ResourceKind, SessionRequest } from "./api";
 import type { ResourceReference } from "./detailApi";
 

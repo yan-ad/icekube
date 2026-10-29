@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
-import { invoke } from "@tauri-apps/api/core";
+import { invoke, isTauri } from "@tauri-apps/api/core";
 import { useRouterState } from "@tanstack/react-router";
 import { catalogError, pinKey, type PinTarget } from "./api";
 import { useCatalog } from "./CatalogProvider";
@@ -44,7 +44,7 @@ export function usePinnedItems() {
     await run("catalog_reorder_pins", { items: next });
   }
   async function context(target: PinTarget) {
-    if (!available) { setError("Pin context menus are available in the desktop app only."); return; }
+    if (!available || !isTauri()) { setError("Pin context menus are available in the desktop app only."); return; }
     if (current.current.busy) return;
     const previous = menu.current;
     if (previous) void invoke("catalog_pin_menu_cancel", { request: { requestId: previous } }).catch(() => {});

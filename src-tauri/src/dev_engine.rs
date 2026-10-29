@@ -133,22 +133,7 @@ async fn guard(State(state): State<Arc<Engine>>, request: Request, next: Next) -
             Err(error("invalidRequest")),
         );
     }
-    #[tokio::test]
-    async fn stopping_rejects_work_and_response_overflow_is_safe() {
-        let (_root, state) = fixture();
-        state.stopping.store(true, Ordering::SeqCst);
-        assert_eq!(
-            call(state, CLIENT, "catalog_list", json!({})).await,
-            json!({"ok":false,"error":"staleSession"})
-        );
-        let response = response(StatusCode::OK, Ok(Value::String("x".repeat(RESPONSE_LIMIT))));
-        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(response.headers()["cache-control"], "no-store");
-        assert_eq!(
-            serde_json::from_slice::<Value>(&to_bytes(response.into_body(), RESPONSE_LIMIT).await.unwrap()).unwrap(),
-            json!({"ok":false,"error":"limitExceeded"})
-        );
-    }
+
     let Ok(_permit) = state.permits.try_acquire() else {
         return response(StatusCode::TOO_MANY_REQUESTS, Err(error("busy")));
     };
@@ -979,6 +964,30 @@ mod tests {
         assert_eq!(
             router(state).oneshot(request(body)).await.unwrap().status(),
             StatusCode::REQUEST_TIMEOUT
+        );
+    }
+    #[tokio::test]
+    async fn stopping_rejects_work_and_response_overflow_is_safe() {
+        let (_root, state) = fixture();
+        state.stopping.store(true, Ordering::SeqCst);
+        assert_eq!(
+            call(state, CLIENT, "catalog_list", json!({})).await,
+            json!({"ok":false,"error":"staleSession"})
+        );
+        let response = response(
+            StatusCode::OK,
+            Ok(Value::String("x".repeat(RESPONSE_LIMIT))),
+        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(response.headers()["cache-control"], "no-store");
+        assert_eq!(
+            serde_json::from_slice::<Value>(
+                &to_bytes(response.into_body(), RESPONSE_LIMIT)
+                    .await
+                    .unwrap()
+            )
+            .unwrap(),
+            json!({"ok":false,"error":"limitExceeded"})
         );
     }
     #[tokio::test]

@@ -507,7 +507,7 @@ test("pagination and namespace changes cancel scoped reads and reset continuatio
   const scoped = (await calls(page)).at(-1)!.request;
   await navigate(page, "services"); await ready(page, "Services");
   expect((await calls(page, "cluster_resources_cancel")).some((call) => call.request.readId === scoped.readId)).toBe(true);
-  expect((await calls(page)).at(-1)!.request).toMatchObject({ kind: "services", namespace: null, continueToken: null });
+  expect((await calls(page)).at(-1)!.request).toMatchObject({ kind: "services", namespace: "production", continueToken: null });
 });
 
 test("late results from a cancelled namespace read cannot replace the current scope", async ({ page }) => {

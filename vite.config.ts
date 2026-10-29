@@ -2,11 +2,13 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwind from "@tailwindcss/vite";
 import process from "node:process";
+import { devEngine } from "./tools/dev-engine.ts";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(({ command }) => ({
   plugins: [
+    command === "serve" && process.env.ICEON_DEV_ENGINE === "1" && devEngine(),
     react(),
     tailwind(),
     {

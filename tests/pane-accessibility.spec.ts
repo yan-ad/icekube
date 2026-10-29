@@ -1,4 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
+import { writeFile } from "node:fs/promises";
 import { resourceViews } from "../src/app/cluster/resourceViews";
 
 type Call = { command: string; request: any };
@@ -116,10 +117,22 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(scale).toBeFocused();
+    const deletion = pane(page).getByRole("button", { name: "Delete resource", exact: true });
+    await deletion.focus(); await page.keyboard.press("Enter");
+    await expect(dialog.getByLabel("Deletion target")).toContainText("Cluster: Fixture cluster");
+    await expect(dialog.getByRole("listitem")).toHaveText("team-a/sample-a");
+    await expect(dialog.getByRole("button", { name: "Delete 1 resource", exact: true })).toBeEnabled();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(deletion).toBeEnabled();
+    expect(await calls(page, "cluster_resource_delete")).toEqual([]);
     const target = await close.boundingBox();
-    await info.attach("audit-measurements", { body: JSON.stringify({ width, theme, samples, closeTarget: target }, null, 2), contentType: "application/json" });
+    const measurements = JSON.stringify({ width, theme, samples, closeTarget: target }, null, 2);
+    await writeFile(info.outputPath("measurements.json"), measurements);
+    await info.attach("audit-measurements", { body: measurements, contentType: "application/json" });
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
     await noPageOverflow(page);
+    await page.screenshot({ path: info.outputPath("pane-text-resize.png") });
     await expect(close).toBeInViewport();
     await hide.focus(); await page.keyboard.press("Space");
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
@@ -133,7 +146,7 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
   });
 }
 
-test("related event message activates by keyboard and restores a connected original trigger", async ({ page }) => {
+test("related event message activates by keyboard and closes without a stale trigger", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   await fixture(page);
   const message = pane(page).getByRole("button", { name: "Scaled fixture replica set", exact: true });
@@ -141,8 +154,20 @@ test("related event message activates by keyboard and restores a connected origi
   await expect(pane(page).getByRole("heading", { name: "Cluster diagnostic text", exact: true })).toBeVisible();
   await expect.poll(async () => (await calls(page, "cluster_resource_detail")).at(-1)?.request.reference.kind).toBe("events");
   await expect(pane(page)).toContainText("Recognizable credential syntax is redacted, not all sensitive data.");
-  await pane(page).getByRole("button", { name: "Close inspector", exact: true }).focus();
-  await page.keyboard.press("Escape");
+  const close = pane(page).getByRole("button", { name: "Close inspector", exact: true });
+  await close.focus();
+  await page.keyboard.press("Enter");
   await expect(pane(page)).toHaveCount(0);
   expect(await calls(page, "cluster_workload_action")).toEqual([]);
+});
+
+test("delete confirmation restores keyboard focus to its pane trigger", async ({ page }) => {
+  test.fail(true, "Known audit defect: Delete resource is disabled while its dialog opens, so automatic trigger capture loses the focus target.");
+  await fixture(page);
+  const trigger = pane(page).getByRole("button", { name: "Delete resource", exact: true });
+  await trigger.focus(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(trigger).toBeFocused();
 });

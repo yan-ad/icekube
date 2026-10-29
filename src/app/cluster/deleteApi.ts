@@ -1,4 +1,4 @@
-import { invoke, isTauri } from "@tauri-apps/api/core";
+import { invoke, hasEngine as isTauri } from "../engine";
 import { connectionMessage, errorCode, validResourceIdentity, type ResourceItem, type ResourceKind, type SessionRequest } from "./api";
 import { creationNamespaced } from "./createApi";
 import { resourceCreation } from "./resourceViews";

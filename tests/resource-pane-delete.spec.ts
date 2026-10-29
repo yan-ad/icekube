@@ -21,8 +21,9 @@ async function fixture(page: Page, options: Controls = {}, section = "config-map
       name, namespace, uid: `${name}-uid`, resourceVersion: "list-version", status: "Active", createdAt: null, columns: {}, node: null,
     });
     Object.assign(window, { isTauri: true, __paneCalls: calls, __paneControls: control, __paneUnexpected: unexpected,
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
       __paneRelease: () => { control.holdDelete = false; control.holdDetail = false; pending.splice(0).forEach(resolve => resolve()); },
-      __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
+      __TAURI_INTERNALS__: { transformCallback: () => 1, unregisterCallback() {}, invoke: async (command: string, args?: { request: Request }) => {
         const r: Request = structuredClone(args?.request ?? {});
         calls.push({ command, request: r });
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
@@ -31,6 +32,14 @@ async function fixture(page: Page, options: Controls = {}, section = "config-map
         if (command === "catalog_connection_states") return [];
         if (command === "preferences_get") return null;
         if (command === "update_state") return { phase: "idle", version: null, error: null };
+        if (command === "plugin:event|listen") return 1;
+        if (command === "plugin:event|unlisten") return null;
+        if (command === "cluster_namespace_cache_get" || command === "cluster_namespace_cache_refresh") {
+          if (r.clusterId !== "one" || r.sessionId !== "pane-lease"
+            || command === "cluster_namespace_cache_refresh" && (!Number.isSafeInteger(r.readId) || Number(r.readId) <= 0)) throw "invalidInput";
+          const fetchedAt = Date.now();
+          return { clusterId: r.clusterId, sessionId: r.sessionId, names: section === "namespaces" ? ["alpha"] : ["team-a"], fetchedAt, expiresAt: fetchedAt + 60_000, partial: false };
+        }
         if (command === "cluster_permissions_review") return { clusterId: r.clusterId, sessionId: r.sessionId, readId: r.readId,
           authorizationEpoch: "pane-epoch", revision: r.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
           items: r.checks!.map(check => ({ check, decision: control.denied && check.action === "delete" ? "denied" : "allowed", reason: null })) };
@@ -117,8 +126,12 @@ test("refresh disables the retained entry and invalidates an unsubmitted confirm
   await fixture(page); await remove(page).click();
   await controls(page, { holdDetail: true, detailError: true });
   const reads = await calls(page, "cluster_resource_detail");
-  await pane(page).getByRole("button", { name: /Refresh details/ }).evaluate((button: HTMLButtonElement) => button.click());
+  // Model an external refresh while confirmation makes the background inert, not a user click through the modal.
+  await pane(page).getByRole("button", { name: /Refresh details/, includeHidden: true }).dispatchEvent("click");
   await expect.poll(async () => (await calls(page, "cluster_resource_detail")).length).toBeGreaterThan(reads.length);
+  const refreshed = (await calls(page, "cluster_resource_detail")).at(-1)!.request;
+  expect(refreshed).toMatchObject({ clusterId: "one", sessionId: "pane-lease", reference: reads.at(-1)!.request.reference });
+  expect(refreshed.readId).not.toBe(reads.at(-1)!.request.readId);
   await expect(dialog(page)).toHaveCount(0);
   await expect(remove(page)).toBeDisabled();
   await expect(pane(page)).toContainText("Inventory changed or became unavailable");
