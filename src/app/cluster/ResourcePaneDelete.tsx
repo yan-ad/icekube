@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
@@ -26,6 +26,12 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   const unavailable = disabled || !matching || (target !== null && target !== item);
   const allowed = !permissions.loading && checks.every(check => permissions.decision(check) === "allowed");
   const blocked = unavailable || !allowed || acceptedRead === detail.readId || target !== null;
+  useEffect(() => {
+    if (disabled && target) {
+      setNotice("Inventory changed or became unavailable. Refresh and review the resource before deleting.");
+      setTarget(null);
+    }
+  }, [disabled, target]);
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap">
       <Button label="Delete resource" size="sm" variant="ghost" isDisabled={blocked} onClick={() => {

@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 async function mockCustomResources(page: Page, scenario: "normal" | "paged" | "partial" | "replaced" | "many" | "adaptive" | "capped" | "duplicate" = "normal") {
@@ -49,6 +50,7 @@ async function mockCustomResources(page: Page, scenario: "normal" | "paged" | "p
 }
 
 async function openWidget(page: Page) {
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=overview");
   const nav = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
   await nav.getByRole("button", { name: "Expand Custom Resources", exact: true }).click();
@@ -96,6 +98,7 @@ test("leaving a custom view cancels its exact instance and discovery scopes", as
   await mockCustomResources(page);
   await openWidget(page);
   await expect(page.getByRole("cell", { name: "sample-widget", exact: true })).toBeVisible();
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/catalog/all");
   await expect.poll(async () => page.evaluate(() => (window as any).__customCalls.filter((call: any) => call.command.endsWith("_cancel")).map((call: any) => call.command))).toEqual(expect.arrayContaining(["cluster_custom_resources_cancel", "cluster_custom_resource_definitions_cancel"]));
   const calls = await page.evaluate(() => (window as any).__customCalls as { command: string; request?: Record<string, unknown> }[]);
@@ -129,6 +132,7 @@ for (const scenario of ["many", "adaptive"] as const) {
   test(`${scenario} discovery resumes bounded batches from the omitted definition`, async ({ page }) => {
     await mockCustomResources(page, scenario);
     const target = scenario === "many" ? 150 : 24;
+    await installNamespaceSnapshotMock(page);
     await page.goto(`/#/cluster/one?section=custom-resource-instances&definition=widgets${target}.example.test`);
     const nav = page.getByRole("navigation", { name: "Cluster navigation", exact: true });
     const main = page.getByRole("main");
@@ -149,6 +153,7 @@ for (const scenario of ["many", "adaptive"] as const) {
 
 test("sidebar continuation stops honestly at the global definition limit", async ({ page }) => {
   await mockCustomResources(page, "capped");
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=custom-resource-instances&definition=widgets999.example.test");
   await expect(page.getByRole("table", { name: "Widget999 custom resources", exact: true })).toBeVisible();
   await expect(page.getByText("Discovery is partial. 1000 definitions loaded. The 1,000-definition limit was reached.", { exact: true })).toBeVisible();
@@ -157,6 +162,7 @@ test("sidebar continuation stops honestly at the global definition limit", async
 
 test("a repeated name with a replaced UID fails continuation instead of silently merging", async ({ page }) => {
   await mockCustomResources(page, "duplicate");
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=custom-resource-instances&definition=widgets150.example.test");
   await page.getByRole("main").getByRole("button", { name: "Load more definitions", exact: true }).click();
   await expect(page.getByText(/\(sourceChanged\)/)).toBeVisible();
@@ -186,6 +192,7 @@ test("instance continuation pauses automatic reads and both manual refresh paths
 
 test("loading more sidebar definitions retains the selected UID instance snapshot", async ({ page }) => {
   await mockCustomResources(page, "many");
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=custom-resource-instances&definition=widgets0.example.test");
   await expect(page.getByRole("table", { name: "Widget0 custom resources", exact: true })).toBeVisible();
   const count = await page.evaluate(() => (window as any).__customCalls.filter((call: any) => call.command === "cluster_custom_resources").length);
@@ -207,6 +214,7 @@ test("a continuation scan deadline cancels its exact read and preserves prior de
       return original(command, args);
     };
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=custom-resource-instances&definition=widgets150.example.test");
   await expect(page.getByRole("link", { name: "Widget0", exact: true })).toBeVisible();
   await page.clock.install();

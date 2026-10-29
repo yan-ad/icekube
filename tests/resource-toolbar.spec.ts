@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 type Controls = { holdPermissions: boolean; holdNamespaces: boolean; holdResources: boolean; unknown: boolean; fail: boolean; release: () => void; calls: { command: string; request: any }[] };
@@ -26,6 +27,7 @@ async function fixture(page: Page, theme: "light" | "dark", unknown = false) {
       },
     } });
   }, unknown);
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=vertical-pod-autoscalers");
 }
 const filters = (page: Page) => page.getByRole("region", { name: "Vertical Pod Autoscalers filters", exact: true });
@@ -44,7 +46,7 @@ for (const theme of ["light", "dark"] as const) {
     const checking = page.getByRole("status", { name: "Checking access…", exact: true });
     await expect(checking).toBeVisible();
     await expect(page.getByText("Checking access…", { exact: true }).filter({ visible: true })).toHaveCount(1);
-    await expect(filters(page).locator(".astryx-spinner")).toHaveCount(1);
+    await expect(filters(page).locator(".astryx-spinner")).toHaveCount(0);
     const box = (await search(page).boundingBox())!;
     expect(box.width).toBeLessThanOrEqual(300);
     const region = (await filters(page).boundingBox())!;
@@ -94,6 +96,9 @@ for (const theme of ["light", "dark"] as const) {
     await page.setViewportSize({ width: 1568, height: 900 });
     await fixture(page, theme, true);
     await change(page, { holdPermissions: false, holdNamespaces: false, holdResources: false });
+    await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toHaveCount(0);
+    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+    await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
     await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toBeVisible();
     await expect(page.getByRole("table", { name: "Vertical Pod Autoscalers", exact: true })).toBeVisible();
     await expect(page.getByText("Access unverified", { exact: true })).toBeVisible();
@@ -114,8 +119,9 @@ for (const theme of ["light", "dark"] as const) {
     await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill("team-a");
     await page.getByRole("textbox", { name: "Known namespace", exact: true }).press("Enter");
     await expect.poll(() => page.evaluate(() => ((window as any).__toolbar as Controls).calls.filter(call => call.command === "cluster_resources" && call.request.kind === "verticalPodAutoscalers").at(-1)?.request.namespace)).toBe("team-a");
+    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
     await page.getByRole("button", { name: "Load namespaces", exact: true }).click();
-    await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toContainText("team-a");
+    await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toContainText("team-a");
     expect(errors).toEqual([]);
   });
 }

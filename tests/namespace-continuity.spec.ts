@@ -1,8 +1,9 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 type Request = Record<string, unknown>;
 type Fixture = Window & { __scopeCalls: { command: string; request: Request }[]; __holdScope: boolean; __releaseScope: () => void };
-const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
 const reads = (page: Page, kind: string) => page.evaluate(kind => (window as Fixture).__scopeCalls.filter(call => call.command === "cluster_resources" && call.request.kind === kind).map(call => call.request), kind);
 const navigate = (page: Page, section: string, cluster = "one") => page.evaluate(({ section, cluster }) => { location.hash = `/cluster/${cluster}?section=${section}`; }, { section, cluster });
 async function choose(page: Page, namespace: string) {
@@ -33,6 +34,7 @@ async function fixture(page: Page) {
     });
   });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=pods");
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toBeVisible();
 }

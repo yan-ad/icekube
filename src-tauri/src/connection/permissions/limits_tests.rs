@@ -6,13 +6,26 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
-#[derive(Default)]
 struct BatchActivity {
     active: AtomicUsize,
     maximum: AtomicUsize,
     started: Mutex<Vec<CancellationToken>>,
-    started_changed: tokio::sync::Notify,
+    started_permits: tokio::sync::Semaphore,
+    release: Option<tokio::sync::Semaphore>,
     completed: Mutex<Vec<String>>,
+}
+
+impl Default for BatchActivity {
+    fn default() -> Self {
+        Self {
+            active: AtomicUsize::new(0),
+            maximum: AtomicUsize::new(0),
+            started: Mutex::new(Vec::new()),
+            started_permits: tokio::sync::Semaphore::new(0),
+            release: None,
+            completed: Mutex::new(Vec::new()),
+        }
+    }
 }
 
 struct ActiveReview(Arc<BatchActivity>);
@@ -43,16 +56,20 @@ fn delayed_client(activity: Arc<BatchActivity>) -> Client {
                 let active = activity.active.fetch_add(1, Ordering::SeqCst) + 1;
                 activity.maximum.fetch_max(active, Ordering::SeqCst);
                 let _active = ActiveReview(activity.clone());
-                activity.started_changed.notify_one();
+                activity.started_permits.add_permits(1);
                 let bytes = request.into_body().collect().await.unwrap().to_bytes();
                 let mut value: Value = serde_json::from_slice(&bytes).unwrap();
                 let name = value["spec"]["resourceAttributes"]["name"]
                     .as_str()
                     .unwrap()
                     .to_owned();
-                tokio::time::sleep(Duration::from_millis(400)).await;
-                if name == "node-0" {
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                if let Some(release) = &activity.release {
+                    release.acquire().await.unwrap().forget();
+                } else {
+                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    if name == "node-0" {
+                        tokio::time::sleep(Duration::from_millis(1)).await;
+                    }
                 }
                 activity.completed.lock().unwrap().push(name);
                 value["status"] = json!({"allowed":true});
@@ -114,11 +131,14 @@ async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
     assert_eq!(activity.started.lock().unwrap().len(), 32);
 }
 
-#[tokio::test(start_paused = true)]
+#[tokio::test]
 async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
     for invalidate in [false, true] {
         let (_root, _catalog, engine, id, _) = fixture();
-        let activity = Arc::new(BatchActivity::default());
+        let activity = Arc::new(BatchActivity {
+            release: Some(tokio::sync::Semaphore::new(0)),
+            ..BatchActivity::default()
+        });
         let snapshot =
             crate::connection::tests::connected(&engine, id, delayed_client(activity.clone()))
                 .await;
@@ -126,14 +146,12 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
         let request = batch_request(&identity);
         let review = engine.review_permissions(request.clone());
         let cancel = async {
-            tokio::task::yield_now().await;
-            tokio::time::timeout(Duration::from_secs(1), async {
-                while activity.started.lock().unwrap().len() < 2 {
-                    activity.started_changed.notified().await;
-                }
-            })
-            .await
-            .expect("two concurrent reviews must reach the fake endpoint before cancellation");
+            activity
+                .started_permits
+                .acquire_many(2)
+                .await
+                .unwrap()
+                .forget();
             assert_eq!(activity.active.load(Ordering::SeqCst), 2);
             if invalidate {
                 engine.refresh_permissions(identity).unwrap();
@@ -160,6 +178,8 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
         );
         assert_eq!(activity.started.lock().unwrap().len(), 2);
         assert_eq!(activity.maximum.load(Ordering::SeqCst), 2);
+        assert_eq!(activity.active.load(Ordering::SeqCst), 0);
+        assert!(activity.completed.lock().unwrap().is_empty());
         assert!(
             activity
                 .started

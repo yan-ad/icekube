@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useStore } from "zustand";
 import { Button } from "@astryxdesign/core/Button";
 import { Selector } from "@astryxdesign/core/Selector";
@@ -15,6 +15,7 @@ import { useRegisterClusterRefresh } from "./WorkspaceRefresh";
 type NamespaceScopeValue = {
   namespaces: string[];
   loading: boolean;
+  cached: boolean;
   error: ConnectionErrorCode | null;
   partial: boolean;
   denied: boolean;
@@ -32,15 +33,15 @@ export function useNamespaceSelection(): NamespaceSelection {
   return selection;
 }
 
-export function NamespaceScopeProvider({ clusterId, sessionId, children }: SessionRequest & { children: ReactNode }) {
-  return <NamespaceSessionScope key={JSON.stringify([clusterId, sessionId])} clusterId={clusterId} sessionId={sessionId}>{children}</NamespaceSessionScope>;
+export function NamespaceScopeProvider({ clusterId, sessionId, contextName, children }: SessionRequest & { contextName?: string; children: ReactNode }) {
+  return <NamespaceSessionScope key={JSON.stringify([clusterId, sessionId])} clusterId={clusterId} sessionId={sessionId} contextName={contextName}>{children}</NamespaceSessionScope>;
 }
 
-function NamespaceSessionScope({ clusterId, sessionId, children }: SessionRequest & { children: ReactNode }) {
+function NamespaceSessionScope({ clusterId, sessionId, children }: SessionRequest & { contextName?: string; children: ReactNode }) {
   const [namespace, setNamespace] = useState("");
   const selection = useMemo<NamespaceSelection>(() => [namespace, setNamespace], [namespace]);
   const owner = useMemo(() => createNamespaceStore({ clusterId, sessionId }), [clusterId, sessionId]);
-  const { namespaces, loading, error, partial, subscribers, subscribeSelector: subscribe, retry } = useStore(owner.store);
+  const { namespaces, loading, cached, error, partial, subscribers, subscribeSelector: subscribe, retry } = useStore(owner.store);
   useEffect(() => owner.retain(), [owner]);
   useRegisterClusterRefresh(clusterId, owner.store.getState().refresh);
   const active = subscribers > 0;
@@ -51,7 +52,7 @@ function NamespaceSessionScope({ clusterId, sessionId, children }: SessionReques
     [owner, permissions.loading, decision, permissions.epoch]);
   const denied = decision === "denied";
   const unverified = !permissions.loading && decision === "unknown";
-  const value = useMemo(() => ({ namespaces: denied ? [] : namespaces, loading, error, partial, denied, unverified, subscribe, retry }), [namespaces, loading, error, partial, denied, unverified, subscribe, retry]);
+  const value = useMemo(() => ({ namespaces: denied ? [] : namespaces, loading, cached, error, partial, denied, unverified, subscribe, retry }), [namespaces, loading, cached, error, partial, denied, unverified, subscribe, retry]);
   return <SelectionContext.Provider value={selection}><Context.Provider value={value}>{children}</Context.Provider></SelectionContext.Provider>;
 }
 
@@ -67,7 +68,7 @@ export function NamespaceSelector({ value, onChange, label = "Namespace", allowA
   if (value && !namespaces.includes(value)) choices.push({ value, label: `${value} (not in loaded list)` });
   return <VStack gap={1} style={{ minWidth: 0, maxWidth: "100%" }}>
     <Selector label={label} isLabelHidden={isLabelHidden} value={value} onChange={onChange} size="sm" width="min(18rem, 100%)" hasSearch presentation="adaptive"
-      isLoading={loading} placeholder={allowAll ? "All namespaces" : "Choose namespace"}
+      isLoading={loading && namespaces.length === 0} placeholder={allowAll ? "All namespaces" : "Choose namespace"}
       options={[...(allowAll ? [{ value: "", label: "All namespaces" }] : []), ...choices]}
       emptyText={loading ? "Loading namespaces…" : error ? "Namespace list unavailable" : "No namespaces returned"} />
     {loading && <VisuallyHidden><Text role="status" aria-label="Loading namespaces…">Loading namespaces…</Text></VisuallyHidden>}
@@ -78,26 +79,35 @@ export function NamespaceSelector({ value, onChange, label = "Namespace", allowA
 export function NamespaceFeedback({ value, onChange, allowAll = true }: Pick<NamespaceSelectorProps, "value" | "onChange" | "allowAll">) {
   const scope = useContext(Context);
   if (!scope) throw new Error("NamespaceScopeProvider is required");
-  const { loading, error, partial, denied, unverified, namespaces, retry } = scope;
+  const { loading, cached, error, partial, denied, unverified, namespaces, retry } = scope;
   const [draft, setDraft] = useState(value);
+  const [expanded, setExpanded] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const detailsId = useId();
+  const manualId = useId();
   useEffect(() => setDraft(value), [value]);
   const manual = denied || unverified || error === "permissionDenied";
   const empty = !loading && !error && !denied && !unverified && namespaces.length === 0;
-  if (!manual && !error && !partial && !empty) return null;
-  return <VStack gap={2} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-    {manual && <>
-      <Text role="status" type="supporting">{denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list."}</Text>
-      <HStack gap={2} wrap="wrap" vAlign="end">
-        <TextInput label="Known namespace" value={draft} onChange={setDraft} size="sm" width="min(18rem, 100%)" onEnter={() => { if (validNamespace(draft)) onChange(draft); }} />
-        <Button label="Use namespace" size="sm" variant="ghost" isDisabled={!validNamespace(draft)} onClick={() => { if (validNamespace(draft)) onChange(draft); }} />
+  if (!manual && !error && !partial && !empty && !cached) return null;
+  return <VStack gap={1} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+    <HStack gap={2} wrap="wrap">
+      {cached && !denied && <Text role="status" type="supporting">Cached namespaces</Text>}
+      <Button label="Namespace options" size="sm" variant="ghost" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(current => !current)} />
+    </HStack>
+    {error && <Text role="status" type="supporting">Could not load namespaces. {connectionMessage(error)}</Text>}
+    {expanded && <VStack id={detailsId} gap={2}>
+      {manual && <>
+        <Text type="supporting">{denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list."}</Text>
+        <Button label="Enter namespace" size="sm" variant="ghost" aria-expanded={manualOpen} aria-controls={manualId} onClick={() => setManualOpen(current => !current)} />
+        {manualOpen && <HStack id={manualId} gap={2} wrap="wrap" vAlign="end">
+          <TextInput label="Known namespace" value={draft} onChange={setDraft} size="sm" width="min(18rem, 100%)" onEnter={() => { if (validNamespace(draft)) onChange(draft); }} />
+          <Button label="Use namespace" size="sm" variant="ghost" isDisabled={!validNamespace(draft)} onClick={() => { if (validNamespace(draft)) onChange(draft); }} />
+        </HStack>}
         {unverified && !loading && <Button label="Load namespaces" size="sm" variant="ghost" onClick={retry} />}
-      </HStack>
-    </>}
-    {error && <>
-      <Text role="status" type="supporting">Could not load namespaces. {connectionMessage(error)}{allowAll ? " All namespaces remains available." : " Retry to choose a namespace."}</Text>
-      <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />
-    </>}
-    {partial && <Text role="status" type="supporting">The namespace list is partial; at most {NAMESPACE_LIMIT} names are loaded.{allowAll ? " All namespaces still covers the full request scope." : ""}</Text>}
-    {!loading && !error && !denied && !unverified && namespaces.length === 0 && <Text role="status" type="supporting">No namespaces were returned.</Text>}
+      </>}
+      {error && !denied && <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />}
+      {partial && <Text role="status" type="supporting">The namespace list is partial; at most {NAMESPACE_LIMIT} names are loaded.{allowAll ? " All namespaces still covers the full request scope." : ""}</Text>}
+      {empty && <Text type="supporting">No namespaces were returned.</Text>}
+    </VStack>}
   </VStack>;
 }

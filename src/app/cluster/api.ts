@@ -34,6 +34,11 @@ const messages = {
   resourceUnavailable: "This cluster resource is unavailable. Try again after reconnecting.",
 } as const;
 export type ConnectionErrorCode = keyof typeof messages;
+export function connectionMessage(value: unknown): string {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(messages, value)
+    ? messages[value as ConnectionErrorCode]
+    : messages.connectionFailed;
+}
 export type SessionRequest = { clusterId: string; sessionId: string };
 export type ConnectionSnapshot = SessionRequest & {
   contextName: string;
@@ -81,7 +86,6 @@ function validReadId(value: unknown): value is number {
 export function errorCode(value: unknown): ConnectionErrorCode {
   return typeof value === "string" && Object.prototype.hasOwnProperty.call(messages, value) ? value as ConnectionErrorCode : "connectionFailed";
 }
-export function connectionMessage(code: ConnectionErrorCode) { return messages[code]; }
 function record(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

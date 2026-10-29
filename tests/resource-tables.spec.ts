@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 import { resourceCreation, resourceViews } from "../src/app/cluster/resourceViews";
 
@@ -175,7 +176,7 @@ const calls = (page: Page, command = "cluster_resources", kind?: string) => page
     (command !== "cluster_resources" || (kind ? call.request.kind === kind : call.request.kind !== "namespaces"))), { command, kind },
 );
 async function selectNamespace(page: Page, namespace: string) {
-  const selector = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  const selector = page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
   await expect(selector).toBeVisible();
   await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await selector.click();
@@ -338,6 +339,7 @@ async function fixture(page: Page, options: Controls & { legacyPreference?: bool
     });
   }, { options, views: resourceViews });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(route(options.section ?? "pods"));
   await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
 }
@@ -371,7 +373,7 @@ for (const view of resourceViews) test(`registry ${view.section}: direct route, 
         for (const column of view.columns) await expect(grid).toContainText(
           view.kind === "customResourceDefinitions" && column.key === "group" ? "apps.example.test" : `fact-${column.key}`,
         );
-        await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(view.namespaced ? 1 : 0);
+        await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toHaveCount(view.namespaced ? 1 : 0);
       } else {
         expect(helm || forward).toBe(true);
         await expect(grid.getByRole("row")).toHaveCount(2);

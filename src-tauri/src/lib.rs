@@ -1,4 +1,8 @@
 mod catalog;
+#[cfg(all(feature = "dev-engine", not(debug_assertions)))]
+compile_error!("dev-engine is restricted to debug builds");
+#[cfg(all(feature = "dev-engine", debug_assertions))]
+pub mod dev_engine;
 mod catalog_picker;
 mod connection;
 mod context_menu;
@@ -334,6 +338,22 @@ async fn cluster_resources(
     request: connection::ResourceRequest,
 ) -> Result<connection::ResourcePage, connection::ConnectionError> {
     connections.resources(request).await
+}
+
+#[tauri::command]
+async fn cluster_namespace_cache_get(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::SessionRequest,
+) -> Result<Option<connection::namespace_cache::NamespaceSnapshot>, connection::ConnectionError> {
+    connections.namespace_cache_get(request).await
+}
+
+#[tauri::command]
+async fn cluster_namespace_cache_refresh(
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::namespace_cache::NamespaceRefreshRequest,
+) -> Result<connection::namespace_cache::NamespaceSnapshot, connection::ConnectionError> {
+    connections.namespace_cache_refresh(request).await
 }
 
 #[tauri::command]
@@ -693,6 +713,8 @@ pub fn run() {
             pin_menu::catalog_pin_menu_show,
             pin_menu::catalog_pin_menu_cancel,
             catalog_list,
+            cluster_namespace_cache_get,
+            cluster_namespace_cache_refresh,
             catalog_picker::catalog_choose_kubeconfig,
             catalog_connection_states,
             catalog_import_kubeconfig,

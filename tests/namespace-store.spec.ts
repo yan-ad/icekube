@@ -50,13 +50,14 @@ test("session store deduplicates reads, ignores invalidated responses and clears
     await new Promise(resolve => setTimeout(resolve, 0));
     const epochNames = [...state().namespaces];
     state().refresh();
+    const retainedDuringRefresh = [...state().namespaces];
     const disposing = reads.at(-1)!;
     resubscribe(); releaseOwner();
     await new Promise(resolve => setTimeout(resolve, 0));
     waiters[3](["after-disposal"]);
     await new Promise(resolve => setTimeout(resolve, 0));
     return { deduplicated, retainedWithoutConsumers, reusedPending, replaced,
-      afterStale, afterRenewal, denied, deniedRetryReads, epochReads, epochNames,
+      afterStale, afterRenewal, denied, deniedRetryReads, epochReads, epochNames, retainedDuringRefresh,
       cancelledDisposed: cancelled.some(request => request.readId === disposing.readId),
       disposedNames: state().namespaces, allScopes: reads.every(request => request.clusterId === "fixture" && request.sessionId === "session"),
     };
@@ -72,6 +73,7 @@ test("session store deduplicates reads, ignores invalidated responses and clears
   expect(result.deniedRetryReads).toBe(2);
   expect(result.epochReads).toBe(3);
   expect(result.epochNames).toEqual(["new-identity"]);
+  expect(result.retainedDuringRefresh).toEqual(["new-identity"]);
   expect(result.cancelledDisposed).toBe(true);
   expect(result.disposedNames).toEqual([]);
   expect(result.allScopes).toBe(true);

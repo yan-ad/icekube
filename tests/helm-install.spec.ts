@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 type Request = Record<string, string | number | boolean | null>;
@@ -48,6 +49,7 @@ async function fixture(page: Page, view = "charts") {
     });
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(`/#/cluster/one?section=helm-${view}`);
   await expect(page.getByRole("button", { name: "Install Helm chart", exact: true })).toBeEnabled();
 }

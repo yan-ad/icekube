@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 import type { PermissionCheck, PermissionReviewRequest } from "../src/app/cluster/permissionsApi";
 
@@ -10,6 +11,8 @@ test("all-namespaces denial keeps the chooser and filters available for an allow
   await fixture(page, "namespaceOnly", "deployments");
   await expect(page.getByText("Access denied", { exact: true })).toBeVisible();
   await expect(page.getByRole("link", { name: "Deployments", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+  await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
   await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toBeVisible();
   await expect(page.getByRole("table", { name: "Deployments", exact: true })).toHaveCount(0);
   await expect(page.getByText("No deployments were returned.", { exact: true })).toHaveCount(0);
@@ -75,9 +78,14 @@ async function fixture(page: Page, mode: "readOnly" | "denied" | "unknown" | "na
     });
   }, { mode });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(`/#/cluster/one?section=${section}`);
 }
 async function namespace(page: Page, value: string) {
+  if (!await page.getByRole("textbox", { name: "Known namespace", exact: true }).isVisible()) {
+    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+    await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
+  }
   await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill(value);
   await page.getByRole("button", { name: "Use namespace", exact: true }).click();
 }

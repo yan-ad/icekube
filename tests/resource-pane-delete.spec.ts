@@ -89,7 +89,7 @@ for (const section of ["config-maps", "namespaces"]) test(`${section}: inspector
   } }]);
   expect((await calls(page, "cluster_resource_detail")).length).toBe(reads);
   expect((await calls(page, "cluster_resources")).length).toBe(lists);
-  await dialog(page).getByRole("button", { name: "Close", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Close", exact: true }).last().click();
   await expect(dialog(page)).toHaveCount(0);
   await expect.poll(async () => (await calls(page, "cluster_resource_detail")).length).toBeGreaterThan(reads);
   await expect.poll(async () => (await calls(page, "cluster_resources")).length).toBeGreaterThan(lists);
@@ -116,7 +116,9 @@ test("known denied delete access never opens confirmation", async ({ page }) => 
 test("refresh disables the retained entry and invalidates an unsubmitted confirmation", async ({ page }) => {
   await fixture(page); await remove(page).click();
   await controls(page, { holdDetail: true, detailError: true });
-  await pane(page).getByRole("button", { name: "Refresh details (Cmd/Ctrl+R)", exact: true }).click({ force: true });
+  const reads = await calls(page, "cluster_resource_detail");
+  await pane(page).getByRole("button", { name: /Refresh details/ }).evaluate((button: HTMLButtonElement) => button.click());
+  await expect.poll(async () => (await calls(page, "cluster_resource_detail")).length).toBeGreaterThan(reads.length);
   await expect(dialog(page)).toHaveCount(0);
   await expect(remove(page)).toBeDisabled();
   await expect(pane(page)).toContainText("Inventory changed or became unavailable");

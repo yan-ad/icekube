@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 type Request = Record<string, string | number | null>;
@@ -169,6 +170,7 @@ async function fixture(page: Page, section = "helm-releases", options: Controls 
     });
   }, options);
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(`/#/cluster/one?section=${section}`);
   await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
 }
@@ -186,7 +188,7 @@ test("Helm charts search cached inventory locally and open explicit installation
   const table = grid(page, "Helm Charts");
   await expect(table).toContainText("Cached HTTP chart");
   await expect(table.getByRole("columnheader")).toHaveText(["Name", "Version", "App version", "Description", "Actions"]);
-  await expect(page.getByRole("button", { name: /^Namespace(?:\s|$)/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Charts filters", exact: true })).toBeVisible();
   const before = await calls(page, "helm_table");
   expect(before.at(-1)!.request).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "charts", namespace: null, readId: expect.any(Number) });

@@ -75,8 +75,10 @@ function DeleteConfirmation({ clusterId, sessionId, kind, targets, clusterName, 
     active.current = null;
     if (running.current && submitted.current) {
       const known = completed.current.map(result => `${result.label}: ${result.message}`).join(" ");
-      onNotice(`${known ? `${known} ` : ""}${uncertainty}`);
       onRefresh();
+      onNotice(`${known ? `${known} ` : ""}${uncertainty}`);
+      onClose();
+      return;
     }
     onClose();
   };

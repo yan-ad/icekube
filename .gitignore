@@ -27,3 +27,4 @@ blob-report
 *.sln
 *.sw?
 *__pycache__*
+artifacts

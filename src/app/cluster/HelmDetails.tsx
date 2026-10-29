@@ -18,26 +18,26 @@ export function HelmDetails({ clusterId, sessionId, reference, revision, onLoadi
   useEffect(() => {
     let disposed = false;
     let readId: number;
-    try { readId = nextReadId(); } catch (reason) { setState({ scope, loading: false, error: helmMessage(reason) }); onLoadingChange(false); return; }
+    try { readId = nextReadId(); } catch (reason) { setState(previous => ({ scope, detail: previous.scope === scope ? previous.detail : undefined, loading: false, error: helmMessage(reason) })); onLoadingChange(false); return; }
     const request = { clusterId, sessionId, view, name, namespace, version, readId };
-    setState({ scope, loading: true });
+    setState(previous => ({ scope, detail: previous.scope === scope ? previous.detail : undefined, loading: true }));
     onLoadingChange(true);
     void loadHelmDetail(request).then(detail => {
       if (!disposed) setState({ scope, detail, loading: false });
     }).catch(reason => {
-      if (!disposed) setState({ scope, error: helmMessage(reason), loading: false });
+      if (!disposed) setState(previous => ({ scope, detail: previous.scope === scope ? previous.detail : undefined, error: helmMessage(reason), loading: false }));
     }).finally(() => { if (!disposed) onLoadingChange(false); });
     return () => {
       disposed = true;
-      onLoadingChange(false);
       void cancelHelmDetail({ clusterId, sessionId, view, readId }).catch(() => {});
     };
   }, [clusterId, sessionId, view, name, namespace, version, scope, revision, retry, onLoadingChange]);
   const current = state.scope === scope ? state : null;
   const detail = current?.detail;
   return <VStack gap={4} padding={4} style={{ minWidth: 0 }}>
-    {(!current || current.loading) && <ContentLoading label="Loading Helm details…" />}
-    {current?.error && <ContentError title="Could not load Helm details" message={current.error} onRetry={() => setRetry(value => value + 1)} />}
+    {(!current || current.loading) && <ContentLoading label="Loading Helm details…" refreshing={!!detail} />}
+    {current?.loading && detail && <Text role="status" color="secondary">Refreshing details. Showing the last successful snapshot, which may be stale.</Text>}
+    {current?.error && <ContentError title="Could not load Helm details" message={current.error} retained={!!detail} onRetry={() => setRetry(value => value + 1)} />}
     {detail && <>
       {detail.truncated && <Text role="status">These details are partial. Metadata is limited to 64 KiB and history to 100 revisions.</Text>}
       <MetadataList aria-label="Helm identity">

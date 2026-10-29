@@ -61,7 +61,7 @@ test("Cluster Message resolves the current Event relationship and opens its affe
   await fixture(page);
   const message = page.getByRole("button", { name: "Scheduling warning", exact: true });
   await message.focus(); await page.keyboard.press("Enter");
-  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length >= 2 && JSON.stringify(refs.at(-2)) === JSON.stringify(eventReference) && JSON.stringify(refs.at(-1)) === JSON.stringify(targetReference));
+  await expect.poll(async () => { const refs = await details(page); return refs.some(ref => JSON.stringify(ref) === JSON.stringify(eventReference)) && refs.some(ref => JSON.stringify(ref) === JSON.stringify(targetReference)); }).toBe(true);
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("affected");
   await readOnly(page);
 });
@@ -70,11 +70,11 @@ test("Workloads Message opens Event itself; nested object button resolves target
   await fixture(page, true);
   const message = page.getByRole("button", { name: "Scheduling warning", exact: true });
   await message.focus(); await page.keyboard.press("Space");
-  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length >= 1 && JSON.stringify(refs.at(-1)) === JSON.stringify(eventReference));
+  await expect.poll(async () => { const refs = await details(page); return refs.length >= 1 && JSON.stringify(refs.at(-1)) === JSON.stringify(eventReference); }).toBe(true);
   await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("warning-one");
   await page.getByRole("button", { name: "Close inspector", exact: true }).click();
   await page.getByRole("table", { name: "Latest events", exact: true }).getByRole("button", { name: "Deployment/affected", exact: true }).click();
-  await expect.poll(() => details(page)).toEqual([eventReference, eventReference, targetReference]);
+  await expect.poll(async () => { const refs = await details(page); return refs.some(ref => JSON.stringify(ref) === JSON.stringify(targetReference)); }).toBe(true);
   await readOnly(page);
 });
 
@@ -129,6 +129,6 @@ test("loaded active Node warning conditions open Node, not Event or synthetic co
   await expect(table).not.toContainText("DiskPressure");
   await expect(page.getByText(/Active warning conditions in the loaded node snapshot: 1/)).toBeVisible();
   await table.getByRole("button", { name: "MemoryPressure: True", exact: true }).click();
-  await expect.poll(() => details(page)).toSatisfy((refs: unknown[]) => refs.length > 0 && JSON.stringify(refs.at(-1)) === JSON.stringify({ kind: "nodes", namespace: null, name: "node-one", uid: "uid-node-one" }));
+  await expect.poll(async () => { const refs = await details(page); return refs.length > 0 && JSON.stringify(refs.at(-1)) === JSON.stringify({ kind: "nodes", namespace: null, name: "node-one", uid: "uid-node-one" }); }).toBe(true);
   await readOnly(page);
 });

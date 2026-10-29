@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 import { resourceCreation, resourceViews } from "../src/app/cluster/resourceViews";
 
@@ -209,14 +210,15 @@ async function fixture(page: Page, section = "config-maps") {
     });
   });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(`/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: /^(?:Create |Add Namespace$)/ }).first()).toBeVisible();
 }
 async function openEditor(page: Page) {
-  const scope = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  const scope = page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
   if (await scope.count() && (await scope.innerText()).includes("All namespaces")) await namespace(page, "team-a");
   await page.getByRole("button", { name: /^(?:Create |Add Namespace$)/ }).first().click();
-  const target = dialog(page).getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  const target = dialog(page).getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
   if (await target.count()) {
     await target.click();
     await page.getByRole("option", { name: "team-a", exact: true }).click();
@@ -229,7 +231,7 @@ async function validate(page: Page, yaml = manifest) {
 }
 async function namespace(page: Page, name: string) {
   await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).click();
+  await page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ }).click();
   await page.getByRole("option", { name, exact: true }).click();
 }
 test.afterEach(async ({ page }) => {
@@ -354,7 +356,7 @@ for (const disposal of ["cancel", "escape", "route", "session", "namespace"] as 
   if (disposal === "session") await page.evaluate(() => { location.hash = "/catalog"; });
   if (disposal === "namespace") {
     // Synthetic events exercise owner disposal while the modal makes background controls inert to a pointer.
-    await page.getByRole("button", { name: /^Namespace(?:\s|$)/, includeHidden: true }).evaluate(node => (node as HTMLButtonElement).click());
+    await page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/, includeHidden: true }).evaluate(node => (node as HTMLButtonElement).click());
     await page.getByRole("option", { name: "team-b", exact: true, includeHidden: true }).dispatchEvent("click");
   }
   await expect(dialog(page)).toHaveCount(0);

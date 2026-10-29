@@ -1,6 +1,8 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test } from "@playwright/test";
 
 test("permission replies are exact, bounded and session scoped", async ({ page }) => {
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   expect(await page.evaluate(async () => {
     const path = "/src/app/cluster/permissionsApi.ts";
@@ -51,6 +53,7 @@ for (const theme of ["light", "dark"] as const) {
         },
       } });
     });
+    await installNamespaceSnapshotMock(page);
     await page.goto("/#/cluster/one?section=deployments");
     const nav = page.locator("#cluster-sidebar");
     const nodes = nav.getByRole("link", { name: "Nodes", exact: true });
@@ -104,6 +107,7 @@ test("permission queue deduplicates subscribers and serializes batches above 32"
         items: request.checks.map((check: any) => ({ check, decision: "allowed", reason: null })) };
     } };
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const path = "/src/app/cluster/PermissionProvider.tsx";
@@ -144,6 +148,7 @@ test("a denied cluster-scoped direct route never mounts the resource reader", as
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=nodes");
   await expect(page.getByText("Access denied", { exact: true })).toBeVisible();
   expect(await page.evaluate(() => (window as any).__permissionReads)).toEqual([]);
@@ -163,6 +168,7 @@ test("permission cache expires and removing its last subscriber stops refresh ti
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   expect(await page.evaluate(async () => {
     const path = "/src/app/cluster/PermissionProvider.tsx";
@@ -200,6 +206,7 @@ test("replacing a permission scope cancels its exact read and rejects late repli
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const path = "/src/app/cluster/PermissionProvider.tsx";
@@ -240,6 +247,7 @@ test("an epoch change invalidates earlier batches even when decisions change", a
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   expect(await page.evaluate(async () => {
     const path = "/src/app/cluster/PermissionProvider.tsx";
@@ -268,6 +276,7 @@ test("subscriptions registered before a session survive context ownership and di
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/");
   const result = await page.evaluate(async () => {
     const path = "/src/app/cluster/PermissionProvider.tsx";
@@ -330,6 +339,7 @@ test("routine permission renewal keeps the mounted deployment and namespace read
       },
     } });
   });
+  await installNamespaceSnapshotMock(page);
   await page.goto("/#/cluster/one?section=deployments");
   await expect.poll(() => page.evaluate(() => (window as any).__renewal.reads.includes("deployments") && (window as any).__renewal.reads.includes("namespaces"))).toBe(true);
   await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));

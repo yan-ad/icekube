@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 
 type Request = Record<string, string | number | null | undefined>;
@@ -25,7 +26,7 @@ type MockWindow = Window & {
 const route = (cluster = "one", section = "pods") => `/#/cluster/${cluster}?section=${section}`;
 const calls = (page: Page, kind?: string) => page.evaluate((kind) => (window as MockWindow).__namespaceCalls.filter((call) =>
   call.command === "cluster_resources" && (!kind || call.request.kind === kind)), kind);
-const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
 
 test("namespace cache survives pages without filters and reappearing consumers", async ({ page }) => {
   await fixture(page); await connected(page);
@@ -104,6 +105,7 @@ test("cached namespace failures do not retry on navigation", async ({ page }) =>
     else await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
   }
   expect(await calls(page, "namespaces")).toHaveLength(1);
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await page.getByRole("button", { name: "Retry namespaces", exact: true }).click();
   await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(2);
 });
@@ -223,6 +225,7 @@ async function fixture(page: Page, controls: Controls = {}, cluster = "one", sec
     }
   }, { controls });
   await page.setViewportSize({ width: 1440, height: 900 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(route(cluster, section));
   await expect(page.getByRole("switch", { name: "Resource tables", exact: true })).toHaveCount(0);
 }
@@ -317,6 +320,7 @@ test("cancels the exact pending namespace read on disposal and ignores its late 
 test("permission denied keeps All namespaces usable, offers retry, and retry succeeds", async ({ page }) => {
   await fixture(page, { namespaceFailure: "permissionDenied" }); await connected(page);
   await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await expect(page.getByRole("button", { name: "Retry namespaces", exact: true })).toBeVisible();
   await choose(page, "All namespaces");
   expect((await calls(page, "pods")).at(-1)!.request).toMatchObject({ namespace: null });
@@ -332,6 +336,7 @@ test("permission denied keeps All namespaces usable, offers retry, and retry suc
 
 test("reports an empty namespace response honestly without fabricating options", async ({ page }) => {
   await fixture(page, { namespaceEmpty: true }); await connected(page);
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await expect(page.getByText("No namespaces were returned.", { exact: true })).toBeVisible();
   await selector(page).click();
   await expect(page.getByRole("option", { name: "All namespaces", exact: true })).toBeVisible();
@@ -351,6 +356,7 @@ test("follows both namespace pages before exposing the sorted complete list", as
 test("caps namespace pagination at ten pages and 1000 names with an honest partial status", async ({ page }) => {
   await fixture(page, { namespaceCap: true }); await connected(page);
   expect(await calls(page, "namespaces")).toHaveLength(10);
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await expect(page.getByText(/namespace list is partial/)).toBeVisible();
 
   await selector(page).click();

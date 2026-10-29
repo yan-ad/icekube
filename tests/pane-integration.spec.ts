@@ -15,12 +15,20 @@ async function fixture(page: Page) {
     const item = (kind: string, name: string) => ({ name, namespace: views.find(view => view.kind === kind)?.namespaced ? "team-a" : null, uid: `${kind}-${name}-uid`, resourceVersion: String(state.version),
       createdAt: "2026-10-01T00:00:00Z", status: "Ready", node: null,
       columns: Object.fromEntries((views.find(view => view.kind === kind)?.columns ?? []).map(column => [column.key, column.key === "replicas" ? "2" : "1"])) });
-    Object.assign(window, { isTauri: true, __paneCalls: calls, __paneControl: state, __TAURI_INTERNALS__: { invoke: async (command: string, args?: any) => {
+    Object.assign(window, { isTauri: true, __paneCalls: calls, __paneControl: state,
+      __TAURI_EVENT_PLUGIN_INTERNALS__: { unregisterListener() {} },
+      __TAURI_INTERNALS__: { transformCallback: () => 1, unregisterCallback() {}, invoke: async (command: string, args?: any) => {
       const request = structuredClone(args?.request ?? {}); calls.push({ command, request });
-      if (command.endsWith("_cancel") || command === "cluster_permissions_refresh" || command === "cluster_disconnect") return null;
+      if (command === "plugin:event|listen") return 1;
+      if (command === "plugin:event|unlisten" || command.endsWith("_cancel") || command === "cluster_permissions_refresh" || command === "cluster_disconnect") return null;
       if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: "fixture", revision: 1,
         checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map((check: any) => ({ check, decision: "allowed", reason: null })) };
-      if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Fixture cluster", contextName: "fixture", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };
+      if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], pinnedItems: [], clusters: [{ id: "one", name: "Fixture cluster", contextName: "fixture", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, pinnedSections: [], status: "disconnected" }] };
+      if (command === "catalog_connection_states") return [];
+      if (command === "cluster_namespace_cache_get" || command === "cluster_namespace_cache_refresh") {
+        const fetchedAt = Date.now();
+        return { clusterId: request.clusterId, sessionId: request.sessionId, names: ["team-a"], fetchedAt, expiresAt: fetchedAt + 60_000, partial: false };
+      }
       if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId, sessionId: request.sessionId ?? "pane-lease", contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
       if (command === "cluster_resources") return { ...request, namespace: request.namespace ?? null, items: [item(request.kind, "sample-a")], continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
       if (command === "helm_table") return { ...request, items: [], truncated: false };

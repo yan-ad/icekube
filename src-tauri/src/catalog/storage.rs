@@ -18,6 +18,7 @@ CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schem
 CREATE TABLE clusters (id TEXT PRIMARY KEY NOT NULL, context_name TEXT NOT NULL, source_path TEXT NOT NULL, source_alias TEXT NOT NULL, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL, pinned_sections TEXT NOT NULL, UNIQUE(source_path, context_name)) STRICT;
 CREATE TABLE web_links (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL UNIQUE, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL) STRICT;
 CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;
+CREATE TABLE IF NOT EXISTS namespace_snapshots (identity TEXT PRIMARY KEY NOT NULL CHECK(length(identity)=64), names TEXT NOT NULL CHECK(length(names)<=70000), fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, partial INTEGER NOT NULL CHECK(partial IN (0,1))) STRICT;
 ";
 
 pub(super) fn sql_error(error: rusqlite::Error) -> CatalogError {
@@ -32,6 +33,9 @@ pub(super) fn sql_error(error: rusqlite::Error) -> CatalogError {
         }
         _ => CatalogError::StoreUnavailable,
     }
+}
+pub(super) fn ensure_namespace_cache(connection: &Connection) -> Result<()> {
+    connection.execute_batch("CREATE TABLE IF NOT EXISTS namespace_snapshots (identity TEXT PRIMARY KEY NOT NULL CHECK(length(identity)=64), names TEXT NOT NULL CHECK(length(names)<=70000), fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, partial INTEGER NOT NULL CHECK(partial IN (0,1))) STRICT;").map_err(sql_error)
 }
 fn private(path: &Path, directory: bool) -> Result<()> {
     let metadata = fs::symlink_metadata(path).map_err(|_| CatalogError::StoreUnavailable)?;
@@ -240,6 +244,7 @@ pub(super) fn open(directory: &Path) -> Result<Connection> {
         return Err(CatalogError::StoreCorrupt);
     }
     upgrade(&mut connection)?;
+    ensure_namespace_cache(&connection)?;
     load(&connection)?;
     Ok(connection)
 }

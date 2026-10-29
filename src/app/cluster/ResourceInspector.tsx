@@ -22,6 +22,7 @@ import { DetailMetadataView } from "./ResourceMetadata";
 import { WorkloadActions } from "./WorkloadActions";
 import { ResourceEditor } from "./ResourceEditor";
 import { ServiceForwardActions } from "./ServiceForwardActions";
+import { ResourcePaneDelete } from "./ResourcePaneDelete";
 import { NodeActions } from "./NodeActions";
 import { EventDiagnosticView } from "./ResourceEventDiagnostic";
 import { HelmDetails } from "./HelmDetails";
@@ -248,6 +249,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
       {!loading && !error && <ResourceEditor clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       {!loading && !error && <ServiceForwardActions clusterId={clusterId} sessionId={sessionId} detail={detail} />}
       {!loading && !error && <NodeActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
+      <ResourcePaneDelete clusterId={clusterId} sessionId={sessionId} detail={detail} disabled={loading || !!error} onChanged={() => setActionRevision(value => value + 1)} />
       <MetadataList label={{ position: "top" }}>
         <MetadataListItem label="Name">{detail.item.name}</MetadataListItem>
         {detail.item.namespace && <MetadataListItem label="Namespace"><ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: detail.item.namespace }}>{detail.item.namespace}</ResourceRelationLink></MetadataListItem>}

@@ -1,3 +1,4 @@
+import { installNamespaceSnapshotMock } from "./helpers/namespaceSnapshotMock";
 import { expect, test, type Page } from "@playwright/test";
 import { clusterSections } from "../src/app/cluster/navigation";
 import { resourceViews } from "../src/app/cluster/resourceViews";
@@ -49,6 +50,7 @@ async function fixture(page: Page, section = "overview", narrow = false) {
     } });
   });
   await page.setViewportSize({ width: narrow ? 360 : 1200, height: 800 });
+  await installNamespaceSnapshotMock(page);
   await page.goto(`/#/cluster/one?section=${section}`);
   if (section === "overview" || section === "not-a-resource") await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();
   else await expect(page.getByRole("table", { name: "Deployments", exact: true })).toBeVisible();
