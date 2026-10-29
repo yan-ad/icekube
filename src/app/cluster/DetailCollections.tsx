@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table";
-import { VStack } from "@astryxdesign/core/Stack";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconRefresh } from "@tabler/icons-react";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { ContentError } from "../components/ContentError";
@@ -42,13 +45,14 @@ function CollectionSection({ collection, items, state, error, loading, onRetry }
     return Array.from(counts).sort(([left], [right]) => left.localeCompare(right)).map(([status, count]) => `${status}: ${count}`).join(", ");
   }, [items]);
   return <VStack gap={2} aria-label={`${title(collection)} related resources`}>
-    <Text as="h3" size="sm" weight="semibold">{title(collection)}</Text>
+    <HStack gap={2} vAlign="center"><Text as="h3" size="sm" weight="semibold">{title(collection)}</Text>
+      {!loading && (error || unavailable) && <IconButton label={`Retry ${title(collection)}`} tooltip={`Retry ${title(collection)}`} icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" onClick={onRetry} />}
+    </HStack>
     {loading && <ContentLoading label={`Loading ${title(collection).toLowerCase()}…`} refreshing={items.length > 0} />}
     {error && <ContentError title={`${title(collection)} unavailable`} message={`${items.length ? "Retained results may be stale. " : ""}${error}`} retained={items.length > 0} />}
     {!loading && !error && state === "partial" && <ContentError title={`${title(collection)} incomplete`} message="Some related resources could not be read." retained />}
     {!loading && !error && state === "denied" && <ContentError title={`${title(collection)} unavailable`} message="Permission denied for this related collection." />}
     {!loading && !error && state === "unavailable" && <ContentError title={`${title(collection)} unavailable`} message="The cluster did not provide this related collection." />}
-    {!loading && (error || unavailable) && <Button label="Retry" size="sm" variant="secondary" onClick={onRetry} />}
     {!loading && !error && state === "complete" && items.length === 0 && <Text>No related resources.</Text>}
     {collection === "pods" && !disabled && (state === "complete" || state === "partial") && <Text size="sm">{`Pods Status (returned subset, ${state}): ${statusCounts || "No pods returned"}`}</Text>}
     {items.length > 0 && <Table aria-label={title(collection)} data={items} columns={tableColumns} idKey={item => `${item.reference.kind}:${item.reference.namespace ?? ""}:${item.reference.name}:${item.reference.uid}`} density="compact" textOverflow="truncate" hasHover />}

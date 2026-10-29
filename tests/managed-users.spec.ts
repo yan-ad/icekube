@@ -15,9 +15,10 @@ async function setup(page: Page, mode = "allowed") {
       if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", status: "disconnected", pinned: false }] };
       if (command === "cluster_session_open") return { clusterId: "one", sessionId: "session", contextName: "dev", status: "disconnected", apiVersion: null, error: null };
       if (command === "cluster_connect") return { ...request, contextName: "dev", status: "connected", apiVersion: "v1.35.8", error: null };
-      if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: state.epoch, revision: calls.length, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map((check: any) => ({ check, decision: mode === "unknown" ? "unknown" : check.kind === "namespaces" ? "denied" : "allowed", reason: mode === "unknown" ? "reviewUnavailable" : null })) };
+      if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: state.epoch, revision: calls.length, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map((check: any) => ({ check, decision: mode === "unknown" ? "unknown" : check.kind === "namespaces" ? mode === "listed" || mode === "many" ? "allowed" : "denied" : mode === "denied" || mode === "createDenied" && check.action === "create" ? "denied" : "allowed", reason: mode === "unknown" ? "reviewUnavailable" : null })) };
+      if (command === "cluster_namespace_cache_refresh") return { clusterId: request.clusterId, sessionId: request.sessionId, names: ["team", "other"], fetchedAt: Date.now(), expiresAt: Date.now() + 86400000, partial: false };
       if (command === "cluster_resources") throw "permissionDenied";
-      if (command === "cluster_rbac_management_snapshot") { if (mode === "snapshotError") throw "permissionDenied"; if (state.deferSnapshot) { state.deferSnapshot = false; await new Promise<void>(resolve => { state.releaseSnapshot = resolve; }); } return { ...request, users: [{ ...robot, namespace: request.namespace }], templates: [template, clusterTemplate], truncated: false, fetchedAt: Date.now() }; }
+      if (command === "cluster_rbac_management_snapshot") { if (mode === "snapshotError") throw "permissionDenied"; if (state.deferSnapshot) { state.deferSnapshot = false; await new Promise<void>(resolve => { state.releaseSnapshot = resolve; }); } return { ...request, users: mode === "empty" ? [] : Array.from({ length: mode === "many" ? 60 : 1 }, (_, i) => ({ ...robot, name: i ? `robot-${i}` : "robot", namespace: request.namespace })), templates: [template, clusterTemplate], truncated: false, fetchedAt: Date.now() }; }
       if (command === "cluster_rbac_user_plan") {
         savedPlan = { ...request, planId: "0123456789abcdef0123456789abcdef", expiresAt: Date.now() + state.planLifetime, summary: request.user.assignments.map((a: any) => ({ ...rule, namespaces: a.allNamespaces ? null : a.namespaces })), steps: [{ operation: request.operation, kind: "ServiceAccount", name: request.user.name, namespace: request.user.namespace }], warnings: ["Partial execution is not rolled back."] };
         return savedPlan;
@@ -29,10 +30,24 @@ async function setup(page: Page, mode = "allowed") {
   await page.goto("/#/cluster/one?section=users");
 }
 async function chooseNamespace(page: Page) {
-  await page.getByRole("textbox", { name: "Known user namespace", exact: true }).fill("team");
-  await page.getByRole("button", { name: "Use user namespace", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Known user namespace", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Use user namespace", exact: true })).toHaveCount(0);
+  if (await page.getByRole("button", { name: "Namespace options", exact: true }).count()) await switchKnownNamespace(page, "team");
+  else {
+    await namespaceSelector(page).click();
+    await page.getByRole("option", { name: "team", exact: true }).click();
+  }
 }
 const calls = (page: Page, command: string) => page.evaluate(command => (window as any).__managedCalls.filter((call: any) => call.command === command), command);
+const namespaceSelector = (page: Page) => page.getByRole("button", { name: /^User namespace(?:\s|$)/ });
+async function switchKnownNamespace(page: Page, namespace: string) {
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "Namespace options", exact: true });
+  await panel.getByRole("button", { name: "Enter namespace", exact: true }).click();
+  await panel.getByRole("textbox", { name: "Known namespace", exact: true }).fill(namespace);
+  await panel.getByRole("button", { name: "Use namespace", exact: true }).click();
+  await page.keyboard.press("Escape");
+}
 
 test("namespace is explicit; creates require server review and fresh confirmation", async ({ page }) => {
   await setup(page);
@@ -41,6 +56,8 @@ test("namespace is explicit; creates require server review and fresh confirmatio
   await chooseNamespace(page);
   await expect(page.getByRole("table", { name: "Managed users", exact: true })).toContainText("robot");
   await page.getByRole("button", { name: "Create New User", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Create New User", exact: true })).toBeVisible();
+  await expect(page.getByRole("table", { name: "Managed users", exact: true, includeHidden: true })).toBeAttached();
   await page.getByRole("textbox", { name: "Name", exact: true }).fill("new-user");
   await expect(page.getByText(/Credentials are not generated/)).toBeVisible();
   await page.getByRole("button", { name: "Review changes", exact: true }).click();
@@ -108,6 +125,114 @@ test("closed bounded API rejects private fields, Unicode controls, invalid all-n
   })).toBe(true);
 });
 
+test("Ctrl+R refreshes Users without a page refresh button and pauses inside the editor", async ({ page }) => {
+  await setup(page, "listed"); await chooseNamespace(page);
+  await expect(page.getByRole("table", { name: "Managed users", exact: true })).toContainText("robot");
+  await expect(page.getByRole("region", { name: "Managed users filters", exact: true }).getByRole("button", { name: "Refresh users", exact: true })).toHaveCount(0);
+  const reads = (await calls(page, "cluster_rbac_management_snapshot")).length;
+  await page.keyboard.press("Control+r");
+  await expect.poll(async () => (await calls(page, "cluster_rbac_management_snapshot")).length).toBe(reads + 1);
+  await page.getByRole("button", { name: "Create New User", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Create New User", exact: true });
+  await expect(dialog).toBeVisible();
+  await page.keyboard.press("Control+r");
+  expect(await calls(page, "cluster_rbac_management_snapshot")).toHaveLength(reads + 1);
+  await dialog.getByRole("textbox", { name: "Name", exact: true }).fill("discarded");
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Managed users", exact: true })).toContainText("robot");
+  expect(await calls(page, "cluster_rbac_user_plan")).toHaveLength(0);
+  expect(await calls(page, "cluster_rbac_user_apply")).toHaveLength(0);
+});
+
+test("closing the edit review dialog cancels its exact plan and restores the list", async ({ page }) => {
+  await setup(page, "listed"); await chooseNamespace(page);
+  await page.getByRole("button", { name: "Edit robot", exact: true }).first().click();
+  await expect(page.getByRole("dialog", { name: "Edit robot", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Review changes", exact: true }).click();
+  const review = page.getByRole("alertdialog", { name: "Edit robot", exact: true });
+  await expect(review.getByRole("region", { name: "Review user changes", exact: true })).toBeVisible();
+  const plan = (await calls(page, "cluster_rbac_user_plan"))[0].request;
+  await review.getByRole("button", { name: "Close", exact: true }).click();
+  await expect(review).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Managed users", exact: true })).toContainText("robot");
+  expect((await calls(page, "cluster_rbac_management_cancel")).filter(call => call.request.readId === plan.readId)).toHaveLength(1);
+  expect(await calls(page, "cluster_rbac_user_apply")).toHaveLength(0);
+});
+
+test("namespace dropdown switches directly and never offers all namespaces", async ({ page }) => {
+  await setup(page, "listed");
+  await namespaceSelector(page).click();
+  await page.getByRole("option", { name: "team", exact: true }).click();
+  const table = page.getByRole("table", { name: "Managed users", exact: true });
+  await expect(table).toContainText("team");
+  const filters = page.getByRole("region", { name: "Managed users filters", exact: true });
+  await expect(filters.getByRole("button", { name: "Create New User", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Change user namespace", exact: true })).toHaveCount(0);
+  await expect(page.getByText("Namespace: team", { exact: true })).toHaveCount(0);
+  await namespaceSelector(page).focus(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("option")).toHaveText(["other", "team"]);
+  await page.getByRole("option", { name: "other", exact: true }).click();
+  await expect(table).toContainText("other");
+  await expect(table).not.toContainText("team");
+  expect((await calls(page, "cluster_rbac_management_snapshot")).map(call => call.request.namespace)).toEqual(["team", "other"]);
+  await page.getByRole("button", { name: "Create New User", exact: true }).click();
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("new-user");
+  await page.getByRole("button", { name: "Review changes", exact: true }).click();
+  await expect(page.getByRole("region", { name: "Review user changes" })).toBeVisible();
+  expect((await calls(page, "cluster_rbac_user_plan"))[0].request.user.namespace).toBe("other");
+});
+
+for (const mode of ["denied", "createDenied", "snapshotError", "empty"]) {
+  test(`${mode}: floating create retains permission and snapshot gating`, async ({ page }) => {
+    await setup(page, mode); await chooseNamespace(page);
+    const create = page.getByRole("group", { name: "Managed user actions", exact: true }).getByRole("button", { name: "Create New User", exact: true });
+    await expect(create).toBeVisible();
+    if (mode === "empty") {
+      await expect(page.getByText("No managed users in this namespace.", { exact: true })).toBeVisible();
+      await expect(create).toBeEnabled();
+    } else {
+      await expect(page.getByText(mode === "denied" ? "Access denied" : mode === "snapshotError" ? "Managed users unavailable" : "robot", { exact: true }).first()).toBeVisible();
+      await expect(create).toBeDisabled();
+    }
+    await expect(namespaceSelector(page)).toBeEnabled();
+    expect(await calls(page, "cluster_rbac_user_apply")).toHaveLength(0);
+  });
+}
+
+for (const theme of ["light", "dark"] as const) {
+  for (const width of [360, 1568]) {
+    test(`${theme} ${width}: floating create stays reachable while users scroll`, async ({ page }) => {
+      const errors: string[] = [];
+      page.on("pageerror", error => errors.push(error.message));
+      await page.emulateMedia({ colorScheme: theme });
+      await page.setViewportSize({ width, height: 900 });
+      await setup(page, "many"); await chooseNamespace(page);
+      const create = page.getByRole("group", { name: "Managed user actions", exact: true }).getByRole("button", { name: "Create New User", exact: true });
+      await expect(create).toBeEnabled();
+      await expect(create).toHaveText("");
+      await expect(create).toBeInViewport();
+      await expect(namespaceSelector(page)).toBeInViewport();
+      await expect(page.getByRole("textbox", { name: "Search users", exact: true })).toBeInViewport();
+      const before = (await create.boundingBox())!;
+      expect(before.width).toBeGreaterThanOrEqual(44); expect(before.height).toBeGreaterThanOrEqual(44);
+      await page.getByRole("button", { name: "Edit robot-59", exact: true }).last().scrollIntoViewIfNeeded();
+      await expect(create).toBeInViewport();
+      expect((await create.boundingBox())!.y).toBe(before.y);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await create.focus(); await page.keyboard.press("Enter");
+      const dialog = page.getByRole("dialog", { name: "Create New User", exact: true });
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toBeInViewport();
+      await expect(page.getByRole("heading", { name: "Create New User", exact: true })).toBeVisible();
+      await dialog.getByRole("button", { name: "Close", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+      await expect(create).toBeEnabled();
+      expect(errors).toEqual([]);
+    });
+  }
+}
+
 test("same allowed permissions under a new epoch require a second review, ordinary revisions do not", async ({ page }) => {
   await page.clock.install(); await setup(page); await chooseNamespace(page);
   await page.getByRole("button", { name: "Edit robot", exact: true }).first().click();
@@ -142,7 +267,9 @@ test("cancel during apply preserves outcomes and disables namespace editing", as
   await page.getByRole("button", { name: "Edit robot", exact: true }).first().click();
   await page.getByRole("button", { name: "Review changes", exact: true }).click();
   await page.getByRole("button", { name: "Confirm save", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Back to Users", exact: true })).toBeDisabled();
+   await expect(page.getByRole("button", { name: "Close", exact: true })).toHaveCount(0);
+   await page.keyboard.press("Escape");
+   await expect(page.getByRole("alertdialog", { name: "Edit robot", exact: true })).toBeVisible();
   await expect(page.getByRole("checkbox", { name: "All namespaces 1", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Change user namespace", exact: true })).toHaveCount(0);
   const apply = (await calls(page, "cluster_rbac_user_apply"))[0].request;
@@ -164,26 +291,28 @@ test("expired reviews cannot be confirmed", async ({ page }) => {
   expect(await calls(page, "cluster_rbac_user_apply")).toHaveLength(0);
 });
 
-test("namespace reset cancels the exact pending snapshot and ignores its late response", async ({ page }) => {
+test("namespace switching cancels the exact pending snapshot and ignores its late response", async ({ page }) => {
   await setup(page);
   await page.evaluate(() => { (window as any).__managedState.deferSnapshot = true; });
   await chooseNamespace(page);
   await expect.poll(async () => (await calls(page, "cluster_rbac_management_snapshot")).length).toBe(1);
   const old = (await calls(page, "cluster_rbac_management_snapshot"))[0].request;
-  await page.getByRole("button", { name: "Change user namespace", exact: true }).click();
-  await page.getByRole("textbox", { name: "Known user namespace", exact: true }).fill("other");
-  await page.getByRole("button", { name: "Use user namespace", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Create New User", exact: true })).toBeDisabled();
+  await switchKnownNamespace(page, "other");
   await expect(page.getByRole("table", { name: "Managed users", exact: true })).toContainText("other");
   await page.evaluate(() => { (window as any).__managedState.releaseSnapshot(); });
   await expect(page.getByRole("table", { name: "Managed users", exact: true })).not.toContainText("team");
   expect((await calls(page, "cluster_rbac_management_cancel")).filter(call => call.request.readId === old.readId)).toHaveLength(1);
 });
 
-test("unverified access keeps namespace reset available", async ({ page }) => {
+test("unverified access keeps the namespace switcher available without fetching users", async ({ page }) => {
   await setup(page, "unknown"); await chooseNamespace(page);
   await expect(page.getByText("Access is unverified", { exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Change user namespace", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Choose a user namespace" })).toBeVisible();
+  await expect(namespaceSelector(page)).toBeEnabled();
+  await expect(page.getByRole("button", { name: "Create New User", exact: true })).toBeDisabled();
+  await switchKnownNamespace(page, "other");
+  await expect(namespaceSelector(page)).toContainText("other");
+  await expect(page.getByRole("heading", { name: "Choose a user namespace" })).toHaveCount(0);
   expect(await calls(page, "cluster_rbac_management_snapshot")).toHaveLength(0);
 });
 

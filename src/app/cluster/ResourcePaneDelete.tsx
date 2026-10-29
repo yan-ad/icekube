@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import { Button } from "@astryxdesign/core/Button";
+import { InspectorAction } from "./InspectorActions";
+import { IconTrash } from "@tabler/icons-react";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import type { ResourceItem, SessionRequest } from "./api";
@@ -44,7 +45,7 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   }, [disabled, target]);
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap">
-      <Button ref={trigger} label="Delete resource" size="sm" variant="ghost" isDisabled={blocked} onClick={() => {
+      <InspectorAction triggerRef={trigger} label="Delete resource" icon={IconTrash} destructive pending={target !== null} disabled={blocked} onClick={() => {
         if (blocked) return;
         setNotice(null);
         refreshNeeded.current = false;

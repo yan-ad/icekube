@@ -6,6 +6,83 @@ fn target(id: &str, section: Option<&str>) -> PinTarget {
         section: section.map(str::to_owned),
     }
 }
+
+#[test]
+fn schema_four_discards_retired_links_and_pins_preserving_cluster_order_and_metadata() {
+    let (_dir, engine, input) = fixture();
+    let cluster = import(&engine, &input).unwrap().clusters[0].id.clone();
+    let additional = add(&engine, "additional").unwrap().clusters[0].id.clone();
+    entry(&engine, &cluster, true);
+    entry(&engine, &additional, true);
+    section(&engine, &cluster, "pods", true);
+    let desired = vec![
+        target(&cluster, Some("pods")),
+        target(&additional, None),
+        target(&cluster, None),
+    ];
+    let before = reorder(&engine, desired.clone()).unwrap();
+    let database = engine.directory.join("catalog.sqlite3");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection.execute_batch("
+        ALTER TABLE metadata RENAME TO metadata_old;
+        CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL CHECK(schema_version=4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+        INSERT INTO metadata SELECT singleton,4,revision,auto_discover FROM metadata_old;
+        DROP TABLE metadata_old;
+        CREATE TABLE web_links (id TEXT PRIMARY KEY, name TEXT, url TEXT, pinned INTEGER, color TEXT);
+        INSERT INTO web_links VALUES ('retired-link',NULL,'not a URL',99,'not a color');
+        UPDATE pin_order SET position=position+10;
+        INSERT INTO pin_order VALUES(0,'retired-link',NULL);
+        INSERT INTO pin_order VALUES(1,'retired-corrupt',42);
+    ").unwrap();
+    drop(connection);
+    let migrated = engine.list().unwrap();
+    assert_eq!(migrated, before);
+    assert_eq!(migrated.pinned_items, desired);
+    let connection = storage::open(&engine.directory).unwrap();
+    assert_eq!(storage::load(&connection).unwrap().schema_version, 5);
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM sqlite_master WHERE name='web_links'",
+                [],
+                |row| row.get::<_, u32>(0)
+            )
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        connection
+            .query_row(
+                "SELECT count(*) FROM pin_order WHERE id LIKE 'retired%'",
+                [],
+                |row| row.get::<_, u32>(0)
+            )
+            .unwrap(),
+        0
+    );
+    drop(connection);
+    assert_eq!(
+        CatalogEngine::new(engine.directory.clone()).list().unwrap(),
+        before
+    );
+    for id in ["retired-link", "retired-corrupt"] {
+        assert_eq!(
+            engine.set_pin(PinRequest {
+                id: id.into(),
+                pinned: true
+            }),
+            Err(CatalogError::NotFound)
+        );
+        assert_eq!(
+            engine.remove(RemoveRequest { id: id.into() }),
+            Err(CatalogError::NotFound)
+        );
+        assert_eq!(
+            engine.validate_pin_target(&target(id, None)),
+            Err(CatalogError::NotFound)
+        );
+    }
+}
 fn section(engine: &CatalogEngine, id: &str, value: &str, pinned: bool) -> CatalogSnapshot {
     engine
         .set_section_pin(SectionPinRequest {
@@ -31,9 +108,7 @@ fn reorder(engine: &CatalogEngine, items: Vec<PinTarget>) -> Result<CatalogSnaps
 fn mixed_order_restart_unpin_readd_and_noop_without_discovery() {
     let (dir, engine, input) = fixture();
     let cluster = import(&engine, &input).unwrap().clusters[0].id.clone();
-    let link = add(&engine, "https://example.test/docs").unwrap().web_links[0]
-        .id
-        .clone();
+    let link = add(&engine, "additional").unwrap().clusters[0].id.clone();
     section(&engine, &cluster, "pods", true);
     entry(&engine, &link, true);
     let pinned = entry(&engine, &cluster, true);
@@ -55,7 +130,7 @@ fn mixed_order_restart_unpin_readd_and_noop_without_discovery() {
     let engine = CatalogEngine::new_with_home(engine.directory.clone(), Some(home));
     let ordered = reorder(&engine, desired.clone()).unwrap();
     assert_eq!(ordered.revision, pinned.revision + 1);
-    assert_eq!(ordered.clusters.len(), 1);
+    assert_eq!(ordered.clusters.len(), 2);
     assert_eq!(ordered.pinned_items, desired);
     let database = engine.directory.join("catalog.sqlite3");
     let bytes = fs::read(&database).unwrap();
@@ -131,9 +206,7 @@ fn malformed_stale_permutations_are_atomic() {
 fn deletion_and_reimport_remove_only_obsolete_pins() {
     let (_dir, engine, input) = fixture();
     let cluster = import(&engine, &input).unwrap().clusters[0].id.clone();
-    let link = add(&engine, "https://example.test").unwrap().web_links[0]
-        .id
-        .clone();
+    let link = add(&engine, "additional").unwrap().clusters[0].id.clone();
     entry(&engine, &cluster, true);
     entry(&engine, &link, true);
     let pinned = section(&engine, &cluster, "pods", true);
@@ -179,9 +252,7 @@ fn schema_three_upgrade_restores_old_sidebar_order_and_normalizes_overview() {
     )
     .unwrap();
     let clusters = import(&engine, &input).unwrap().clusters;
-    let link = add(&engine, "https://example.test").unwrap().web_links[0]
-        .id
-        .clone();
+    let link = add(&engine, "zzzz").unwrap().clusters[2].id.clone();
     for cluster in clusters.iter().rev() {
         section(&engine, &cluster.id, "nodes", true);
         section(&engine, &cluster.id, "pods", true);

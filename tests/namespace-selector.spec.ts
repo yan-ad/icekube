@@ -359,7 +359,7 @@ test("permission denied keeps All namespaces usable, offers retry, and retry suc
   await expect(page.getByRole("tooltip")).toContainText("Could not load namespaces");
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Namespace options", exact: true });
-  await expect(dialog).toContainText("Namespace discovery is denied.");
+  await expect(dialog).toContainText("Namespace listing is not permitted.");
   await expect(dialog.getByRole("button", { name: "Retry namespaces", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(dialog).toHaveCount(0);

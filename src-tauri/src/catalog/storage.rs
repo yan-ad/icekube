@@ -14,9 +14,8 @@ use std::{
 const DATABASE: &str = "catalog.sqlite3";
 const MAX_DATABASE: u64 = 16 * 1024 * 1024;
 const SCHEMA: &str = "
-CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 5), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
 CREATE TABLE clusters (id TEXT PRIMARY KEY NOT NULL, context_name TEXT NOT NULL, source_path TEXT NOT NULL, source_alias TEXT NOT NULL, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL, pinned_sections TEXT NOT NULL, UNIQUE(source_path, context_name)) STRICT;
-CREATE TABLE web_links (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL UNIQUE, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL) STRICT;
 CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;
 CREATE TABLE IF NOT EXISTS namespace_snapshots (identity TEXT PRIMARY KEY NOT NULL CHECK(length(identity)=64), names TEXT NOT NULL CHECK(length(names)<=70000), fetched_at INTEGER NOT NULL, expires_at INTEGER NOT NULL, partial INTEGER NOT NULL CHECK(partial IN (0,1))) STRICT;
 ";
@@ -128,7 +127,7 @@ fn connect_with_access(path: &Path, read_only: bool) -> Result<Connection> {
         .map_err(sql_error)?;
     Ok(connection)
 }
-// Opening a saved link never initializes, migrates, discovers, or rewrites the catalog.
+// Saved connection and pin lookups never initialize, migrate, discover, or rewrite storage.
 pub(super) fn read_existing(directory: &Path) -> Result<Store> {
     let path = directory.join(DATABASE);
     for (candidate, is_directory) in [(directory.to_path_buf(), true), (path.clone(), false)] {
@@ -260,8 +259,8 @@ fn upgrade(connection: &mut Connection) -> Result<()> {
         )
         .map_err(|_| CatalogError::StoreCorrupt)?;
     match version {
-        1..=3 => {
-            // Validate all old rows before DDL; a failed upgrade rolls back intact.
+        1..=4 => {
+            // Retired link rows are deliberately not decoded or validated.
             let store = load_version(&transaction, version)?;
             if version == 1 {
                 transaction
@@ -279,10 +278,14 @@ fn upgrade(connection: &mut Connection) -> Result<()> {
             }
             transaction.execute_batch("
                 ALTER TABLE metadata RENAME TO metadata_old;
-                CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+                CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 5), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
                 DROP TABLE metadata_old;
-                CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;
+                DROP TABLE IF EXISTS web_links;
             ").map_err(|_| CatalogError::StoreCorrupt)?;
+            if version < 4 {
+                transaction.execute_batch("CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;")
+                    .map_err(|_| CatalogError::StoreCorrupt)?;
+            }
             save(&transaction, &store)?;
             if serde_json::to_vec(&load(&transaction)?).map_err(|_| CatalogError::StoreCorrupt)?
                 != serde_json::to_vec(&store).map_err(|_| CatalogError::StoreCorrupt)?
@@ -290,13 +293,13 @@ fn upgrade(connection: &mut Connection) -> Result<()> {
                 return Err(CatalogError::StoreCorrupt);
             }
         }
-        4 => {}
+        5 => {}
         _ => return Err(CatalogError::StoreCorrupt),
     }
     transaction.commit().map_err(sql_error)
 }
 pub(super) fn load(connection: &Connection) -> Result<Store> {
-    load_version(connection, 4)
+    load_version(connection, 5)
 }
 fn load_version(connection: &Connection, expected_version: u32) -> Result<Store> {
     let (schema_version, revision, auto_discover): (u32, String, i64) = connection
@@ -310,11 +313,10 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
         return Err(CatalogError::StoreCorrupt);
     }
     let mut store = Store {
-        schema_version: 4,
+        schema_version: 5,
         revision: revision.parse().map_err(|_| CatalogError::StoreCorrupt)?,
         auto_discover: auto_discover == 1,
         clusters: vec![],
-        web_links: vec![],
         pin_order: vec![],
     };
     let query = match expected_version {
@@ -350,30 +352,13 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
             .clusters
             .push(row.map_err(|_| CatalogError::StoreCorrupt)?);
     }
-    let mut statement = connection
-        .prepare("SELECT id, name, url, pinned, color FROM web_links ORDER BY id LIMIT 1001")
-        .map_err(|_| CatalogError::StoreCorrupt)?;
-    let rows = statement
-        .query_map([], |r| {
-            Ok(WebLinkSummary {
-                id: r.get(0)?,
-                name: r.get(1)?,
-                url: r.get(2)?,
-                pinned: r.get(3)?,
-                color: r.get(4)?,
-                source: "local".into(),
-                labels: vec![],
-            })
-        })
-        .map_err(|_| CatalogError::StoreCorrupt)?;
-    for row in rows {
-        store
-            .web_links
-            .push(row.map_err(|_| CatalogError::StoreCorrupt)?);
-    }
-    if expected_version == 4 {
+    if expected_version >= 4 {
         let mut statement = connection
-            .prepare("SELECT position, id, section FROM pin_order ORDER BY position LIMIT ?1")
+            .prepare(if expected_version == 4 {
+                "SELECT position, id, section FROM pin_order WHERE id IN (SELECT id FROM clusters) ORDER BY position LIMIT ?1"
+            } else {
+                "SELECT position, id, section FROM pin_order ORDER BY position LIMIT ?1"
+            })
             .map_err(|_| CatalogError::StoreCorrupt)?;
         let rows = statement
             .query_map([(MAX_ENTRIES * SECTIONS.len() + 1) as u32], |row| {
@@ -388,7 +373,7 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
             .map_err(|_| CatalogError::StoreCorrupt)?;
         for (position, row) in rows.enumerate() {
             let (stored_position, target) = row.map_err(|_| CatalogError::StoreCorrupt)?;
-            if stored_position as usize != position {
+            if expected_version == 5 && stored_position as usize != position {
                 return Err(CatalogError::StoreCorrupt);
             }
             store.pin_order.push(target);
@@ -414,7 +399,7 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
     Ok(store)
 }
 pub(super) fn validate_size(store: &Store) -> Result<()> {
-    if store.clusters.len() + store.web_links.len() > MAX_ENTRIES
+    if store.clusters.len() > MAX_ENTRIES
         || serde_json::to_vec(store)
             .map_err(|_| CatalogError::StoreUnavailable)?
             .len()
@@ -428,7 +413,7 @@ pub(super) fn save(connection: &rusqlite::Transaction<'_>, store: &Store) -> Res
     validate_size(store)?;
     store.validate()?;
     connection
-        .execute_batch("DELETE FROM clusters; DELETE FROM web_links; DELETE FROM pin_order; DELETE FROM metadata;")
+        .execute_batch("DELETE FROM clusters; DELETE FROM pin_order; DELETE FROM metadata;")
         .map_err(sql_error)?;
     connection
         .execute(
@@ -449,14 +434,6 @@ pub(super) fn save(connection: &rusqlite::Transaction<'_>, store: &Store) -> Res
             )
             .map_err(sql_error)?;
     }
-    for l in &store.web_links {
-        connection
-            .execute(
-                "INSERT INTO web_links VALUES (?1, ?2, ?3, ?4, ?5)",
-                params![l.id, l.name, l.url, l.pinned, l.color],
-            )
-            .map_err(sql_error)?;
-    }
     for (position, target) in store.pin_order.iter().enumerate() {
         connection
             .execute(
@@ -473,7 +450,8 @@ struct LegacyStore {
     schema_version: u32,
     revision: u64,
     clusters: Vec<LegacyCluster>,
-    web_links: Vec<LegacyLink>,
+    #[serde(default, rename = "webLinks")]
+    _retired_links: serde::de::IgnoredAny,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -483,14 +461,6 @@ struct LegacyCluster {
     source_path: String,
     pinned: bool,
 }
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct LegacyLink {
-    id: String,
-    name: String,
-    url: String,
-    pinned: bool,
-}
 fn migrate(bytes: &[u8]) -> Result<Store> {
     let legacy: LegacyStore =
         serde_json::from_slice(bytes).map_err(|_| CatalogError::StoreCorrupt)?;
@@ -498,7 +468,7 @@ fn migrate(bytes: &[u8]) -> Result<Store> {
         revision: legacy.revision,
         ..Store::empty()
     };
-    if legacy.schema_version != 1 || legacy.clusters.len() + legacy.web_links.len() > MAX_ENTRIES {
+    if legacy.schema_version != 1 || legacy.clusters.len() > MAX_ENTRIES {
         return Err(CatalogError::StoreCorrupt);
     }
     for c in legacy.clusters {
@@ -511,18 +481,6 @@ fn migrate(bytes: &[u8]) -> Result<Store> {
             pinned: c.pinned,
             pinned_sections: vec![],
             color,
-        });
-    }
-    for l in legacy.web_links {
-        let color = new_color(&store)?;
-        store.web_links.push(WebLinkSummary {
-            id: l.id,
-            name: l.name,
-            url: l.url,
-            pinned: l.pinned,
-            color,
-            source: "local".into(),
-            labels: vec![],
         });
     }
     store.reconcile_pins();

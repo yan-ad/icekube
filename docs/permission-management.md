@@ -66,9 +66,26 @@ index can remain useful separately, but is not a substitute for this workflow.
    known name. User/template management reads wait for this explicit selection
    and their own verified permissions. The namespace picker may independently
    request namespace discovery.
+   After selection, the shared resource-list namespace switcher sits beside
+   Managed users and changes scope directly, without an all-namespaces option.
+   Its namespace-options popover retains manual entry when discovery is denied
+   or unverified. Switching cancels the previous snapshot and ignores late replies.
+   The picker is also the only namespace input on initial entry; there is no
+   duplicate Known user namespace field. Users refresh uses the workspace
+   Cmd/Ctrl+R action, without a separate Refresh users button.
 2. **Create New User.** Enter a ServiceAccount name. Rust creates the managed
    account in that namespace with `automountServiceAccountToken=false`. No
    namespace, template role, User CRD or credential is automatically provisioned.
+   The list exposes this action as the existing bottom-right floating plus button,
+   matching Catalog add controls instead of duplicating it in the filters toolbar.
+   It requires verified create access and a loaded management snapshot. This
+   Iceon-requested presentation change keeps Rust management ownership unchanged;
+   `tests/managed-users.spec.ts` covers direct/manual switching, cancellation,
+   permission gating, keyboard activation and narrow layouts in both themes.
+   Create and edit open a single modal dialog over the retained list. Review,
+   confirmation and apply outcomes stay in that dialog. Closing cancels pending
+   review work; apply blocks dismissal until its outcome is available, and
+   returning to the list refreshes potentially changed data.
 3. **Assign namespaced resources.** Choose existing ClusterRoles with the prefix
    `template-namespaced-resources___`. Pair each template with explicit
    namespaces or an explicit all-namespaces choice. Selected namespaces produce

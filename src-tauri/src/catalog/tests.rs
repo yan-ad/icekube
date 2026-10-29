@@ -20,11 +20,23 @@ pub(super) fn import(engine: &CatalogEngine, path: &Path) -> Result<CatalogSnaps
         path: path.to_str().unwrap().into(),
     })
 }
-pub(super) fn add(engine: &CatalogEngine, url: &str) -> Result<CatalogSnapshot> {
-    engine.add_web_link(AddWebLinkRequest {
-        name: "Documentation".into(),
-        url: url.into(),
-    })
+pub(super) fn add(engine: &CatalogEngine, name: &str) -> Result<CatalogSnapshot> {
+    let input = tempfile::NamedTempFile::new().unwrap();
+    let quoted = serde_json::to_string(name).unwrap();
+    fs::write(input.path(), CONFIG.replace("development", &quoted)).unwrap();
+    import(engine, input.path())
+}
+pub(super) fn cluster_record(index: usize) -> ClusterRecord {
+    let source = format!("/fixtures/config{index}");
+    ClusterRecord {
+        id: cluster_id(&source, "development"),
+        context_name: "development".into(),
+        provenance_path: source.clone(),
+        source_path: source,
+        pinned: false,
+        pinned_sections: vec![],
+        color: format!("#{index:06X}"),
+    }
 }
 
 #[test]
@@ -123,36 +135,17 @@ fn malformed_imports_are_sanitized_and_transactional() {
 }
 
 #[test]
-fn web_url_validation_and_entry_pins() {
+fn cluster_entry_pins_and_removal() {
     let (_dir, engine, _) = fixture();
-    for url in [
-        "file:///tmp/x",
-        "javascript:alert(1)",
-        "https://user:SECRET@example.test",
-        "https://@example.test",
-        "https://example.test/?token=SECRET",
-        "https://example.test/#SECRET",
-        " https://example.test",
-        "https://example.test/\n",
-        "https:\\example.test",
-        "not a URL",
-    ] {
-        assert_eq!(add(&engine, url), Err(CatalogError::InvalidInput));
-    }
-    let first = add(&engine, "HTTPS://EXAMPLE.TEST:443").unwrap();
-    assert_eq!(first.web_links[0].url, "https://example.test/");
-    assert_eq!(
-        add(&engine, "https://example.test/"),
-        Err(CatalogError::Duplicate)
-    );
-    let id = first.web_links[0].id.clone();
+    let first = add(&engine, "production").unwrap();
+    let id = first.clusters[0].id.clone();
     let pinned = engine
         .set_pin(PinRequest {
             id: id.clone(),
             pinned: true,
         })
         .unwrap();
-    assert!(pinned.web_links[0].pinned);
+    assert!(pinned.clusters[0].pinned);
     assert_eq!(
         engine
             .set_pin(PinRequest {
@@ -172,7 +165,7 @@ fn web_url_validation_and_entry_pins() {
         );
     }
     let removed = engine.remove(RemoveRequest { id: id.clone() }).unwrap();
-    assert!(removed.web_links.is_empty());
+    assert!(removed.clusters.is_empty());
     assert_eq!(
         engine.remove(RemoveRequest { id }),
         Err(CatalogError::NotFound)
@@ -182,7 +175,7 @@ fn web_url_validation_and_entry_pins() {
 #[test]
 fn corrupt_store_is_never_replaced() {
     let (dir, engine, input) = fixture();
-    add(&engine, "https://example.test").unwrap();
+    add(&engine, "development").unwrap();
     let path = dir.path().join("data/catalog.sqlite3");
     for content in [
         "{SECRET",
@@ -192,24 +185,61 @@ fn corrupt_store_is_never_replaced() {
         fs::write(&path, content).unwrap();
         assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
         assert_eq!(import(&engine, &input), Err(CatalogError::StoreCorrupt));
-        assert_eq!(
-            add(&engine, "https://other.test"),
-            Err(CatalogError::StoreCorrupt)
-        );
+        assert_eq!(add(&engine, "production"), Err(CatalogError::StoreCorrupt));
         assert_eq!(fs::read(&path).unwrap(), content.as_bytes());
     }
     fs::write(&path, vec![b'x'; MAX_STORE + 1]).unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
 }
 
+#[cfg(unix)]
+#[test]
+fn connection_lookup_rejects_storage_symlinks_without_changes() {
+    use std::os::unix::fs::symlink;
+    for name in [
+        "catalog.sqlite3",
+        "catalog.lock",
+        "catalog.sqlite3-journal",
+        "catalog.sqlite3-wal",
+        "catalog.sqlite3-shm",
+    ] {
+        let (dir, engine, input) = fixture();
+        let saved = import(&engine, &input).unwrap();
+        let path = engine.directory.join(name);
+        let target = dir.path().join("target");
+        if path.exists() {
+            fs::rename(&path, &target).unwrap();
+        } else {
+            fs::write(&target, "fixture").unwrap();
+        }
+        let before = fs::read(&target).unwrap();
+        symlink(&target, &path).unwrap();
+        assert_eq!(engine.connection_target(&saved.clusters[0].id), Err(CatalogError::StoreCorrupt));
+        assert_eq!(fs::read(&target).unwrap(), before);
+    }
+}
+
+#[test]
+fn connection_lookup_never_initializes_or_migrates_missing_storage() {
+    let (_dir, engine, _) = fixture();
+    assert_eq!(engine.connection_target("missing"), Err(CatalogError::NotFound));
+    assert!(!engine.directory.exists());
+    fs::create_dir_all(&engine.directory).unwrap();
+    let legacy = engine.directory.join("catalog.json");
+    fs::write(&legacy, "legacy fixture").unwrap();
+    assert_eq!(engine.connection_target("missing"), Err(CatalogError::NotFound));
+    assert_eq!(fs::read_to_string(legacy).unwrap(), "legacy fixture");
+    assert_eq!(fs::read_dir(&engine.directory).unwrap().count(), 1);
+}
+
 #[test]
 fn transaction_failure_keeps_previous_state() {
     let (_dir, engine, _) = fixture();
-    let first = add(&engine, "https://example.test").unwrap();
+    let first = add(&engine, "development").unwrap();
     let connection = rusqlite::Connection::open(engine.directory.join("catalog.sqlite3")).unwrap();
-    connection.execute_batch("CREATE TRIGGER fail_insert BEFORE INSERT ON web_links BEGIN SELECT RAISE(ABORT, 'fixture'); END;").unwrap();
+    connection.execute_batch("CREATE TRIGGER fail_insert BEFORE INSERT ON clusters BEGIN SELECT RAISE(ABORT, 'fixture'); END;").unwrap();
     assert_eq!(
-        add(&engine, "https://other.test"),
+        add(&engine, "production"),
         Err(CatalogError::StoreUnavailable)
     );
     assert_eq!(engine.list().unwrap(), first);
@@ -224,21 +254,8 @@ fn bounds_schema_and_wire_contract() {
         "x".repeat(MAX_NAME + 1),
         "bad\nname".into(),
     ] {
-        assert_eq!(
-            engine.add_web_link(AddWebLinkRequest {
-                name,
-                url: "https://example.test".into()
-            }),
-            Err(CatalogError::InvalidInput)
-        );
+        assert_eq!(add(&engine, &name), Err(CatalogError::InvalidKubeconfig));
     }
-    assert_eq!(
-        add(
-            &engine,
-            &format!("https://example.test/{}", "x".repeat(MAX_URL))
-        ),
-        Err(CatalogError::InvalidInput)
-    );
     fs::write(
         &input,
         CONFIG.replace("development", &"x".repeat(MAX_NAME + 1)),
@@ -259,10 +276,10 @@ fn bounds_schema_and_wire_contract() {
     assert_eq!(import(&engine, &input), Err(CatalogError::LimitExceeded));
     fs::write(&input, CONFIG).unwrap();
     let value = serde_json::to_value(import(&engine, &input).unwrap()).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 5);
+    assert_eq!(value.as_object().unwrap().len(), 4);
     assert!(value.get("autoDiscover").is_none());
     assert!(value["discoveryError"].is_null());
-    assert!(value.get("webLinks").is_some());
+    assert!(value.get("webLinks").is_none());
     let cluster = value["clusters"][0].as_object().unwrap();
     assert_eq!(cluster.len(), 9);
     assert_eq!(cluster["pinnedSections"], serde_json::json!([]));
@@ -306,12 +323,12 @@ fn concurrent_updates_are_serialized() {
         for i in 0..12 {
             let engine = &engine;
             scope.spawn(move || {
-                add(engine, &format!("https://fixture{i}.test")).unwrap();
+                add(engine, &format!("fixture{i}")).unwrap();
             });
         }
     });
     let snapshot = engine.list().unwrap();
-    assert_eq!(snapshot.web_links.len(), 12);
+    assert_eq!(snapshot.clusters.len(), 12);
     assert_eq!(snapshot.revision, 12);
 }
 
@@ -320,46 +337,31 @@ fn catalog_capacity_and_revision_overflow_preserve_disk() {
     let (dir, engine, _) = fixture();
     let mut store = Store::empty();
     for i in 0..MAX_ENTRIES {
-        let url = format!("https://fixture{i}.test/");
-        store.web_links.push(WebLinkSummary {
-            id: link_id(&url),
-            name: format!("Link {i}"),
-            url,
-            pinned: false,
-            color: format!("#{i:06X}"),
-            source: "local".into(),
-            labels: vec![],
-        });
+        store.clusters.push(cluster_record(i));
     }
     save_fixture(&engine, &store);
     let original = fs::read(dir.path().join("data/catalog.sqlite3")).unwrap();
-    assert_eq!(
-        add(&engine, "https://extra.test"),
-        Err(CatalogError::LimitExceeded)
-    );
+    assert_eq!(add(&engine, "extra"), Err(CatalogError::LimitExceeded));
     assert_eq!(
         fs::read(dir.path().join("data/catalog.sqlite3")).unwrap(),
         original
     );
-    store.web_links.clear();
+    store.clusters.clear();
     store.revision = u64::MAX;
     save_fixture(&engine, &store);
-    assert_eq!(
-        add(&engine, "https://extra.test"),
-        Err(CatalogError::LimitExceeded)
-    );
+    assert_eq!(add(&engine, "extra"), Err(CatalogError::LimitExceeded));
     assert_eq!(engine.list().unwrap().revision, u64::MAX);
 }
 
 #[test]
 fn tampered_store_identity_fails_closed() {
     let (_dir, engine, _) = fixture();
-    add(&engine, "https://example.test").unwrap();
+    add(&engine, "development").unwrap();
     let connection = storage::open(&engine.directory).unwrap();
     let mut store = storage::load(&connection).unwrap();
-    store.web_links[0].id = "catalog".into();
+    store.clusters[0].id = "catalog".into();
     connection
-        .execute("UPDATE web_links SET id=?1", [&store.web_links[0].id])
+        .execute("UPDATE clusters SET id=?1", [&store.clusters[0].id])
         .unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
 }

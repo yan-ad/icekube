@@ -6,7 +6,6 @@ import { Text } from "@astryxdesign/core/Text";
 import { useCatalog } from "../catalog/CatalogProvider";
 import { NavLink } from "../components/NavLink";
 import { clusterSections } from "./navigation";
-import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Button } from "@astryxdesign/core/Button";
 import { useCustomResources, customDiscoveryMessage } from "./CustomResourcesProvider";
 import { useNavigationPermissions } from "./PermissionProvider";
@@ -24,7 +23,6 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
   const definitions = custom.snapshot?.clusterId === clusterId ? custom.snapshot : null;
   const { snapshot, loading, available, error } = useCatalog();
   const cluster = snapshot?.clusters.find((item) => item.id === clusterId);
-  const { isMobile } = useAppShellMobile();
   const selectedParent = section === "custom-resource-instances" ? "custom-resources" : clusterSections.find((item) => "children" in item && item.children.some((child) => child.id === section))?.id;
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
 
@@ -39,7 +37,7 @@ export function ClusterSidebar({ clusterId, onNavigate, id = "cluster-sidebar", 
   const groups = [...new Set(definitions?.items.map(item => item.group) ?? [])];
 
   return (
-    <SideNav aria-label="Cluster navigation" id={id} className="cluster-sidebar" style={{ width: isMobile ? "100%" : "clamp(11rem, 18vw, 16rem)", minWidth: 0, minHeight: 0, flexShrink: 0 }}>
+    <SideNav aria-label="Cluster navigation" id={id} className="cluster-sidebar" style={{ width: "100%", minWidth: 0, minHeight: 0, flexShrink: 1 }}>
       {!cluster && <VStack padding={4} gap={2} style={{ minWidth: 0 }}>
         <Text role="status">{!available ? "Desktop engine required" : loading ? "Loading cluster…" : error ? "Cluster metadata unavailable" : "Cluster not found"}</Text>
       </VStack>}

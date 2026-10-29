@@ -59,7 +59,7 @@ function columns(view: ResourceView, openResource: (reference: ResourceReference
       renderCell: (item: ResourceItem) => view.kind === "events" && column.key === "message" && item.columns.message
         ? <Tooltip content="Open full Event diagnostic text (bounded and redacted)" focusTrigger="always"><Button label={item.columns.message} variant="ghost" size="sm" onClick={() => openResource(reference(item))} /></Tooltip>
         : view.kind === "events" && column.key === "lastSeen"
-          ? item.columns.lastSeen ? <Tooltip content={item.columns.lastSeen}><HStack><ResourceAge timestamp={item.columns.lastSeen} /></HStack></Tooltip> : <Text>N/A</Text>
+          ? item.columns.lastSeen ? <Tooltip content={item.columns.lastSeen}><HStack><ResourceAge timestamp={item.columns.lastSeen} fallback={item.columns.lastSeen} /></HStack></Tooltip> : <Text>N/A</Text>
         : relationColumns.has(column.key) && item.columns[column.key]
         ? column.key === "class" && view.kind === "ingresses" ? <ResourceRelationLink reference={{ kind: "ingressClasses", namespace: null, name: item.columns[column.key] }}>{item.columns[column.key]}</ResourceRelationLink>
           : <Button label={item.columns[column.key]} variant="ghost" size="sm" onClick={() => openRelated(reference(item), column.key)} />
@@ -127,7 +127,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const permissions = usePermissionChecks([listCheck]);
   const resourcePermissions = useResourcePermissions(view.kind!, namespace || null);
   const accessWarning = !permissions.loading && permissions.decision(listCheck) === "unknown" || !resourcePermissions.loading && (["list", "create", "update", "patch", "delete"] as const).some(action => (namespace || action === "list" || !view.namespaced) && resourcePermissions.decision({ kind: view.kind!, namespace: namespace || null, action }) === "unknown")
-    ? "Access unverified. Permission review is unavailable; Kubernetes still checks each request. Changes are disabled until access is verified."
+    ? "Permissions could not be verified. Editing is unavailable."
     : resourcePermissions.readOnly ? "Read-only access. Your Kubernetes permissions allow viewing these resources, but not changing them." : undefined;
   const lastListDecision = useRef(permissions.decision(listCheck));
   if (!permissions.loading) lastListDecision.current = permissions.decision(listCheck);

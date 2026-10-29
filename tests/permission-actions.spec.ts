@@ -95,8 +95,9 @@ async function namespace(page: Page, value: string) {
   await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toHaveCount(0);
 }
 async function expectReadOnlyWarning(page: Page) {
-  await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
-  await expect(page.getByRole("tooltip")).toContainText("Read-only access. Your Kubernetes permissions allow viewing these resources, but not changing them.");
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText("Read-only access. Your Kubernetes permissions allow viewing these resources, but not changing them.");
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("status").filter({ hasText: "Read-only access." })).toHaveCount(0);
 }
 async function noMutations(page: Page) {
@@ -152,7 +153,10 @@ for (const mode of ["denied", "unknown"] as const) test(`${mode} review leaves m
   if (mode === "denied") await expect(page.getByText("Access denied", { exact: true })).toBeVisible();
   else {
     await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
-    await expect(page.getByRole("tooltip")).toContainText("Access unverified. Permission review is unavailable; Kubernetes still checks each request. Changes are disabled until access is verified.");
+    await expect(page.getByRole("tooltip")).toHaveText("Namespace options");
+    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText("Permissions could not be verified. Editing is unavailable.");
+    await page.keyboard.press("Escape");
   }
   await expect(page.getByRole("button", { name: "Create Deployment", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toHaveCount(0);

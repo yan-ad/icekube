@@ -1,9 +1,12 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { InspectorAction } from "./InspectorActions";
+import { IconPlug } from "@tabler/icons-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { Selector } from "@astryxdesign/core/Selector";
 import { TextInput } from "@astryxdesign/core/TextInput";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest } from "./api";
 import type { ResourceDetail } from "./detailApi";
@@ -66,7 +69,7 @@ function ForwardActions({ clusterId, sessionId, detail }: Props) {
   if (reference.kind !== "services") return null;
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap" aria-label="Service forwarding">
-      {ports.map(p => <Button key={p} label={`Forward ${p}…`} size="sm" variant="ghost" isDisabled={!ready || !validServiceForwardRequest({ ...requestFor(p, 1), localPort: 0 })} onClick={() => { setLocal(""); setPort(p); setMessage(null); }} />)}
+      <InspectorAction label="Forward Service port" icon={IconPlug} pending={port !== null || busy} disabled={!ready || !ports.some(p => validServiceForwardRequest({ ...requestFor(p, 1), localPort: 0 }))} onClick={() => { setLocal(""); setPort(ports[0] ?? null); setMessage(null); }} />
     </HStack>
     {!ports.length && <Text size="sm" type="supporting">No reviewed TCP Service ports are available. Refresh details.</Text>}
     {!allowed && <Text size="sm" type="supporting">Forwarding requires verified Service get and Pod list access. Rust checks get and port-forward access for the selected Pod.</Text>}
@@ -77,7 +80,7 @@ function ForwardActions({ clusterId, sessionId, detail }: Props) {
       <Layout header={<DialogHeader title={`Forward Service ${reference.name}`} />}
         content={<LayoutContent><VStack gap={3}>
           <Text>Cluster: {clusterId}. Namespace: {reference.namespace}. UID: {reference.uid}. Resource version: {item.resourceVersion}.</Text>
-          <TextInput label="Service port" value={String(port ?? "")} isReadOnly />
+          <Selector label="Service port" value={String(port ?? "")} onChange={value => setPort(Number(value))} isDisabled={busy} options={ports.map(value => ({ value: String(value), label: String(value) }))} />
           <TextInput label="Local port" value={local} onChange={setLocal} isReadOnly={busy} description="Leave blank to allocate an IPv4 loopback port. Otherwise enter 0 to 65535." status={parseLocalPort(local) === null ? { type: "error", message: "Enter a whole number from 0 to 65535." } : undefined} />
           <Text size="sm">Rust selects a Running, Ready Pod from this Service's selector. Remote connection begins when a local client connects.</Text>
           {busy && <Text role="status">{stopping ? "Cancelling forward…" : "Resolving Service and starting listener…"}</Text>}

@@ -1,5 +1,5 @@
 use super::{tests::*, *};
-use crate::catalog::{AddWebLinkRequest, PinRequest, RemoveRequest};
+use crate::catalog::{PinRequest, RemoveRequest};
 
 fn projected(
     engine: &ConnectionEngine,
@@ -142,15 +142,8 @@ async fn projection_is_ephemeral_preserves_metadata_and_does_not_invent_removed_
     saved.clusters[0].status = "disconnected";
     assert_eq!(saved, baseline);
     assert_eq!(catalog.list().unwrap(), baseline);
-    let mut added = catalog
-        .add_web_link(AddWebLinkRequest {
-            name: "Docs".into(),
-            url: "https://example.invalid/".into(),
-        })
-        .unwrap();
-    let links = added.web_links.clone();
+    let mut added = catalog.list().unwrap();
     engine.project_catalog_statuses(&mut added).unwrap();
-    assert_eq!(added.web_links, links);
     assert_eq!(added.clusters[0].status, "connected");
     let mut removed = catalog.remove(RemoveRequest { id }).unwrap();
     engine.project_catalog_statuses(&mut removed).unwrap();

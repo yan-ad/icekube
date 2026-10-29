@@ -107,14 +107,14 @@ for (const theme of ["light", "dark"] as const) {
     expect(icon.x).toBeGreaterThanOrEqual(switcher.x + switcher.width);
     expect(Math.abs(icon.y + icon.height / 2 - switcher.y - switcher.height / 2)).toBeLessThan(3);
     await options.hover();
-    await expect(page.getByRole("tooltip")).toContainText("Access unverified");
-    await expect(page.getByRole("tooltip")).toContainText("Namespace discovery access is unverified");
+    await expect(page.getByRole("tooltip")).toHaveText("Namespace options");
+    await expect(page.getByText(/Permission review is unavailable|Namespace discovery access is unverified/)).toHaveCount(0);
     await page.mouse.move(0, 0);
     const before = (await table.boundingBox())!;
     await options.focus(); await page.keyboard.press("Enter");
     const panel = page.getByRole("dialog", { name: "Namespace options", exact: true });
     await expect(panel).toBeVisible();
-    await expect(panel).toContainText("Changes are disabled until access is verified");
+    await expect(panel.getByText("Permissions could not be verified. Editing is unavailable.", { exact: true })).toHaveCount(1);
     expect((await table.boundingBox())!.y).toBe(before.y);
     await page.keyboard.press("Escape");
     await expect(panel).toHaveCount(0);

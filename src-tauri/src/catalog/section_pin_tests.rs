@@ -59,11 +59,8 @@ fn overview_and_catalog_pin_share_one_identity_and_upgrade_old_duplicates() {
             unpinned
         );
     }
-    let link = add(&engine, "https://example.test").unwrap().web_links[0]
-        .id
-        .clone();
     assert_eq!(
-        pin(&engine, &link, "overview", true),
+        pin(&engine, "retired-link", "overview", true),
         Err(CatalogError::NotFound)
     );
 }
@@ -137,14 +134,13 @@ fn section_pins_persist_with_idempotent_revisions_and_without_kubeconfig_reads()
 fn section_pin_validation_rejects_nonclusters_and_unknown_sections() {
     let (_dir, engine, input) = fixture();
     let first = import(&engine, &input).unwrap();
-    let saved = add(&engine, "https://example.test").unwrap();
     for (id, error) in [
         ("".into(), CatalogError::InvalidInput),
         (" padded ".into(), CatalogError::InvalidInput),
         ("bad\0id".into(), CatalogError::InvalidInput),
         ("x".repeat(MAX_NAME + 1), CatalogError::InvalidInput),
         ("missing".into(), CatalogError::NotFound),
-        (saved.web_links[0].id.clone(), CatalogError::NotFound),
+        ("retired-link".into(), CatalogError::NotFound),
     ] {
         assert_eq!(pin(&engine, &id, "pods", true), Err(error));
     }
@@ -164,7 +160,7 @@ fn section_pin_validation_rejects_nonclusters_and_unknown_sections() {
             );
         }
     }
-    assert_eq!(engine.list().unwrap(), saved);
+    assert_eq!(engine.list().unwrap(), first);
 }
 
 #[test]
@@ -213,7 +209,7 @@ fn downgrade_to_schema_two(engine: &CatalogEngine) {
 fn schema_two_upgrade_preserves_all_metadata_without_revision_changes() {
     let (_dir, engine, input) = fixture();
     import(&engine, &input).unwrap();
-    add(&engine, "https://example.test/docs").unwrap();
+    add(&engine, "additional").unwrap();
     let connection = storage::open(&engine.directory).unwrap();
     let mut store = storage::load(&connection).unwrap();
     drop(connection);
@@ -225,7 +221,6 @@ fn schema_two_upgrade_preserves_all_metadata_without_revision_changes() {
         .unwrap()
         .into();
     store.clusters[0].pinned = true;
-    store.web_links[0].pinned = true;
     store.auto_discover = true;
     store.revision = u64::MAX - 1;
     store.reconcile_pins();
@@ -285,7 +280,6 @@ fn tampered_and_duplicate_section_pins_fail_closed_for_reads_and_mutations() {
     ] {
         let (_dir, engine, input) = fixture();
         let first = import(&engine, &input).unwrap();
-        let saved = add(&engine, "https://example.test").unwrap();
         let database = engine.directory.join("catalog.sqlite3");
         let connection = rusqlite::Connection::open(&database).unwrap();
         connection
@@ -300,12 +294,7 @@ fn tampered_and_duplicate_section_pins_fail_closed_for_reads_and_mutations() {
         );
         assert_eq!(import(&engine, &input), Err(CatalogError::StoreCorrupt));
         assert_eq!(
-            engine.open_web_link_with(
-                OpenWebLinkRequest {
-                    id: saved.web_links[0].id.clone()
-                },
-                |_| Ok::<_, ()>(())
-            ),
+            engine.connection_target(&first.clusters[0].id),
             Err(CatalogError::StoreCorrupt)
         );
         assert_eq!(fs::read(&database).unwrap(), before);

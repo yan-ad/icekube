@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { InspectorAction } from "./InspectorActions";
+import { IconEdit } from "@tabler/icons-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -63,7 +65,7 @@ function ScopedEditor({ clusterId, sessionId, detail, onChanged }: Props) {
   };
   if (!resourceEditable(reference.kind)) return null;
   return <VStack gap={2}>
-    <Button label="Edit YAML" size="sm" variant="ghost" isDisabled={!allowed || !identity || busy} onClick={() => { setOpen(true); void submit("read"); }} />
+    <InspectorAction label="Edit YAML" icon={IconEdit} pending={open || busy} disabled={!allowed || !identity || busy} onClick={() => { setOpen(true); void submit("read"); }} />
     {!allowed && <Text size="sm" type="supporting">Editing requires verified get and patch access to this resource. Unknown access does not permit editing.</Text>}
     {!open && message && <Text role="status">{message}</Text>}
     <Dialog isOpen={open} purpose="form" width="min(48rem, 100%)" onOpenChange={value => { if (!value) close(); }}>

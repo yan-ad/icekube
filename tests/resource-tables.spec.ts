@@ -144,10 +144,10 @@ for (const section of ["nodes", "resource-quotas"]) for (const writeAccess of ["
     await expect(page.getByRole("status").filter({ hasText: message })).toHaveCount(0);
     const options = page.getByRole("button", { name: "Namespace options", exact: true });
     await options.hover();
-    await expect(page.getByRole("tooltip")).toContainText(message);
+    await expect(page.getByRole("tooltip")).toHaveText("Namespace options");
     const before = (await viewport.boundingBox())!;
     await options.click();
-    await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText(message);
+    await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText(writeAccess === "denied" ? message : "Permissions could not be verified. Editing is unavailable.");
     expect((await viewport.boundingBox())!.y).toBe(before.y);
     await page.keyboard.press("Escape");
   } else {

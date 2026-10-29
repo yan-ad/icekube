@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { InspectorAction } from "./InspectorActions";
+import { IconLock, IconLockOpen } from "@tabler/icons-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -66,7 +68,7 @@ function GuardedNodeActions({ clusterId, sessionId, detail, onChanged }: Props) 
   if (reference.kind !== "nodes") return null;
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap" aria-label="Node scheduling actions">
-      <Button label={action ? labels[action] : "Scheduling unavailable"} size="sm" variant="ghost" isDisabled={!canSubmit}
+      <InspectorAction label={action ? labels[action] : "Scheduling unavailable"} icon={action === "uncordon" ? IconLockOpen : IconLock} pending={confirm || busy} disabled={!canSubmit}
         onClick={() => { setMessage(null); setConfirm(true); }} />
     </HStack>
     {!allowed && <Text size="sm" type="supporting">Scheduling actions require verified get and patch access to this Node.</Text>}

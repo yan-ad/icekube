@@ -26,8 +26,13 @@ async function mockUsers(page: import("@playwright/test").Page, mode: "scoped" |
 
 const managementReads = (page: import("@playwright/test").Page) => page.evaluate(() => (window as any).__usersCalls.filter((call: any) => call.command === "cluster_rbac_management_snapshot"));
 async function chooseUserNamespace(page: import("@playwright/test").Page) {
-  await page.getByRole("textbox", { name: "Known user namespace", exact: true }).fill("team");
-  await page.getByRole("button", { name: "Use user namespace", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Known user namespace", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+  const panel = page.getByRole("dialog", { name: "Namespace options", exact: true });
+  await panel.getByRole("button", { name: "Enter namespace", exact: true }).click();
+  await panel.getByRole("textbox", { name: "Known namespace", exact: true }).fill("team");
+  await panel.getByRole("button", { name: "Use namespace", exact: true }).click();
+  await page.keyboard.press("Escape");
 }
 
 test("Users navigation remains available for namespace-scoped management without directory access", async ({ page }) => {

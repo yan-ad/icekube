@@ -1,8 +1,8 @@
 //! Catalog workflow reference: Freelens v1.10.3-533, cd07118f843c4a69f937a319a37a7c12ef2c92d8,
-//! common/catalog/catalog-entity.ts and common/catalog-entities/web-link.ts (behavior only).
-//! CatalogEngine owns imported disconnected contexts, local links, entry pins and cluster-section pins.
+//! common/catalog/catalog-entity.ts (behavior only).
+//! CatalogEngine owns imported disconnected contexts, entry pins and cluster-section pins.
 //! Snapshot results cover empty/loaded states; sanitized errors cover rejected/unavailable states.
-//! Acceptance fixtures live in catalog/tests.rs and catalog/open_tests.rs.
+//! Acceptance fixtures live in catalog/tests.rs.
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -18,7 +18,6 @@ const MAX_INPUT: usize = 1024 * 1024;
 const MAX_STORE: usize = 4 * 1024 * 1024;
 const MAX_ENTRIES: usize = 1000;
 const MAX_NAME: usize = 256;
-const MAX_URL: usize = 2048;
 const MAX_PATH: usize = 4096;
 
 // Static destinations in src/app/cluster/navigation.ts; dynamic custom-resource instances
@@ -87,7 +86,6 @@ pub enum CatalogError {
     InvalidKubeconfig,
     InputUnavailable,
     LimitExceeded,
-    Duplicate,
     NotFound,
     StoreUnavailable,
     StoreCorrupt,
@@ -129,7 +127,6 @@ type Result<T> = std::result::Result<T, CatalogError>;
 pub struct CatalogSnapshot {
     pub revision: u64,
     pub clusters: Vec<ClusterSummary>,
-    pub web_links: Vec<WebLinkSummary>,
     pub pinned_items: Vec<PinTarget>,
     pub discovery_error: Option<CatalogError>,
 }
@@ -146,27 +143,10 @@ pub struct ClusterSummary {
     pub labels: Vec<String>,
     pub color: String,
 }
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
-pub struct WebLinkSummary {
-    pub id: String,
-    pub name: String,
-    pub url: String,
-    pub pinned: bool,
-    pub source: String,
-    pub labels: Vec<String>,
-    pub color: String,
-}
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ImportRequest {
     pub path: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct AddWebLinkRequest {
-    pub name: String,
-    pub url: String,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -177,11 +157,6 @@ pub struct PinRequest {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RemoveRequest {
-    pub id: String,
-}
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct OpenWebLinkRequest {
     pub id: String,
 }
 
@@ -198,7 +173,6 @@ struct Store {
     schema_version: u32,
     revision: u64,
     clusters: Vec<ClusterRecord>,
-    web_links: Vec<WebLinkSummary>,
     #[serde(default)]
     pin_order: Vec<PinTarget>,
     auto_discover: bool, // Legacy storage field; discovery no longer consults it.
@@ -218,7 +192,7 @@ struct ClusterRecord {
 impl Store {
     fn empty() -> Self {
         Self {
-            schema_version: 4,
+            schema_version: 5,
             ..Self::default()
         }
     }
@@ -243,12 +217,9 @@ impl Store {
             })
             .collect();
         clusters.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
-        let mut web_links = self.web_links.clone();
-        web_links.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
         CatalogSnapshot {
             revision: self.revision,
             clusters,
-            web_links,
             pinned_items: self.pin_order.clone(),
             discovery_error,
         }
@@ -256,8 +227,6 @@ impl Store {
     fn current_pins(&self) -> Vec<PinTarget> {
         let mut clusters: Vec<_> = self.clusters.iter().collect();
         clusters.sort_by(|a, b| (&a.context_name, &a.id).cmp(&(&b.context_name, &b.id)));
-        let mut links: Vec<_> = self.web_links.iter().collect();
-        links.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
         let mut pins: Vec<_> = clusters
             .iter()
             .filter(|c| c.pinned)
@@ -265,10 +234,6 @@ impl Store {
                 id: c.id.clone(),
                 section: None,
             })
-            .chain(links.iter().filter(|l| l.pinned).map(|l| PinTarget {
-                id: l.id.clone(),
-                section: None,
-            }))
             .collect();
         for cluster in clusters {
             for section in SECTIONS.iter().filter(|section| **section != "overview") {
@@ -303,7 +268,7 @@ impl Store {
     }
 
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 4 || self.clusters.len() + self.web_links.len() > MAX_ENTRIES {
+        if self.schema_version != 5 || self.clusters.len() > MAX_ENTRIES {
             return Err(CatalogError::StoreCorrupt);
         }
         let mut targets = HashSet::new();
@@ -316,7 +281,6 @@ impl Store {
             return Err(CatalogError::StoreCorrupt);
         }
         let mut ids = HashSet::new();
-        let mut urls = HashSet::new();
         for c in &self.clusters {
             let path = Path::new(&c.source_path);
             let mut sections = HashSet::new();
@@ -335,19 +299,6 @@ impl Store {
                 || c.id != cluster_id(&c.source_path, &c.context_name)
                 || !valid_color(&c.color)
                 || !ids.insert(&c.id)
-            {
-                return Err(CatalogError::StoreCorrupt);
-            }
-        }
-        for l in &self.web_links {
-            if !valid_name(&l.name)
-                || normalize_url(&l.url).ok().as_ref() != Some(&l.url)
-                || l.id != link_id(&l.url)
-                || !valid_color(&l.color)
-                || l.source != "local"
-                || !l.labels.is_empty()
-                || !ids.insert(&l.id)
-                || !urls.insert(&l.url)
             {
                 return Err(CatalogError::StoreCorrupt);
             }
@@ -414,30 +365,6 @@ impl CatalogEngine {
             context_name: cluster.context_name.clone(),
         })
     }
-    pub(crate) fn open_web_link_with<E>(
-        &self,
-        request: OpenWebLinkRequest,
-        open: impl FnOnce(&str) -> std::result::Result<(), E>,
-    ) -> Result<()> {
-        if !valid_name(&request.id) {
-            return Err(CatalogError::InvalidInput);
-        }
-        let url = {
-            let _guard = self
-                .operations
-                .lock()
-                .map_err(|_| CatalogError::StoreUnavailable)?;
-            let store = storage::read_existing(&self.directory)?;
-            let link = store
-                .web_links
-                .iter()
-                .find(|link| link.id == request.id)
-                .ok_or(CatalogError::NotFound)?;
-            normalize_url(&link.url).map_err(|_| CatalogError::StoreCorrupt)?
-        };
-        // Do not hold catalog locks while the OS hands off to the default browser.
-        open(&url).map_err(|_| CatalogError::OpenFailed)
-    }
     fn change(&self, update: impl FnOnce(&mut Store) -> Result<bool>) -> Result<CatalogSnapshot> {
         self.change_inner(update, false)
     }
@@ -485,27 +412,6 @@ impl CatalogEngine {
         }
         self.change(|store| reconcile(store, Path::new(&request.path)))
     }
-    pub fn add_web_link(&self, request: AddWebLinkRequest) -> Result<CatalogSnapshot> {
-        if !valid_name(&request.name) {
-            return Err(CatalogError::InvalidInput);
-        }
-        let url = normalize_url(&request.url)?;
-        self.change(|store| {
-            if store.web_links.iter().any(|l| l.url == url) {
-                return Err(CatalogError::Duplicate);
-            }
-            store.web_links.push(WebLinkSummary {
-                id: link_id(&url),
-                name: request.name,
-                url,
-                pinned: false,
-                source: "local".into(),
-                labels: vec![],
-                color: new_color(store)?,
-            });
-            Ok(true)
-        })
-    }
     pub fn reorder_pins(&self, request: ReorderPinsRequest) -> Result<CatalogSnapshot> {
         self.change(|store| {
             let current: HashSet<_> = store.pin_order.iter().collect();
@@ -547,8 +453,6 @@ impl CatalogEngine {
         self.change(|store| {
             let pin = if let Some(c) = store.clusters.iter_mut().find(|c| c.id == request.id) {
                 &mut c.pinned
-            } else if let Some(l) = store.web_links.iter_mut().find(|l| l.id == request.id) {
-                &mut l.pinned
             } else {
                 return Err(CatalogError::NotFound);
             };
@@ -596,10 +500,9 @@ impl CatalogEngine {
             return Err(CatalogError::InvalidInput);
         }
         self.change(|store| {
-            let count = store.clusters.len() + store.web_links.len();
+            let count = store.clusters.len();
             store.clusters.retain(|c| c.id != request.id);
-            store.web_links.retain(|l| l.id != request.id);
-            if count == store.clusters.len() + store.web_links.len() {
+            if count == store.clusters.len() {
                 return Err(CatalogError::NotFound);
             }
             Ok(true)
@@ -639,9 +542,7 @@ fn color_with(store: &Store, mut fill: impl FnMut(&mut [u8]) -> Result<()>) -> R
         let mut bytes = [0; 3];
         fill(&mut bytes)?;
         let color = format!("#{:02X}{:02X}{:02X}", bytes[0], bytes[1], bytes[2]);
-        if !store.clusters.iter().any(|c| c.color == color)
-            && !store.web_links.iter().any(|c| c.color == color)
-        {
+        if !store.clusters.iter().any(|c| c.color == color) {
             return Ok(color);
         }
     }
@@ -754,9 +655,6 @@ fn valid_name(s: &str) -> bool {
 fn cluster_id(source: &str, context: &str) -> String {
     digest_id("cluster", &[source, context])
 }
-fn link_id(url: &str) -> String {
-    digest_id("link", &[url])
-}
 fn digest_id(kind: &str, parts: &[&str]) -> String {
     let mut hash = Sha256::new();
     for part in parts {
@@ -764,35 +662,6 @@ fn digest_id(kind: &str, parts: &[&str]) -> String {
         hash.update(part.as_bytes());
     }
     format!("{kind}-{:x}", hash.finalize())
-}
-fn normalize_url(value: &str) -> Result<String> {
-    if value.len() > MAX_URL
-        || value.trim() != value
-        || value.chars().any(char::is_control)
-        || value.contains('\\')
-    {
-        return Err(CatalogError::InvalidInput);
-    }
-    let url = url::Url::parse(value).map_err(|_| CatalogError::InvalidInput)?;
-    // Query and fragment can carry credentials; this catalog never stores them.
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.query().is_some()
-        || url.fragment().is_some()
-        || value
-            .split("://")
-            .nth(1)
-            .is_some_and(|s| s.split('/').next().is_some_and(|a| a.contains('@')))
-    {
-        return Err(CatalogError::InvalidInput);
-    }
-    let normalized = url.to_string();
-    if normalized.len() > MAX_URL {
-        return Err(CatalogError::InvalidInput);
-    }
-    Ok(normalized)
 }
 pub(crate) fn bounded_read(path: &Path, limit: usize) -> Result<Vec<u8>> {
     let metadata = fs::symlink_metadata(path).map_err(|_| CatalogError::InputUnavailable)?;
@@ -892,9 +761,6 @@ mod discovery_tests;
 
 #[cfg(test)]
 mod symlink_tests;
-
-#[cfg(test)]
-mod open_tests;
 
 #[cfg(test)]
 mod section_pin_tests;

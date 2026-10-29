@@ -154,7 +154,7 @@ fn schema_one(engine: &CatalogEngine, source: &str) {
     connection
         .execute(
             "INSERT INTO web_links VALUES(?1,'Docs','https://example.test/',1,'#ABCDEF')",
-            [link_id("https://example.test/")],
+            ["retired-link"],
         )
         .unwrap();
 }
@@ -169,8 +169,7 @@ fn schema_one_upgrade_preserves_records_revision_settings_colors() {
     assert_eq!(migrated.revision, u64::MAX - 1);
     assert!(migrated.discovery_error.is_none());
     assert_eq!(migrated.clusters[0].color, "#123456");
-    assert_eq!(migrated.web_links[0].color, "#ABCDEF");
-    assert!(migrated.clusters[0].pinned && migrated.web_links[0].pinned);
+    assert!(migrated.clusters[0].pinned);
     assert_eq!(
         migrated.clusters[0].labels,
         [format!("file={}", source.display())]
@@ -181,7 +180,7 @@ fn schema_one_upgrade_preserves_records_revision_settings_colors() {
     );
     let connection = storage::open(&engine.directory).unwrap();
     let stored = storage::load(&connection).unwrap();
-    assert_eq!(stored.schema_version, 4);
+    assert_eq!(stored.schema_version, 5);
     assert!(stored.auto_discover);
     drop(connection);
     let updated = engine
@@ -211,7 +210,7 @@ fn invalid_and_newer_schema_upgrade_fail_closed() {
         if newer {
             connection
                 .execute_batch(
-                    "PRAGMA ignore_check_constraints=ON; UPDATE metadata SET schema_version=5;",
+                    "PRAGMA ignore_check_constraints=ON; UPDATE metadata SET schema_version=6;",
                 )
                 .unwrap();
         } else {

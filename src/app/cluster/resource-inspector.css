@@ -38,6 +38,33 @@
   flex-shrink: 0;
 }
 
+.detail-list-container {
+  container: detail-list / inline-size;
+  min-inline-size: 0;
+  inline-size: 100%;
+}
+
+.detail-list,
+.detail-list dl,
+.detail-list .astryx-metadata-list-item,
+.detail-list dt,
+.detail-list dd {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+.detail-list dt,
+.detail-list dd {
+  white-space: normal;
+}
+
+/* Two readable fact tracks need 40 em of actual panel content, not viewport width. */
+@container detail-list (inline-size < 40em) {
+  .detail-list > dl {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .resource-inspector-body button {
   max-inline-size: 100%;
   block-size: auto;

@@ -93,15 +93,21 @@ fn mutations_do_not_rescan_default() {
     config(&home, CONFIG);
     let first = engine.list().unwrap();
     config(&home, &CONFIG.replace("development", "production"));
-    let added = add(&engine, "https://example.test").unwrap();
-    assert_eq!(added.clusters, first.clusters);
+    let added = add(&engine, "additional").unwrap();
+    assert!(added.clusters.contains(&first.clusters[0]));
+    assert!(!added.clusters.iter().any(|c| c.name == "production"));
     let pinned = engine
         .set_pin(PinRequest {
             id: first.clusters[0].id.clone(),
             pinned: true,
         })
         .unwrap();
-    assert_eq!(pinned.clusters[0].name, "development");
+    assert!(
+        pinned
+            .clusters
+            .iter()
+            .any(|c| c.name == "development" && c.pinned)
+    );
     let explicit = home.join("explicit.yaml");
     fs::write(&explicit, CONFIG.replace("development", "explicit")).unwrap();
     let imported = import(&engine, &explicit).unwrap();
@@ -120,23 +126,13 @@ fn discovery_capacity_failure_retains_rows_and_legacy_setting() {
     let (_directory, home, engine) = home_fixture();
     let mut store = Store::empty();
     for i in 0..MAX_ENTRIES {
-        let url = format!("https://fixture{i}.test/");
-        store.web_links.push(WebLinkSummary {
-            id: link_id(&url),
-            name: format!("Link {i}"),
-            url,
-            pinned: false,
-            color: format!("#{i:06X}"),
-            source: "local".into(),
-            labels: vec![],
-        });
+        store.clusters.push(super::tests::cluster_record(i));
     }
     super::tests::save_fixture(&engine, &store);
     config(&home, CONFIG);
     let snapshot = engine.list().unwrap();
     assert_eq!(snapshot.discovery_error, Some(CatalogError::LimitExceeded));
-    assert!(snapshot.clusters.is_empty());
-    assert_eq!(snapshot.web_links.len(), MAX_ENTRIES);
+    assert_eq!(snapshot.clusters.len(), MAX_ENTRIES);
     assert_eq!(snapshot.revision, 0);
     let connection = storage::open(&engine.directory).unwrap();
     assert!(!storage::load(&connection).unwrap().auto_discover);
@@ -145,15 +141,14 @@ fn discovery_capacity_failure_retains_rows_and_legacy_setting() {
 fn colors_persist_and_collision_retry_is_deterministic() {
     let (directory, engine, input) = super::tests::fixture();
     let cluster = import(&engine, &input).unwrap().clusters.remove(0);
-    let first = add(&engine, "https://example.test").unwrap();
+    let first = add(&engine, "additional").unwrap();
     assert!(valid_color(&cluster.color));
-    assert!(valid_color(&first.web_links[0].color));
-    assert_ne!(cluster.color, first.web_links[0].color);
-    assert_eq!(first.web_links[0].source, "local");
-    assert!(first.web_links[0].labels.is_empty());
+    let added = first.clusters.iter().find(|c| c.id != cluster.id).unwrap();
+    assert!(valid_color(&added.color));
+    assert_ne!(cluster.color, added.color);
     let pinned = engine
         .set_pin(PinRequest {
-            id: first.web_links[0].id.clone(),
+            id: added.id.clone(),
             pinned: true,
         })
         .unwrap();
@@ -165,9 +160,9 @@ fn colors_persist_and_collision_retry_is_deterministic() {
         pinned
     );
     let mut store = Store::empty();
-    let mut link = first.web_links[0].clone();
-    link.color = "#000000".into();
-    store.web_links.push(link);
+    let mut cluster = super::tests::cluster_record(0);
+    cluster.color = "#000000".into();
+    store.clusters.push(cluster);
     let mut calls = 0;
     assert_eq!(
         color_with(&store, |bytes| {
@@ -199,14 +194,13 @@ fn legacy_migration_preserves_identity_pins_and_u64_revision() {
     fs::create_dir_all(&engine.directory).unwrap();
     let legacy = serde_json::json!({"schemaVersion":1,"revision":u64::MAX,"clusters":[{
         "id":cluster_id(&source,"development"),"contextName":"development","sourcePath":source,"pinned":true}],
-        "webLinks":[{"id":link_id("https://example.test/"),"name":"Docs","url":"https://example.test/","pinned":true}]});
+        "webLinks":{"obsolete":"malformed retired data is ignored"}});
     let bytes = serde_json::to_vec(&legacy).unwrap();
     fs::write(engine.directory.join("catalog.json"), &bytes).unwrap();
     let migrated = engine.list().unwrap();
     assert_eq!(migrated.revision, u64::MAX);
-    assert!(migrated.clusters[0].pinned && migrated.web_links[0].pinned);
+    assert!(migrated.clusters[0].pinned);
     assert_eq!(migrated.clusters[0].id, legacy["clusters"][0]["id"]);
-    assert_eq!(migrated.web_links[0].id, legacy["webLinks"][0]["id"]);
     let connection = storage::open(&engine.directory).unwrap();
     assert!(!storage::load(&connection).unwrap().auto_discover);
     drop(connection);
@@ -241,10 +235,7 @@ fn corrupt_migration_and_backup_conflict_never_publish_database() {
         fs::create_dir_all(&engine.directory).unwrap();
         fs::write(engine.directory.join("catalog.json"), bytes).unwrap();
         assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
-        assert_eq!(
-            add(&engine, "https://example.test"),
-            Err(CatalogError::StoreCorrupt)
-        );
+        assert_eq!(add(&engine, "additional"), Err(CatalogError::StoreCorrupt));
         assert_eq!(
             fs::read(engine.directory.join("catalog.json")).unwrap(),
             bytes
@@ -276,20 +267,14 @@ fn independent_engines_serialize_updates() {
     std::thread::scope(|scope| {
         for i in 0..12 {
             let path = directory.path().join("data");
-            scope.spawn(move || {
-                add(
-                    &CatalogEngine::new(path),
-                    &format!("https://fixture{i}.test"),
-                )
-                .unwrap()
-            });
+            scope.spawn(move || add(&CatalogEngine::new(path), &format!("fixture{i}")).unwrap());
         }
     });
     let snapshot = CatalogEngine::new(directory.path().join("data"))
         .list()
         .unwrap();
     assert_eq!(snapshot.revision, 12);
-    assert_eq!(snapshot.web_links.len(), 12);
+    assert_eq!(snapshot.clusters.len(), 12);
 }
 
 #[test]

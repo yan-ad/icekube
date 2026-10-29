@@ -1,4 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
+import { InspectorAction } from "./InspectorActions";
+import { IconArrowsVertical, IconPlayerPause, IconPlayerPlay, IconPlayerPlayFilled, IconRotateClockwise } from "@tabler/icons-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
@@ -13,6 +15,7 @@ import { useUpdateBlocker } from "../updates/UpdateProvider";
 import { cancelWorkloadAction, parseReplicas, validWorkloadRequest, workloadAction, type WorkloadAction, type WorkflowRequest } from "./workloadActionsApi";
 
 type Props = SessionRequest & { detail: ResourceDetail; onChanged: () => void };
+const icons = { scale: IconArrowsVertical, restart: IconRotateClockwise, suspend: IconPlayerPause, resume: IconPlayerPlay, trigger: IconPlayerPlayFilled };
 const labels: Record<WorkloadAction, string> = { scale: "Scale", restart: "Restart", suspend: "Suspend", resume: "Resume", trigger: "Trigger" };
 export function workloadActions(detail: ResourceDetail): WorkloadAction[] {
   const kind = detail.reference.kind;
@@ -90,8 +93,8 @@ function GuardedActions({ clusterId, sessionId, detail, onChanged }: Props) {
   if (!actions.length) return null;
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap" aria-label="Workload actions">
-      {actions.map(action => <Button key={action} label={labels[action]} size="sm" variant="ghost"
-        isDisabled={busy || refreshRequired || !hasIdentity || !allowed(action) || !validWorkloadRequest({ ...requestFor(action, 1), replicas: action === "scale" ? 0 : null })}
+      {actions.map(action => <InspectorAction key={action} label={labels[action]} icon={icons[action]} pending={confirm !== null || busy}
+        disabled={busy || refreshRequired || !hasIdentity || !allowed(action) || !validWorkloadRequest({ ...requestFor(action, 1), replicas: action === "scale" ? 0 : null })}
         onClick={() => { setReplicas(/^\d+$/.test(item.columns.replicas ?? "") ? item.columns.replicas : ""); setMessage(null); setConfirm(action); }} />)}
     </HStack>
     {actions.some(action => !allowed(action)) && <Text size="sm" type="supporting">Actions require verified get and patch access to this resource; Trigger requires get access and create access to Jobs in this namespace.</Text>}

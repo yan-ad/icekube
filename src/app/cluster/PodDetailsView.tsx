@@ -1,7 +1,9 @@
 import { useState } from "react";
+import { InspectorAction } from "./InspectorActions";
+import { IconEdit, IconTrash, IconTrashX, IconLockOff } from "@tabler/icons-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Heading } from "@astryxdesign/core/Heading";
-import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
+import { MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import { YamlEditor } from "../components/YamlEditor";
@@ -11,17 +13,20 @@ import type { PodDetails, PodMode, PodMutation } from "./podApi";
 import { usePermissionChecks } from "./PermissionProvider";
 import { useUpdateBlocker } from "../updates/UpdateProvider";
 import { ResourceAge } from "./ResourceAge";
+import { DetailList } from "./DetailList";
 
 type Props = {
   details: PodDetails;
   edit: boolean;
   embedded?: boolean;
+  disabled?: boolean;
+  pending?: boolean;
   onEdit: () => void;
   onOpen: (mode: PodMode) => void;
   onAction: (action: PodMutation, yaml?: string) => void;
 };
 
-export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen, onAction }: Props) {
+export function PodDetailsView({ details, edit, embedded = false, disabled = false, pending = false, onEdit, onOpen, onAction }: Props) {
   useUpdateBlocker(edit, "Pod YAML editing is open.");
   const [yaml, setYaml] = useState(details.yaml);
   const permissions = usePermissionChecks([
@@ -31,7 +36,7 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
     { kind: "pods", namespace: details.namespace, name: details.name, action: "delete" },
   ]);
   const allowed = (action: "get" | "update" | "patch" | "delete") => permissions.decision({ kind: "pods", namespace: details.namespace, name: details.name, action }) === "allowed";
-  const canReplace = !permissions.loading && allowed("get") && allowed("update");
+  const canReplace = !disabled && !permissions.loading && allowed("get") && allowed("update");
   return <VStack gap={5} padding={4} style={{ minWidth: 0, flexShrink: 0, overflowWrap: "anywhere" }}>
     <VStack gap={2}>
       {!embedded && <Heading level={2} wordBreak="break-all">{details.name}</Heading>}
@@ -47,7 +52,7 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
       </HStack>}
     </VStack>
 
-    <MetadataList title="Pod facts" columns="single" label={{ position: "top" }}>
+    <DetailList title="Pod facts">
       <MetadataListItem label="Namespace">
         <ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: details.namespace }}>{details.namespace}</ResourceRelationLink>
       </MetadataListItem>
@@ -66,16 +71,16 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
       <MetadataListItem label="QoS">{details.qos ?? "Unknown"}</MetadataListItem>
       <MetadataListItem label="Pod IPs"><Text type="code" wordBreak="break-all">{details.podIps.join(", ") || "Not assigned"}</Text></MetadataListItem>
       <MetadataListItem label="Host IPs"><Text type="code" wordBreak="break-all">{details.hostIps.join(", ") || "Not assigned"}</Text></MetadataListItem>
-    </MetadataList>
+    </DetailList>
 
     <VStack gap={3}>
       <Heading level={3}>Conditions</Heading>
       {details.conditions.length === 0 ? <Text type="supporting">No conditions reported.</Text>
-        : <MetadataList columns="single" label={{ position: "top" }}>
+        : <DetailList>
           {details.conditions.map(condition => <MetadataListItem key={condition.type} label={condition.type}>
             <StatusBadge status={condition.status} />
           </MetadataListItem>)}
-        </MetadataList>}
+        </DetailList>}
     </VStack>
 
     <VStack gap={4}>
@@ -83,7 +88,7 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
       {details.containers.length === 0 && <Text type="supporting">No containers reported.</Text>}
       {details.containers.map(container => <VStack gap={2} key={`${container.kind}-${container.name}`}>
         <Heading level={4} wordBreak="break-all">{container.name}</Heading>
-        <MetadataList columns="single" label={{ position: "top" }}>
+        <DetailList>
           <MetadataListItem label="Kind">{container.kind === "init" ? "Init container" : container.kind === "ephemeral" ? "Ephemeral container" : "Container"}</MetadataListItem>
           <MetadataListItem label="Image"><Text type="code" wordBreak="break-all">{container.image}</Text></MetadataListItem>
           <MetadataListItem label="State"><StatusBadge status={container.state} /></MetadataListItem>
@@ -93,7 +98,7 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
             : <VStack gap={1}>{container.ports.map((port, index) => <Text key={`${port.port}-${port.protocol}-${index}`} type="code" wordBreak="break-all">
               {port.name ? `${port.name}: ` : ""}{port.port}/{port.protocol}
             </Text>)}</VStack>}</MetadataListItem>
-        </MetadataList>
+        </DetailList>
       </VStack>)}
     </VStack>
 
@@ -104,22 +109,23 @@ export function PodDetailsView({ details, edit, embedded = false, onEdit, onOpen
       {details.eventsState === "unavailable" && <Text role="status">Events unavailable. Refresh details to try again.</Text>}
       {details.eventsState === "partial" && <Text role="status">Event snapshot is incomplete. More events may be available.</Text>}
       {details.eventsState === "complete" && details.events.length === 0 && <Text type="supporting">No events returned.</Text>}
-      {details.events.map((event, index) => <MetadataList key={`${event.reason}-${index}`} columns="single" label={{ position: "top" }}>
+      {details.events.map((event, index) => <DetailList key={`${event.reason}-${index}`}>
         <MetadataListItem label="Reason"><Text wordBreak="break-all">{event.reason}</Text></MetadataListItem>
         <MetadataListItem label="Type"><StatusBadge status={event.type} variant={event.type === "Warning" ? "warning" : "neutral"} /></MetadataListItem>
         <MetadataListItem label="Count">{event.count}</MetadataListItem>
         <MetadataListItem label="Last seen"><Text wordBreak="break-all">{event.lastSeen ?? "Unknown"}</Text></MetadataListItem>
-      </MetadataList>)}
+      </DetailList>)}
     </VStack>
 
     <VStack gap={3}>
       <Heading level={3}>YAML</Heading>
       <YamlEditor label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit || !canReplace} rows={14} />
+      {!edit && <InspectorAction label="Edit YAML" icon={IconEdit} disabled={!canReplace} pending={pending} onClick={onEdit} />}
       <HStack gap={2} wrap="wrap">
-        {edit ? <Button label="Save YAML" isDisabled={!canReplace} onClick={() => onAction("replace", yaml)} /> : <Button label="Edit YAML" variant="ghost" isDisabled={!canReplace} onClick={onEdit} />}
-        <Button label="Delete" variant="ghost" isDisabled={permissions.loading || !allowed("delete")} onClick={() => onAction("delete")} />
-        <Button label="Force delete" variant="ghost" isDisabled={permissions.loading || !allowed("delete")} onClick={() => onAction("forceDelete")} />
-        {details.deletionTimestamp && <Button label="Finalize" variant="ghost" isDisabled={permissions.loading || !allowed("patch")} onClick={() => onAction("finalize")} />}
+        {edit && <Button label="Save YAML" isDisabled={!canReplace} onClick={() => onAction("replace", yaml)} />}
+        <InspectorAction label="Delete" icon={IconTrash} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("delete")} />
+        <InspectorAction label="Force delete" icon={IconTrashX} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("forceDelete")} />
+        {details.deletionTimestamp && <InspectorAction label="Finalize" icon={IconLockOff} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("patch")} onClick={() => onAction("finalize")} />}
         {!permissions.loading && !allowed("get") && <Text role="status">Access denied for this Pod.</Text>}
       </HStack>
     </VStack>

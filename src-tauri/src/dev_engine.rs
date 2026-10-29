@@ -333,11 +333,6 @@ async fn dispatch(state: Arc<Engine>, client: &str, invocation: Invocation) -> R
             let request = request!();
             encoded(state.connections.namespace_cache_refresh(request).await)
         }
-        "catalog_open_web_link" => {
-            let request = request!();
-            let engine = state.catalog.clone();
-            blocking(move || engine.open_web_link_with(request, |_| Err::<(), _>(()))).await
-        }
         "cluster_rbac_management_snapshot" => {
             let request = request!();
             encoded(state.connections.rbac_management_snapshot(request).await)
@@ -556,19 +551,6 @@ async fn dispatch(state: Arc<Engine>, client: &str, invocation: Invocation) -> R
             let connections = state.connections.clone();
             blocking(move || {
                 let mut snapshot = catalog.import_kubeconfig(request)?;
-                connections
-                    .project_catalog_statuses(&mut snapshot)
-                    .map_err(|_| crate::catalog::CatalogError::StoreUnavailable)?;
-                Ok::<_, crate::catalog::CatalogError>(snapshot)
-            })
-            .await
-        }
-        "catalog_add_web_link" => {
-            let request = request!();
-            let catalog = state.catalog.clone();
-            let connections = state.connections.clone();
-            blocking(move || {
-                let mut snapshot = catalog.add_web_link(request)?;
                 connections
                     .project_catalog_statuses(&mut snapshot)
                     .map_err(|_| crate::catalog::CatalogError::StoreUnavailable)?;
@@ -1036,8 +1018,8 @@ mod tests {
             call(
                 state.clone(),
                 CLIENT,
-                "catalog_add_web_link",
-                json!({"request":{"name":"x","url":"https://example.test","oops":1}})
+                "catalog_import_kubeconfig",
+                json!({"request":{"path":"/fixture","oops":1}})
             )
             .await["error"],
             "invalidInput"
@@ -1046,8 +1028,8 @@ mod tests {
             call(
                 state.clone(),
                 CLIENT,
-                "catalog_add_web_link",
-                json!({"request":{"name":"x","url":"file:///secret"}})
+                "catalog_import_kubeconfig",
+                json!({"request":{"path":"relative"}})
             )
             .await["error"],
             "invalidInput"
@@ -1100,17 +1082,20 @@ mod tests {
         );
     }
     #[tokio::test]
-    async fn catalog_pins_persist_and_native_open_is_unavailable() {
+    async fn catalog_cluster_pins_persist_and_retired_commands_are_unavailable() {
         let (root, state) = fixture();
+        let config = root.path().join("fixture.yaml");
+        std::fs::write(&config, "apiVersion: v1\nkind: Config\nclusters:\n- name: fixture\ncontexts:\n- name: fixture\n  context:\n    cluster: fixture\n").unwrap();
         let created = call(
             state.clone(),
             CLIENT,
-            "catalog_add_web_link",
-            json!({"request":{"name":"Docs","url":"https://example.test"}}),
+            "catalog_import_kubeconfig",
+            json!({"request":{"path":config}}),
         )
         .await;
         assert_eq!(created["ok"], true);
-        let id = created["value"]["webLinks"][0]["id"].clone();
+        let id = created["value"]["clusters"][0]["id"].clone();
+        assert!(created["value"].get("webLinks").is_none());
         assert_eq!(
             call(
                 state.clone(),
@@ -1129,7 +1114,7 @@ mod tests {
                 json!({"request":{"id":id}})
             )
             .await["error"],
-            "openFailed"
+            "unknownCommand"
         );
         assert_eq!(
             call(
@@ -1139,14 +1124,14 @@ mod tests {
                 json!({"request":{"name":"Docs","url":"https://example.test"}})
             )
             .await["error"],
-            "duplicate"
+            "unknownCommand"
         );
         let reopened = Arc::new(CatalogEngine::new_with_home(root.path().into(), None));
         let snapshot = reopened.list().unwrap();
-        assert!(snapshot.web_links[0].pinned);
+        assert!(snapshot.clusters[0].pinned);
         assert_eq!(snapshot.pinned_items[0].id, id.as_str().unwrap());
         assert_eq!(
-            call(state.clone(), CLIENT, "catalog_list", json!({})).await["value"]["webLinks"][0]["pinned"],
+            call(state.clone(), CLIENT, "catalog_list", json!({})).await["value"]["clusters"][0]["pinned"],
             true
         );
         assert_eq!(
@@ -1160,7 +1145,7 @@ mod tests {
             true
         );
         let snapshot = reopened.list().unwrap();
-        assert!(snapshot.web_links.is_empty());
+        assert!(snapshot.clusters.is_empty());
         assert!(snapshot.pinned_items.is_empty());
     }
     #[tokio::test]

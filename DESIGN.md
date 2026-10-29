@@ -212,6 +212,23 @@ the shortcut for its own read and stops propagation, not the table behind it.
 Modified, composing and repeated keys must not start duplicate reads. No
 fabricated metrics, events, counts, or terminal output.
 
+The desktop workspace sidebar has a right-edge Astryx resize handle. Dragging
+reflows the working surface immediately; Arrow Left/Right, Home and End provide
+keyboard resizing with a pane-linked separator and visible focus. Width is bounded
+to 176 CSS pixels minimum and the smaller of 35% of the viewport or 480 CSS pixels
+maximum, preserving working space. The initial width remains 18% capped at 256.
+Astryx persists the bounded width under
+`astryx-resizable:iceon.cluster-sidebar-width.v1` as a non-sensitive UI preference;
+it is shared across clusters and restored after returning from Catalog or reloading.
+Shrinking the window clamps and saves the width. The icon-only Catalog rail does
+not resize, and the narrow-window drawer remains full-width without a handle.
+Only sidebar exit animates width; dragging never waits on a width transition.
+This is a user-requested Iceon interaction, not a new verified Freelens workflow.
+Rust ownership is unchanged: no new commands, connection work or persistence of
+domain data. `tests/sidebar-resize.spec.ts` covers pointer/keyboard bounds,
+cancellation/disposal, persistence/storage failures, themes and responsive reflow;
+native webview resizing and OS fullscreen behavior require a separate smoke test.
+
 Section identity is scoped to the cluster route through the validated `section`
 search field. History back/forward and direct links retain cluster/section scope.
 Switching clusters resets the temporary sidebar expansion. On narrow windows the
@@ -298,8 +315,11 @@ tests remain separate from this production timing check.
 and other filters, rather than stretching across the remaining space. Resource and
 Helm tables keep namespace context beside the title. A compact information/warning
 icon immediately to the right of the namespace selector exposes discovery/cache and
-nonblocking resource-access explanations in its tooltip, not a page-level banner.
-Clicking it opens an accessible popover for manual namespace entry and retry/load
+nonblocking resource-access explanations on demand, not a page-level banner.
+Routine permission checks run quietly with a neutral "Namespace options" tooltip;
+unavailable reviews do not trigger a warning color or repeated explanation. Confirmed
+denials and namespace-load errors remain discoverable. Clicking the icon opens an
+accessible popover with one concise explanation, manual namespace entry and retry/load
 actions. Blocking resource access failures remain in the content area, and permission
 checks still disable unavailable mutations. At narrow widths controls wrap without
 horizontal page overflow. Namespace

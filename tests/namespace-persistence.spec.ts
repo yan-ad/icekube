@@ -126,12 +126,12 @@ test("reload hydrates Rust metadata, keeps options on failed refresh and offers 
     if (reload) await page.reload();
     const options = page.getByRole("button", { name: "Namespace options", exact: true });
     await options.hover();
-    await expect(page.getByRole("tooltip")).toContainText("Cached namespaces. These names may be stale; resource access is checked by Kubernetes.");
-    await expect(page.getByRole("tooltip")).toContainText("Namespace discovery access is unverified.");
+    await expect(page.getByRole("tooltip")).toHaveText("Namespace options");
     expect(await page.evaluate(() => (window as any).__namespaceCalls.filter((call: any) => call.command === "cluster_namespace_cache_refresh").length)).toBe(0);
     await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toHaveCount(0);
     await options.click();
     const dialog = page.getByRole("dialog", { name: "Namespace options", exact: true });
+    await expect(dialog).toContainText("Cached namespaces. These names may be stale; resource access is checked by Kubernetes.");
     await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
     await page.getByRole("button", { name: "Load namespaces", exact: true }).click();
     await expect(dialog).toContainText("Could not load namespaces.");

@@ -18,8 +18,8 @@ mod updates;
 mod window;
 
 use catalog::{
-    AddWebLinkRequest, CatalogEngine, CatalogError, CatalogSnapshot, ImportRequest,
-    OpenWebLinkRequest, PinRequest, RemoveRequest, ReorderPinsRequest, SectionPinRequest,
+    CatalogEngine, CatalogError, CatalogSnapshot, ImportRequest, PinRequest, RemoveRequest,
+    ReorderPinsRequest, SectionPinRequest,
 };
 use std::sync::Arc;
 use tauri::Manager;
@@ -525,20 +525,6 @@ async fn project_open_repository(app: tauri::AppHandle) -> Result<(), project::P
 }
 
 #[tauri::command]
-async fn catalog_open_web_link(
-    app: tauri::AppHandle,
-    engine: tauri::State<'_, Arc<CatalogEngine>>,
-    request: OpenWebLinkRequest,
-) -> Result<(), CatalogError> {
-    let engine = engine.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        engine.open_web_link_with(request, |url| app.opener().open_url(url, None::<&str>))
-    })
-    .await
-    .map_err(|_| CatalogError::OpenFailed)?
-}
-
-#[tauri::command]
 async fn catalog_list(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
@@ -568,20 +554,6 @@ async fn catalog_import_kubeconfig(
         engine.inner().clone(),
         connections.inner().clone(),
         move |engine| engine.import_kubeconfig(request),
-    )
-    .await
-}
-
-#[tauri::command]
-async fn catalog_add_web_link(
-    engine: tauri::State<'_, Arc<CatalogEngine>>,
-    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
-    request: AddWebLinkRequest,
-) -> Result<CatalogSnapshot, CatalogError> {
-    catalog_operation(
-        engine.inner().clone(),
-        connections.inner().clone(),
-        move |engine| engine.add_web_link(request),
     )
     .await
 }
@@ -718,12 +690,10 @@ pub fn run() {
             catalog_picker::catalog_choose_kubeconfig,
             catalog_connection_states,
             catalog_import_kubeconfig,
-            catalog_add_web_link,
             catalog_set_pin,
             catalog_set_section_pin,
             catalog_reorder_pins,
             catalog_remove,
-            catalog_open_web_link,
             project_open_repository,
             project::project_open_homepage,
             native_navigation::native_navigation_ready,
@@ -840,7 +810,6 @@ mod command_state_tests {
         for command in [
             "catalog_list",
             "catalog_import_kubeconfig",
-            "catalog_add_web_link",
             "catalog_set_pin",
             "catalog_set_section_pin",
             "catalog_reorder_pins",

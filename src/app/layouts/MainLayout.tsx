@@ -10,8 +10,8 @@ import { CatalogSidebar } from "../components/CatalogSidebar";
 import { WindowFrame } from "./WindowFrame";
 import { getWindowLayout } from "./window-layout";
 import { HStack, StackItem } from "@astryxdesign/core/Stack";
-import { Divider } from "@astryxdesign/core/Divider";
 import { ClusterSidebar } from "../cluster/ClusterSidebar";
+import { ResizableClusterSidebar } from "./ResizableClusterSidebar";
 import { NativeNavigation } from "./NativeNavigation";
 
 function WorkspaceContent() {
@@ -65,11 +65,8 @@ export default function MainLayout() {
         topNav={<AppToolbar onSearch={() => setSearchOpen(true)} />}
         sideNav={<HStack gap={0} height="100%" style={{ minHeight: 0 }}>
           <CatalogSidebar onNavigate={closeNavigation} />
-          {sidebarClusterId && <HStack gap={0} height="100%" className="cluster-sidebar-motion"
-            data-open={!!clusterId} inert={!clusterId} aria-hidden={!clusterId}>
-            <Divider orientation="vertical" />
-            <ClusterSidebar clusterId={sidebarClusterId} isExiting={!clusterId} onNavigate={closeNavigation} />
-          </HStack>}
+          {sidebarClusterId && <ResizableClusterSidebar clusterId={sidebarClusterId}
+            isOpen={!!clusterId} onNavigate={closeNavigation} />}
         </HStack>}
       >
         <WorkspaceContent />

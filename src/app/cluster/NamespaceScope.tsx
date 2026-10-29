@@ -93,7 +93,7 @@ export function NamespaceFeedback({ value, onChange, allowAll = true, accessWarn
   if (!manual && !error && !partial && !empty && !cached && !accessWarning) return null;
   const messages = [
     accessWarning,
-    denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : unverified ? "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list." : null,
+    denied || error === "permissionDenied" ? "Namespace listing is not permitted. You can enter a namespace manually." : unverified && !accessWarning ? "Namespace listing could not be verified. You can enter a namespace manually." : null,
     cached && !denied ? "Cached namespaces. These names may be stale; resource access is checked by Kubernetes." : null,
     error ? `Could not load namespaces. ${connectionMessage(error)}` : null,
     partial ? `The namespace list is partial; at most ${NAMESPACE_LIMIT} names are loaded.${allowAll ? " All namespaces still covers the full request scope." : ""}` : null,
@@ -103,7 +103,6 @@ export function NamespaceFeedback({ value, onChange, allowAll = true, accessWarn
     isOpen={expanded} onOpenChange={setExpanded} content={<VStack gap={2} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
       <Text type="supporting">{messages}</Text>
       {manual && <>
-        <Text type="supporting">{denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list."}</Text>
         <Button label="Enter namespace" size="sm" variant="ghost" aria-expanded={manualOpen} aria-controls={manualId} onClick={() => setManualOpen(current => !current)} />
         {manualOpen && <HStack id={manualId} gap={2} wrap="wrap" vAlign="end">
           <TextInput label="Known namespace" value={draft} onChange={setDraft} size="sm" width="min(18rem, 100%)" onEnter={() => { if (validNamespace(draft)) onChange(draft); }} />
@@ -113,7 +112,7 @@ export function NamespaceFeedback({ value, onChange, allowAll = true, accessWarn
       </>}
       {error && !denied && <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />}
     </VStack>}>
-    <IconButton label="Namespace options" tooltip={messages} size="sm" variant="ghost"
-      icon={<Icon icon={manual || error || accessWarning ? IconAlertTriangle : IconInfoCircle} color={manual || error || accessWarning ? "warning" : "secondary"} />} />
+    <IconButton label="Namespace options" tooltip={error ? `Could not load namespaces. ${connectionMessage(error)}` : denied ? "Namespace access restricted" : "Namespace options"} size="sm" variant="ghost"
+      icon={<Icon icon={denied || error ? IconAlertTriangle : IconInfoCircle} color={denied || error ? "warning" : "secondary"} />} />
   </Popover>;
 }
