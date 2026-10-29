@@ -43,11 +43,9 @@ export const NodesTable = memo(function NodesTable({ items, loading, filtered, s
   const conditionSummary = (item: ResourceItem) => {
     const conditions = item.node?.conditions ?? [];
     const ready = conditions.find(condition => condition.type === "Ready");
-    const adverse = conditions.filter(condition =>
-      ["MemoryPressure", "DiskPressure", "PIDPressure", "NetworkUnavailable"].includes(condition.type)
-      && condition.status === "True");
-    const visible: NodeCondition[] = [ready ?? { type: "Ready", status: "Unknown" }, ...adverse];
-    const hiddenCount = conditions.length - adverse.length - (ready ? 1 : 0);
+    const active = conditions.filter(condition => condition.type !== "Ready" && condition.status === "True");
+    const visible: NodeCondition[] = [ready ?? { type: "Ready", status: "Unknown" }, ...active];
+    const hiddenCount = conditions.length - active.length - (ready ? 1 : 0);
     return { visible, hiddenCount };
   };
   const conditionsWidth = useMemo(() => Math.max(250, ...items.map(item => 250 + (conditionSummary(item).visible.length - 1) * 200)), [items]);

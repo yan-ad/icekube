@@ -16,7 +16,7 @@ import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type H
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { HelmInstall } from "./HelmInstall";
 import { useRowContextMenu, type RowMenuAction } from "./RowContextMenu";
-import { NamespaceSelector } from "./NamespaceScope";
+import { NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 const HelmTable = memo(Table) as typeof Table;
 
@@ -25,7 +25,7 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
   const [installTarget, setInstallTarget] = useState<{ item: HelmItem; identity: object } | null>(null);
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
-  const [namespace, setNamespace] = useState("");
+  const [namespace, setNamespace] = useNamespaceSelection();
   const [revision, setRevision] = useState(0);
   const [page, setPage] = useState<HelmPage | null>(null);
   const [loading, setLoading] = useState(true);

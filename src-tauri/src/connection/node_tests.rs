@@ -109,6 +109,78 @@ async fn complete_facts_safe_wire_projection_and_name_only_metrics_join() {
     );
     assert!(!wire.to_string().contains("PRIVATE"));
 }
+
+#[tokio::test]
+async fn diagnostic_search_matches_only_safe_typed_node_facts() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let mut node = facts();
+    node["status"]["conditions"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type":"HostUpgrades","status":"True"}));
+    let snapshot = connected(
+        &engine,
+        id,
+        fake(move |path| {
+            if path.starts_with("/apis/metrics.") {
+                (404, b"{}".to_vec())
+            } else if path.starts_with("/api/v1/nodes?") {
+                (
+                    200,
+                    json!({"items":[node, {"metadata":{"name":"node-a-other"},
+                    "status":{"conditions":[{"type":"Ready","status":"True"}]}}]})
+                    .to_string()
+                    .into_bytes(),
+                )
+            } else {
+                normal(path)
+            }
+        }),
+    )
+    .await;
+    for (index, query) in [
+        "10.0.0.1",
+        "2001:DB8::1",
+        "mEmOrYpReSsUrE",
+        "FALSE",
+        "customcondition",
+        "uNkNoWn",
+        "HOSTUPGRADES",
+        "CONTROL-PLANE",
+        "WoRkEr",
+        "V1.36.0",
+        "PRIVATE_VALUE",
+        "PRIVATE_LABEL",
+        "PRIVATE_ANNOTATION",
+        "PRIVATE_TAINT",
+        "PRIVATE_REASON",
+        "PRIVATE_MESSAGE",
+        "PRIVATE_EXTERNAL",
+        "no-match",
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut request = resource(&snapshot, ResourceKind::Nodes);
+        request.read_id = index as u64 + 1;
+        request.query = Some(query.into());
+        let page = engine.resources(request).await.unwrap();
+        let expected = if index < 10 { vec!["node-a"] } else { vec![] };
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|item| item.name.as_str())
+                .collect::<Vec<_>>(),
+            expected,
+            "query: {query}"
+        );
+    }
+    let mut request = resource(&snapshot, ResourceKind::Nodes);
+    request.read_id = 100;
+    request.query = Some("2001:db8::1".into());
+    request.status = Some("NotReady".into());
+    assert!(engine.resources(request).await.unwrap().items.is_empty());
+}
 #[tokio::test]
 async fn optional_metrics_errors_never_discard_or_partially_enrich_facts() {
     let valid = json!({"metadata":{"name":"node-a"},"timestamp":jiff::Timestamp::now().to_string(),"usage":{"cpu":"1m","memory":"2Ki"}});

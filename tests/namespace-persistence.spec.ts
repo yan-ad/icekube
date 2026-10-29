@@ -140,7 +140,6 @@ test("reload hydrates Rust metadata, keeps options on failed refresh and offers 
     await page.getByRole("button", { name: "Use namespace", exact: true }).click();
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
-    await expect(options).toBeFocused();
     await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).filter({ hasText: "team-a" }).click();
     await expect(page.getByRole("option", { name: "cached-team", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");

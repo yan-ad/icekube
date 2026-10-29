@@ -304,6 +304,18 @@ fn matches_filter(request: &ResourceRequest, item: &super::ResourceItem) -> bool
         ]
         .into_iter()
         .chain(item.columns.values().map(String::as_str))
+        .chain(item.node.iter().flat_map(|node| {
+            node.internal_ips
+                .iter()
+                .chain(node.roles.iter())
+                .chain(node.version.iter())
+                .map(String::as_str)
+                .chain(
+                    node.conditions
+                        .iter()
+                        .flat_map(|condition| [condition.kind.as_str(), condition.status.as_str()]),
+                )
+        }))
         .any(|value| value.to_lowercase().contains(&query))
     })
 }

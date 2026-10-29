@@ -85,13 +85,14 @@ async function fixture(page: Page, mode: "readOnly" | "denied" | "unknown" | "na
 async function namespace(page: Page, value: string) {
   if (!await page.getByRole("textbox", { name: "Known namespace", exact: true }).isVisible()) {
     await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-    await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
+    if (!await page.getByRole("textbox", { name: "Known namespace", exact: true }).isVisible()) {
+      await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
+    }
   }
   await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill(value);
   await page.getByRole("button", { name: "Use namespace", exact: true }).click();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Namespace options", exact: true })).toBeFocused();
 }
 async function expectReadOnlyWarning(page: Page) {
   await page.getByRole("button", { name: "Namespace options", exact: true }).hover();

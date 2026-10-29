@@ -380,7 +380,7 @@ test("permission denied keeps All namespaces usable, offers retry, and retry suc
 test("reports an empty namespace response honestly without fabricating options", async ({ page }) => {
   await fixture(page, { namespaceEmpty: true }); await connected(page);
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-  await expect(page.getByText("No namespaces were returned.", { exact: true })).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText("No namespaces were returned.");
   await page.keyboard.press("Escape");
   await selector(page).click();
   await expect(page.getByRole("option", { name: "All namespaces", exact: true })).toBeVisible();
@@ -402,7 +402,7 @@ test("caps namespace pagination at ten pages and 1000 names with an honest parti
   await fixture(page, { namespaceCap: true }); await connected(page);
   expect(await calls(page, "namespaces")).toHaveLength(10);
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-  await expect(page.getByText(/namespace list is partial/)).toBeVisible();
+  await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText("The namespace list is partial; at most 1000 names are loaded. All namespaces still covers the full request scope.");
   await page.keyboard.press("Escape");
   await selector(page).click();
   await expect(page.getByRole("option", { name: "ns-0999", exact: true })).toBeVisible();

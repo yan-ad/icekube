@@ -221,8 +221,10 @@ export const resourceViews: readonly ResourceView[] = [
   {
     section: "events", label: "Events", kind: "events", namespaced: true,
     columns: [
-      { key: "type", label: "Type" }, { key: "reason", label: "Reason" },
-      { key: "involvedObject", label: "Involved Object" }, { key: "count", label: "Count" },
+      { key: "message", label: "Message" }, { key: "count", label: "Count" },
+      { key: "source", label: "Source" }, { key: "involvedObject", label: "Involved Object" },
+      { key: "lastSeen", label: "Last Seen" }, { key: "type", label: "Type" },
+      { key: "reason", label: "Reason" },
     ],
   },
   {

@@ -56,7 +56,11 @@ function columns(view: ResourceView, openResource: (reference: ResourceReference
     ...(view.kind === "pods" ? [{ key: "health", header: "Health", renderCell: (item: ResourceItem) => <PodHealth item={item} /> }] : []),
     ...(view.namespaced ? [{ key: "namespace", header: "Namespace", renderCell: (item: ResourceItem) => item.namespace ? <Button label={item.namespace} aria-label={`Filter to namespace ${item.namespace}`} variant="ghost" size="sm" onClick={() => onNamespace(item.namespace!)} /> : <Text>N/A</Text> }] : []),
     ...view.columns.map((column) => ({ key: column.key, header: column.label,
-      renderCell: (item: ResourceItem) => relationColumns.has(column.key) && item.columns[column.key]
+      renderCell: (item: ResourceItem) => view.kind === "events" && column.key === "message" && item.columns.message
+        ? <Tooltip content="Open full Event diagnostic text (bounded and redacted)"><Button label={item.columns.message} variant="ghost" size="sm" onClick={() => openResource(reference(item))} /></Tooltip>
+        : view.kind === "events" && column.key === "lastSeen"
+          ? item.columns.lastSeen ? <Tooltip content={item.columns.lastSeen}><HStack><ResourceAge timestamp={item.columns.lastSeen} /></HStack></Tooltip> : <Text>N/A</Text>
+        : relationColumns.has(column.key) && item.columns[column.key]
         ? column.key === "class" && view.kind === "ingresses" ? <ResourceRelationLink reference={{ kind: "ingressClasses", namespace: null, name: item.columns[column.key] }}>{item.columns[column.key]}</ResourceRelationLink>
           : <Button label={item.columns[column.key]} variant="ghost" size="sm" onClick={() => openRelated(reference(item), column.key)} />
         : stateColumns.has(column.key) ? <StatusBadge status={item.columns[column.key]} /> : <Text maxLines={1}>{item.columns[column.key] || "N/A"}</Text> })),

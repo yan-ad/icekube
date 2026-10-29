@@ -21,7 +21,7 @@ export function ResourceActions(props: Props) {
   ];
   const unverified = !permissions.loading && writes.some(check => permissions.observed(check) && permissions.decision(check) === "unknown");
   return <>
-    {(permissions.readOnly || unverified || notice) && <VStack gap={0} style={{ flexShrink: 0 }}>
+    {((!props.hidePermissionNotice && (permissions.readOnly || unverified)) || notice) && <VStack gap={0} style={{ flexShrink: 0 }}>
       {!props.hidePermissionNotice && <ReadOnlyNotice readOnly={permissions.readOnly} unverified={unverified} />}
       {notice && <Text role="status">{notice}</Text>}
     </VStack>}

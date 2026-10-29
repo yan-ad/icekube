@@ -2,12 +2,35 @@ import { expect, test, type Page } from "@playwright/test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
+import { spawnSync } from "node:child_process";
+
+test("default Vite startup rejects an occupied IPv4 port instead of starting on IPv6", async () => {
+  const occupied = createServer();
+  await new Promise<void>((resolve, reject) => {
+    occupied.once("error", reject);
+    occupied.listen(0, "127.0.0.1", resolve);
+  });
+  try {
+    const address = occupied.address();
+    if (!address || typeof address === "string") throw new Error("Expected loopback TCP listener");
+    const result = spawnSync(process.execPath, ["node_modules/vite/bin/vite.js", "--port", String(address.port), "--strictPort"], {
+      env: { ...process.env, ICEON_DEV_ENGINE: "0", ICEON_DEV_DISCOVERY: "0", TAURI_DEV_HOST: "" },
+      encoding: "utf8", timeout: 20_000,
+    });
+    expect(result.error).toBeUndefined();
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(`Port ${address.port} is already in use`);
+  } finally { await new Promise<void>((resolve, reject) => occupied.close(error => error ? reject(error) : resolve())); }
+});
 
 test("tauri:inspect enables the browser engine and default-file discovery", async () => {
   const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
   expect(scripts["tauri:inspect"]).toContain("ICEON_DEV_ENGINE=1");
   expect(scripts["tauri:inspect"]).toContain("ICEON_DEV_DISCOVERY=1");
   expect(scripts["tauri:inspect"]).toContain("tauri dev");
+  const config = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
+  expect(config.build.devUrl).toBe("http://127.0.0.1:1420");
 });
 
 test("browser adapter releases its disconnected workspace lease on reload", async ({ page }) => {

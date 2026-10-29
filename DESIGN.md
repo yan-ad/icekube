@@ -296,9 +296,13 @@ tests remain separate from this production timing check.
 
 `TableToolbar.tsx` keeps search compact (at most 18rem) on the right, beside status
 and other filters, rather than stretching across the remaining space. Resource and
-Helm tables keep namespace context beside the title; denied, unverified, partial or
-failed namespace-discovery guidance and manual namespace entry sit below the control
-row. At narrow widths controls wrap without horizontal page overflow. Namespace
+Helm tables keep namespace context beside the title. A compact information/warning
+icon immediately to the right of the namespace selector exposes discovery/cache and
+nonblocking resource-access explanations in its tooltip, not a page-level banner.
+Clicking it opens an accessible popover for manual namespace entry and retry/load
+actions. Blocking resource access failures remain in the content area, and permission
+checks still disable unavailable mutations. At narrow widths controls wrap without
+horizontal page overflow. Namespace
 selectors use one built-in loading indicator, with a named announcement rather than
 a second visible spinner.
 

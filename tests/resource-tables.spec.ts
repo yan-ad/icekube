@@ -133,20 +133,31 @@ test("changing filters on a continuation page resets pagination and cancels the 
   await expect(page.getByRole("menuitem", { name: "Enable live sync", exact: true })).toBeEnabled();
 });
 
-for (const section of ["nodes", "resource-quotas"]) for (const writeAccess of ["denied", "unknown"] as const) for (const width of [1440, 390]) test(`${section} ${writeAccess} write notice stays above the table at ${width}`, async ({ page }) => {
+for (const section of ["nodes", "resource-quotas"]) for (const writeAccess of ["denied", "unknown"] as const) for (const width of [1440, 390]) test(`${section} ${writeAccess} access feedback stays discoverable at ${width}`, async ({ page }) => {
   await fixture(page, { section, manyRows: true, writeAccess });
   await page.setViewportSize({ width, height: 900 });
   if (section === "resource-quotas") await selectNamespace(page, "team-a");
-  const status = page.getByRole("status").filter({ hasText: writeAccess === "denied" ? "Read-only access." : "Access unverified." });
-  await expect(status).toBeVisible();
+  const message = writeAccess === "denied" ? "Read-only access." : "Access unverified.";
   const viewport = page.locator("[data-iceon-table-viewport]");
   await expect(viewport).toBeVisible();
-  await expect.poll(() => page.evaluate(text => {
-    const notice = [...document.querySelectorAll('[role="status"]')].find(element => element.textContent?.includes(text))?.getBoundingClientRect();
+  if (section === "resource-quotas") {
+    await expect(page.getByRole("status").filter({ hasText: message })).toHaveCount(0);
+    const options = page.getByRole("button", { name: "Namespace options", exact: true });
+    await options.hover();
+    await expect(page.getByRole("tooltip")).toContainText(message);
+    const before = (await viewport.boundingBox())!;
+    await options.click();
+    await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toContainText(message);
+    expect((await viewport.boundingBox())!.y).toBe(before.y);
+    await page.keyboard.press("Escape");
+  } else {
+    await expect(page.getByRole("status").filter({ hasText: message })).toBeVisible();
+  }
+  await expect.poll(() => page.evaluate(() => {
     const frame = document.querySelector("[data-iceon-table-viewport]")?.getBoundingClientRect();
     const fade = document.querySelector('[role="group"][aria-label="Resource actions"]')?.getBoundingClientRect();
-    return !!notice && !!frame && !!fade && notice.bottom <= frame.top && Math.abs(frame.bottom - fade.bottom) < 2;
-  }, writeAccess === "denied" ? "Read-only access." : "Access unverified.")).toBe(true);
+    return !!frame && !!fade && Math.abs(frame.bottom - fade.bottom) < 2;
+  })).toBe(true);
   await expect(page.getByRole("button", { name: /^Create / })).toHaveCount(0);
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
 });

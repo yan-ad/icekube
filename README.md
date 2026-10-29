@@ -137,7 +137,7 @@ and [workspace behavior reference](docs/workspace-ui-reference.md).
 
 ### Debugging the React UI in a browser
 
-Run `bun run tauri:inspect`, then open `http://localhost:1420` in your browser.
+Run `bun run tauri:inspect`, then open `http://127.0.0.1:1420` in your browser.
 The same command starts the desktop app, React DevTools integration, and a
 development-only Rust engine for the browser. Use `bun run dev:web` if you do
 not need a desktop window. Plain `bun run dev` remains a UI-only preview.
@@ -158,6 +158,10 @@ The bridge is debug-only, loopback-only, and authenticated through Vite; its sec
 is never sent to the renderer. It is not a deployment backend. Stop the development
 command to stop its engine. Restart an already-running inspect command after
 updating these scripts.
+
+Vite and Tauri use the same literal IPv4 loopback address so an old preview and a
+new inspect server cannot silently split port 1420 across IPv4 and IPv6. If startup
+reports that the port is occupied, stop the previous development command first.
 
 For fixtures, set `ICEON_DEV_DISCOVERY_HOME=/absolute/fixture/home` to discover that
 home's `.kube/config`, or `ICEON_DEV_DATA_DIR=/absolute/dev/data` to change storage.

@@ -8,7 +8,7 @@ import { connectionMessage, errorCode, nextReadId, type ConnectionErrorCode, typ
 import { useCustomResources } from "./CustomResourcesProvider";
 import { cancelCustomRead, loadCustomInstances, type CustomDefinition, type CustomInstance, type CustomInstanceRead, type CustomInstancePage } from "./customResourcesApi";
 import { CustomInstanceInspector } from "./CustomInstanceInspector";
-import { NamespaceSelector } from "./NamespaceScope";
+import { NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
 import { TableToolbar } from "./TableToolbar";
 import { useRegisterWorkspacePageActions, useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { useAutoRefresh } from "./useAutoRefresh";
@@ -24,10 +24,11 @@ export function CustomResourceTable({ clusterId, sessionId, definitionName }: Se
   return <CustomResourceScope key={`${clusterId}:${sessionId}:${selected.uid}`} clusterId={clusterId} sessionId={sessionId} definition={selected} />;
 }
 function CustomResourceScope({ clusterId, sessionId, definition }: SessionRequest & { definition: CustomDefinition }) {
-  const [namespace, setNamespace] = useState("");
+  const [namespace, setNamespace] = useNamespaceSelection();
+  const effectiveNamespace = definition.scope === "Namespaced" ? namespace || null : null;
   return <VStack gap={3} style={{ flex: 1, minWidth: 0, minHeight: 0 }}>
     <TableToolbar label={definition.kind}>{definition.scope === "Namespaced" && <NamespaceSelector value={namespace} onChange={setNamespace} />}</TableToolbar>
-    <CustomResourceSnapshot key={namespace} clusterId={clusterId} sessionId={sessionId} definition={definition} namespace={namespace || null} />
+    <CustomResourceSnapshot key={effectiveNamespace} clusterId={clusterId} sessionId={sessionId} definition={definition} namespace={effectiveNamespace} />
   </VStack>;
 }
 function CustomResourceSnapshot({ clusterId, sessionId, definition, namespace }: SessionRequest & { definition: CustomDefinition; namespace: string | null }) {
