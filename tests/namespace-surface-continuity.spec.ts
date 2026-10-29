@@ -34,9 +34,10 @@ test.beforeEach(async ({ page }) => {
           clusters: ["one", "two"].map(id => ({ id, name: id, contextName: id, source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, pinnedSections: [], status: "disconnected" })) };
         if (command === "catalog_connection_states") return [];
         if (command === "preferences_get") return null;
+        if (command === "preferences_save") return { revision: Number(r.revision) + 1, preferences: r.preferences };
         if (command === "update_state") return { phase: "idle", version: null, error: null };
         if (command === "plugin:event|listen") return 1;
-        if (["preferences_update", "plugin:event|unlisten", "cluster_permissions_cancel", "cluster_permissions_refresh", "cluster_resources_cancel", "helm_cancel", "cluster_custom_resource_definitions_cancel", "cluster_custom_resources_cancel", "cluster_disconnect"].includes(command)) return null;
+        if (["plugin:event|unlisten", "cluster_permissions_cancel", "cluster_permissions_refresh", "cluster_resources_cancel", "helm_cancel", "cluster_custom_resource_definitions_cancel", "cluster_custom_resources_cancel", "cluster_disconnect"].includes(command)) return null;
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: r.clusterId, sessionId: r.sessionId ?? `lease-${++lease}`, contextName: r.clusterId,
           status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35" : null, error: null };
         if (command === "cluster_permissions_review") return { clusterId: r.clusterId, sessionId: r.sessionId, readId: r.readId, authorizationEpoch: String(r.sessionId), revision: 0,
@@ -90,6 +91,8 @@ test("Services and Helm releases retain namespace; Charts always requests null",
   await expect(table).toContainText("release-team-a");
   const releaseReads = (await reads(page, "helm_table")).filter(r => r.view === "releases");
   await navigate(page, "helm-charts");
+  await expect(page.getByRole("table", { name: "Helm Charts", exact: true })).toContainText("stable/demo");
+  await page.getByRole("textbox", { name: "Search Charts", exact: true }).fill("stable");
   await expect(page.getByRole("table", { name: "Helm Charts", exact: true })).toContainText("stable/demo");
   expect((await reads(page, "helm_table")).filter(r => r.view === "releases")).toEqual(releaseReads);
   expect((await reads(page, "helm_table")).filter(r => r.view === "charts").every(r => r.namespace === null)).toBe(true);

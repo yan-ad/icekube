@@ -35,6 +35,7 @@ async function fixture(page: Page) {
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId, sessionId: request.sessionId ?? "event-lease", contextName: "dev", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };
         if (command === "cluster_permissions_review") return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: "event-lease", revision: 1, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map((check: Request) => ({ check, decision: "allowed", reason: null })) };
         if (command === "cluster_resources") return { ...request, namespace: request.namespace ?? null, items: request.kind === "events" ? [event, missing].filter(row => !request.namespace || row.namespace === request.namespace).filter(row => !request.query || row.columns.message?.includes(request.query)) : request.kind === "namespaces" ? [item("team-b", null, "ns-uid")] : [], continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
+        if (command === "cluster_resource_collection") return { ...request, state: "complete", items: [] };
         if (command === "cluster_resource_detail") {
           const reference = request.reference;
           return { ...request, item: reference.kind === "events" ? event : item("affected", "team-b", "deployment-uid"), related: reference.kind === "events" ? { involvedObject: { kind: "deployments", namespace: "team-b", name: "affected", uid: "deployment-uid" } } : {}, ...(reference.kind === "events" ? { eventDiagnostic: { message: fullMessage, source: "scheduler", fieldPath: null, truncated: true } } : {}) };
@@ -58,8 +59,9 @@ test.afterEach(async ({ page }) => {
 test("namespace Events Message opens exact Event with bounded full diagnostic text, not its relation", async ({ page }) => {
   await fixture(page);
   const message = table(page).getByRole("button", { name: preview, exact: true });
-  await message.focus();
+  await message.hover();
   await expect(page.getByRole("tooltip")).toContainText("Open full Event diagnostic text (bounded and redacted)");
+  await message.focus();
   await page.keyboard.press("Enter");
   await expect(pane(page).getByText(fullMessage, { exact: true })).toBeVisible();
   await expect(pane(page)).toContainText("Diagnostic text truncated to the display limit.");

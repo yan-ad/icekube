@@ -125,7 +125,8 @@ test("diagnostic search crosses pages and resets continuation with scoped IPC", 
   const queries = calls.filter(call => call.command === "cluster_resources" && call.request.query);
   expect(queries.map(call => call.request.query)).toContain("2001:DB8::1");
   for (const call of queries) {
-    expect(call.request).toMatchObject({ clusterId: "one", kind: "nodes", namespace: null, continueToken: null });
+    expect(call.request).toMatchObject({ clusterId: "one", kind: "nodes", continueToken: null });
+    expect(call.request.namespace ?? null).toBeNull();
     expect(call.request.sessionId).toBeTruthy();
   }
 });

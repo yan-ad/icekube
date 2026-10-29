@@ -219,6 +219,8 @@ export const resourceViews: readonly ResourceView[] = [
     columns: [{ key: "labels", label: "Label Count" }], createLabel: "Add Namespace",
   },
   {
+    // Freelens cd07118f843c4a69f937a319a37a7c12ef2c92d8, events/events.tsx.
+    // Shared Name/Namespace/Age/Status remain; Message opens the Event diagnostic pane.
     section: "events", label: "Events", kind: "events", namespaced: true,
     columns: [
       { key: "message", label: "Message" }, { key: "count", label: "Count" },
