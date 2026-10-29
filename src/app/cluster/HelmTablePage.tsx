@@ -16,7 +16,7 @@ import { cancelHelm, helmMessage, loadHelm, type HelmItem, type HelmPage, type H
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { HelmInstall } from "./HelmInstall";
 import { useRowContextMenu, type RowMenuAction } from "./RowContextMenu";
-import { NamespaceFeedback, NamespaceSelector } from "./NamespaceScope";
+import { NamespaceSelector } from "./NamespaceScope";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 const HelmTable = memo(Table) as typeof Table;
 
@@ -92,8 +92,7 @@ export function HelmTablePage({ clusterId, sessionId, view }: SessionRequest & {
     <Text color="secondary">{view === "charts" ? "Check configured repositories and their cached indexes with your trusted Helm CLI, then reload." : "Change the namespace or reload to check again."}</Text></VStack>, [hasFilters, view]);
   return <VStack gap={3} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={label} count={scopedPage ? `${items.length} / ${rows.length}` : undefined}
-      context={view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} showFeedback={false} />}
-      feedback={view === "releases" && <NamespaceFeedback value={namespace} onChange={setNamespace} />}>
+      context={view === "releases" && <NamespaceSelector value={namespace} onChange={setNamespace} />}>
       <TextInput label={`Search ${label}`} isLabelHidden placeholder={`Search ${label}…`} startIcon={IconSearch} value={query} onChange={setQuery} hasClear size="sm" width="min(18rem, 100%)" />
       {view === "releases" && <Selector label="Status" isLabelHidden value={status} onChange={setStatus} size="sm" options={[{ value: "", label: "All statuses" }, ...statuses.map((value) => ({ value, label: value }))]} />}
     </TableToolbar>

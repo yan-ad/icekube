@@ -192,7 +192,6 @@ pub(crate) struct ConnectionTarget {
     pub context_name: String,
 }
 
-
 #[derive(Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct Store {
@@ -371,7 +370,10 @@ impl CatalogEngine {
         &self,
         operation: impl FnOnce(&mut rusqlite::Connection) -> Result<T>,
     ) -> Result<T> {
-        let _guard = self.operations.lock().map_err(|_| CatalogError::StoreUnavailable)?;
+        let _guard = self
+            .operations
+            .lock()
+            .map_err(|_| CatalogError::StoreUnavailable)?;
         let _lock = storage::lock(&self.directory)?;
         let mut connection = storage::open(&self.directory)?;
         storage::ensure_namespace_cache(&connection)?;

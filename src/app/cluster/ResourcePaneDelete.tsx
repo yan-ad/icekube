@@ -20,12 +20,22 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   const [notice, setNotice] = useState<string | null>(null);
   const [acceptedRead, setAcceptedRead] = useState<number | null>(null);
   const refreshNeeded = useRef(false);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const restoreFocus = useRef(false);
   const matching = detail.clusterId === clusterId && detail.sessionId === sessionId
     && reference.name === item.name && reference.namespace === item.namespace && reference.uid === item.uid
     && hasDeleteIdentity(item);
   const unavailable = disabled || !matching || (target !== null && target !== item);
   const allowed = !permissions.loading && checks.every(check => permissions.decision(check) === "allowed");
   const blocked = unavailable || !allowed || acceptedRead === detail.readId || target !== null;
+  useEffect(() => {
+    if (!restoreFocus.current || blocked || !trigger.current?.isConnected) return;
+    const frame = requestAnimationFrame(() => {
+      if (trigger.current?.isConnected && !trigger.current.disabled) trigger.current.focus();
+      restoreFocus.current = false;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [blocked]);
   useEffect(() => {
     if (disabled && target) {
       setNotice("Inventory changed or became unavailable. Refresh and review the resource before deleting.");
@@ -34,7 +44,7 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   }, [disabled, target]);
   return <VStack gap={2}>
     <HStack gap={2} wrap="wrap">
-      <Button label="Delete resource" size="sm" variant="ghost" isDisabled={blocked} onClick={() => {
+      <Button ref={trigger} label="Delete resource" size="sm" variant="ghost" isDisabled={blocked} onClick={() => {
         if (blocked) return;
         setNotice(null);
         refreshNeeded.current = false;
@@ -46,6 +56,7 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
       disabled={unavailable} contextTarget={target} onNotice={setNotice}
       onAccepted={() => setAcceptedRead(detail.readId)} onRefresh={() => { refreshNeeded.current = true; }}
       onContextClose={() => {
+        restoreFocus.current = true;
         setTarget(null);
         if (!refreshNeeded.current) return;
         refreshNeeded.current = false;

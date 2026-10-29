@@ -11,7 +11,7 @@ import { creationNamespaced } from "./createApi";
 
 type Props = SessionRequest & { kind: ResourceKind; namespace?: string; createLabel?: string;
   selected: ResourceItem[]; disabled: boolean; onAccepted: (keys: Set<string>) => void; onRefresh: () => void;
-  contextTarget?: ResourceItem | null; onContextClose?: () => void };
+  hidePermissionNotice?: boolean; contextTarget?: ResourceItem | null; onContextClose?: () => void };
 export function ResourceActions(props: Props) {
   const [notice, setNotice] = useState<string | null>(null);
   const permissions = useResourcePermissions(props.kind, props.namespace || null);
@@ -22,7 +22,7 @@ export function ResourceActions(props: Props) {
   const unverified = !permissions.loading && writes.some(check => permissions.observed(check) && permissions.decision(check) === "unknown");
   return <>
     {(permissions.readOnly || unverified || notice) && <VStack gap={0} style={{ flexShrink: 0 }}>
-      <ReadOnlyNotice readOnly={permissions.readOnly} unverified={unverified} />
+      {!props.hidePermissionNotice && <ReadOnlyNotice readOnly={permissions.readOnly} unverified={unverified} />}
       {notice && <Text role="status">{notice}</Text>}
     </VStack>}
     <TableActionOverlay label="Resource actions">

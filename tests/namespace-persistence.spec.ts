@@ -124,16 +124,23 @@ test("reload hydrates Rust metadata, keeps options on failed refresh and offers 
   await page.goto("/#/cluster/one?section=vertical-pod-autoscalers");
   for (const reload of [false, true]) {
     if (reload) await page.reload();
-    await expect(page.getByText("Cached namespaces", { exact: true })).toBeVisible();
+    const options = page.getByRole("button", { name: "Namespace options", exact: true });
+    await options.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Cached namespaces. These names may be stale; resource access is checked by Kubernetes.");
+    await expect(page.getByRole("tooltip")).toContainText("Namespace discovery access is unverified.");
     expect(await page.evaluate(() => (window as any).__namespaceCalls.filter((call: any) => call.command === "cluster_namespace_cache_refresh").length)).toBe(0);
     await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+    await options.click();
+    const dialog = page.getByRole("dialog", { name: "Namespace options", exact: true });
     await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
     await page.getByRole("button", { name: "Load namespaces", exact: true }).click();
-    await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
-    await expect(page.getByText("Cached namespaces", { exact: true })).toBeVisible();
+    await expect(dialog).toContainText("Could not load namespaces.");
+    await expect(dialog).toContainText("Cached namespaces. These names may be stale; resource access is checked by Kubernetes.");
     await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill("team-a");
     await page.getByRole("button", { name: "Use namespace", exact: true }).click();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(options).toBeFocused();
     await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).filter({ hasText: "team-a" }).click();
     await expect(page.getByRole("option", { name: "cached-team", exact: true })).toBeVisible();
     await page.keyboard.press("Escape");

@@ -1,7 +1,31 @@
 import { expect, test, type Page } from "@playwright/test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+test("tauri:inspect enables the browser engine and default-file discovery", async () => {
+  const { scripts } = JSON.parse(await readFile("package.json", "utf8"));
+  expect(scripts["tauri:inspect"]).toContain("ICEON_DEV_ENGINE=1");
+  expect(scripts["tauri:inspect"]).toContain("ICEON_DEV_DISCOVERY=1");
+  expect(scripts["tauri:inspect"]).toContain("tauri dev");
+});
+
+test("browser adapter releases its disconnected workspace lease on reload", async ({ page }) => {
+  await page.goto("/");
+  const catalog = await call(page, "catalog_list");
+  const clusterId = catalog.body.value.clusters.find((cluster: { contextName: string }) => cluster.contextName === "Discovered fixture").id;
+  const opened = await page.evaluate(async clusterId => {
+    const path = "/src/app/engine.ts";
+    const engine = await import(path);
+    return engine.invoke("cluster_session_open", { request: { clusterId } });
+  }, clusterId);
+  expect(opened.status).toBe("disconnected");
+  expect((await call(page, "cluster_session_open", { request: { clusterId } })).body).toEqual({ ok: false, error: "busy" });
+  await page.reload();
+  await expect.poll(async () => (await call(page, "cluster_session_open", { request: { clusterId } })).body.ok).toBe(true);
+  const replacement = await call(page, "cluster_session_open", { request: { clusterId } });
+  expect((await call(page, "cluster_disconnect", { request: { clusterId, sessionId: replacement.body.value.sessionId } })).body.ok).toBe(true);
+});
 
 async function call(page: Page, command: string, args: object = {}, client?: string) {
   return page.evaluate(async ({ command, args, client }) => {
@@ -17,7 +41,11 @@ test("browser catalog persists through the real Rust engine without Tauri global
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(error.message));
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: "Your catalog is empty", exact: true })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "Discovered fixture" })).toBeVisible();
+  const discovered = await call(page, "catalog_list");
+  expect(discovered.body.value.clusters).toEqual([expect.objectContaining({
+    contextName: "Discovered fixture", status: "disconnected", labels: expect.arrayContaining(["file=~/.kube/config"]),
+  })]);
   expect(await page.evaluate(() => "__TAURI_INTERNALS__" in window)).toBe(false);
   await page.getByRole("button", { name: "Add web link", exact: true }).click();
   const dialog = page.getByRole("dialog");
@@ -30,7 +58,7 @@ test("browser catalog persists through the real Rust engine without Tauri global
   await expect(page.getByRole("button", { name: "Unpin Bridge fixture", exact: true })).toBeVisible();
   await page.getByRole("button", { name: "Remove Bridge fixture", exact: true }).click();
   await dialog.getByRole("button", { name: "Remove from catalog", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "Your catalog is empty", exact: true })).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "Discovered fixture" })).toBeVisible();
   const preferences = await call(page, "preferences_get");
   expect(preferences.body.ok).toBe(true);
   expect(preferences.cache).toBe("no-store");
@@ -61,7 +89,7 @@ test("synthetic imported session is owned by one browser client and can be relea
     await page.goto("/");
     const imported = await call(page, "catalog_import_kubeconfig", { request: { path } });
     expect(imported.body.ok).toBe(true);
-    const clusterId = imported.body.value.clusters[0].id;
+    const clusterId = imported.body.value.clusters.find((cluster: { contextName: string }) => cluster.contextName === "Fixture").id;
     const opened = await call(page, "cluster_session_open", { request: { clusterId } });
     expect(opened.body.value.status).toBe("disconnected");
     const scope = { clusterId, sessionId: opened.body.value.sessionId };

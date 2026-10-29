@@ -5,6 +5,27 @@ import { resourceViews } from "../src/app/cluster/resourceViews";
 type Call = { command: string; request: any };
 type Control = { failDetail?: boolean; replaced?: boolean; deniedEvents?: boolean; version: number };
 const pane = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
+
+test("touch pane Close target is at least 44 CSS pixels at 390", async ({ browser }, info) => {
+  const context = await browser.newContext({ baseURL: info.project.use.baseURL, viewport: { width: 390, height: 800 }, hasTouch: true });
+  try {
+    const page = await context.newPage();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await fixture(page, 390);
+    expect(await page.evaluate(() => matchMedia("(pointer: coarse)").matches)).toBe(true);
+    const close = pane(page).getByRole("button", { name: "Close inspector", exact: true });
+    const target = await close.boundingBox();
+    await writeFile(info.outputPath("measurements.json"), JSON.stringify({ hasTouch: true, target }, null, 2));
+    await info.attach("touch-close-measurements", { body: JSON.stringify({ hasTouch: true, target }), contentType: "application/json" });
+    expect(target?.width).toBeGreaterThanOrEqual(44);
+    expect(target?.height).toBeGreaterThanOrEqual(44);
+    await noPageOverflow(page);
+    await close.tap();
+    await expect(pane(page)).toHaveCount(0);
+    expect(await calls(page, "cluster_workload_action")).toEqual([]);
+    expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+  } finally { await context.close(); }
+});
 const calls = (page: Page, command: string): Promise<Call[]> => page.evaluate(command => (window as any).__paneCalls.filter((call: Call) => call.command === command), command);
 const control = (page: Page, value: Partial<Control>) => page.evaluate(value => Object.assign((window as any).__paneControl, value), value);
 
@@ -30,6 +51,7 @@ async function fixture(page: Page, width = 1440) {
         const fetchedAt = Date.now();
         return { clusterId: request.clusterId, sessionId: request.sessionId, names: ["team-a"], fetchedAt, expiresAt: fetchedAt + 60_000, partial: false };
       }
+
       if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId, sessionId: request.sessionId ?? "pane-lease", contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
       if (command === "cluster_resources") return { ...request, namespace: request.namespace ?? null, items: [item(request.kind, "sample-a")], continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
       if (command === "helm_table") return { ...request, items: [], truncated: false };
@@ -64,6 +86,18 @@ async function fixture(page: Page, width = 1440) {
 
 async function noPageOverflow(page: Page) {
   expect(await page.evaluate(() => ({ width: document.documentElement.scrollWidth <= innerWidth, height: document.documentElement.scrollHeight <= innerHeight })) ).toEqual({ width: true, height: true });
+}
+
+async function textBounds(locator: ReturnType<Page["getByText"]>) {
+  return locator.evaluate(element => {
+    const leaf = [...element.querySelectorAll("*")].find(child => child.children.length === 0 && child.textContent?.trim()) ?? element;
+    const rect = (value: DOMRect) => ({ x: value.x, y: value.y, width: value.width, height: value.height, right: value.right, bottom: value.bottom });
+    const range = document.createRange(); range.selectNodeContents(leaf);
+    const style = getComputedStyle(leaf);
+    return { text: leaf.textContent, tag: leaf.tagName, scrollWidth: leaf.scrollWidth, clientWidth: leaf.clientWidth,
+      leaf: rect(leaf.getBoundingClientRect()), textBounds: rect(range.getBoundingClientRect()), control: rect(element.getBoundingClientRect()),
+      whiteSpace: style.whiteSpace, textOverflow: style.textOverflow, overflow: style.overflow };
+  });
 }
 
 async function measuredContrast(locator: ReturnType<Page["getByText"]>) {
@@ -125,18 +159,38 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(deletion).toBeEnabled();
+    await expect(deletion).toBeFocused();
     expect(await calls(page, "cluster_resource_delete")).toEqual([]);
     const target = await close.boundingBox();
-    const measurements = JSON.stringify({ width, theme, samples, closeTarget: target }, null, 2);
-    await writeFile(info.outputPath("measurements.json"), measurements);
-    await info.attach("audit-measurements", { body: measurements, contentType: "application/json" });
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
     await noPageOverflow(page);
+    const enlargedActions = [];
+    for (const label of ["Scale", "Restart", "Edit YAML", "Delete resource"]) {
+      enlargedActions.push({ label, ...await textBounds(pane(page).getByRole("button", { name: label, exact: true })) });
+    }
+    const enlargedStatus = await textBounds(pane(page).getByText("Ready", { exact: true }).first());
+    const enlargedNamespace = await textBounds(pane(page).getByText("Namespace", { exact: true }).first());
+    const measurements = JSON.stringify({ width, theme, samples, closeTarget: target, rootFontSize: await page.locator("html").evaluate(element => getComputedStyle(element).fontSize), enlargedActions, enlargedStatus, enlargedNamespace }, null, 2);
+    await writeFile(info.outputPath("measurements.json"), measurements);
+    await info.attach("audit-measurements", { body: measurements, contentType: "application/json" });
+    for (const action of enlargedActions) {
+      expect.soft(action.scrollWidth, `${action.label}: leaf horizontal overflow`).toBeLessThanOrEqual(action.clientWidth + 1);
+      expect.soft(action.textBounds.x, `${action.label}: text left bound`).toBeGreaterThanOrEqual(action.leaf.x - 1);
+      expect.soft(action.textBounds.right, `${action.label}: text right bound`).toBeLessThanOrEqual(action.leaf.right + 1);
+      expect.soft(action.textBounds.bottom, `${action.label}: text bottom bound`).toBeLessThanOrEqual(action.control.bottom + 1);
+      expect.soft(action.control.right, `${action.label}: viewport right bound`).toBeLessThanOrEqual(width + 1);
+    }
+    expect(enlargedNamespace.scrollWidth).toBeLessThanOrEqual(enlargedNamespace.clientWidth + 1);
+    expect(enlargedNamespace.textBounds.right).toBeLessThanOrEqual(enlargedNamespace.leaf.right + 1);
+    expect(enlargedStatus.scrollWidth).toBeLessThanOrEqual(enlargedStatus.clientWidth + 1);
+    expect(enlargedStatus.textBounds.right).toBeLessThanOrEqual(enlargedStatus.leaf.right + 1);
+    expect(enlargedStatus.textBounds.bottom).toBeLessThanOrEqual(enlargedStatus.control.bottom + 1);
     await page.screenshot({ path: info.outputPath("pane-text-resize.png") });
     await expect(close).toBeInViewport();
     await hide.focus(); await page.keyboard.press("Space");
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
     await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
+    expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     await expect(close).toBeInViewport();
     await close.focus(); await page.keyboard.press("Enter");
     await expect(pane(page)).toHaveCount(0);
@@ -162,7 +216,6 @@ test("related event message activates by keyboard and closes without a stale tri
 });
 
 test("delete confirmation restores keyboard focus to its pane trigger", async ({ page }) => {
-  test.fail(true, "Known audit defect: Delete resource is disabled while its dialog opens, so automatic trigger capture loses the focus target.");
   await fixture(page);
   const trigger = pane(page).getByRole("button", { name: "Delete resource", exact: true });
   await trigger.focus(); await page.keyboard.press("Enter");

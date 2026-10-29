@@ -10,11 +10,11 @@ Only `tests/pane-accessibility.spec.ts` and this report belong to this audit. No
 
 ## Numbered findings, not silently fixed
 
-1. **HIGH: Delete confirmation loses keyboard focus on dismissal (R-32, C-4).** Open deployment details, focus `Delete resource`, press Enter, then Escape. The dialog closes and the trigger re-enables but focus does not return to it. Reproduced at 390, 800 and 1440 in both themes. `ResourcePaneDelete` disables its trigger while `target !== null`; automatic dialog trigger capture is therefore an owner to investigate, not a proven root cause. The dedicated regression test is explicitly `test.fail`, retaining a failing expectation rather than labeling this behavior correct. Suggested fix for approval: keep an explicit trigger ref and restore focus after the confirmation is closed/re-enabled, including Cancel, Escape and successful Close paths. Do not change mutation authorization or permit duplicate submissions.
+1. **Resolved for measured Escape path: Delete confirmation focus return (R-32, C-4).** Initially reproduced focus loss at all three widths in both themes and recorded an expected-failure regression. That is history, not the current result: the expected-failure marker was removed, `ResourcePaneDelete` now retains an explicit trigger ref and restores focus in a requestAnimationFrame after re-enabling it. All six matrix cases and the dedicated regression pass `toBeFocused()` after Escape. Cancel and successful post-delete Close were not exercised in this audit; no success-path focus claim is made.
 
-2. **HIGH: 390-wide pane at 200% text resize clips operational labels despite no document overflow (R-03, R-35, C-4).** Set root `font-size: 200%` with the inspector open at its default split. The screenshot shows Scale, Restart, Edit YAML and Delete resource reduced to ellipses, `Ready` reduced to `Rea...`, and the Namespace metadata label clipped at the pane edge. Close remains visible and keyboard-operable, but that is insufficient to claim complete text-resize resilience. Repro artifact: `/tmp/iceon-pane-audit-artifacts/pane-accessibility-pane-re-e21c1-easured-labels-at-390-light/pane-text-resize.png`. Suggested fix for approval: switch the narrow inspector to a full working-width surface or otherwise reflow labels/actions at enlarged text; preserve internal scrolling and the single toolbar. The automated no-overflow checks pass because clipping is contained, not because all text is readable.
+2. **Partially resolved, HIGH residual: enlarged raw status still truncates at 390 (R-03, R-35, C-4).** Originally Scale, Restart, Edit YAML, Delete resource, Ready and Namespace clipped at 200% root text resize. Current leaf-element measurements prove the four operational labels fit and Namespace wraps. The rule in `src/app/cluster/resource-inspector.css:47-52` targets button descendant spans only. The raw `Ready` status remains `white-space: nowrap; text-overflow: ellipsis; overflow: hidden`: leaf scrollWidth **67** vs clientWidth **62**, text right **347.15625** vs leaf right **342** at 390 in both themes. Selector: Resource details region, `getByText("Ready", { exact: true }).first()`. No document overflow does not clear this finding. Operational words now wrap into very short fragments within a 45.75px-wide label (Scale two lines, Restart three, Edit YAML four, Delete resource five); measured containment is not a claim of ideal legibility or complete enlarged-pane resilience.
 
-3. **HIGH against antislop touch criterion: measured Close target is 28 by 28 CSS pixels, not 44 by 44 (R-03).** Measured before text resize at all three widths in both modes. At 390 its rectangle was x=354, y=53, width=28, height=28. This is the intentional `sm` desktop density, not evidence of a theme regression. It still fails this skill's 44px touch target criterion. Suggested fix for approval: enlarge hit areas in the touch/narrow interaction mode without a wholesale theme or density refactor. No claim is made that every control was measured or that this alone constitutes a complete WCAG target-spacing assessment.
+3. **Resolved for measured coarse-pointer Close: 44 by 44 CSS pixels (R-03).** A separate Chromium context uses viewport 390x800 and `hasTouch: true`; `matchMedia("(pointer: coarse)").matches` is asserted true. Actual Close bounding width and height are each 44, and tapping it closes the pane. `page.emulateMedia` is used only for reduced motion, not to pretend to set pointer capability. Fine-pointer desktop density remains 28 by 28 (at 390, x=354/y=53), intentionally outside this touch-specific assertion. Not every control or target-spacing condition was measured.
 
 ## Executed checks
 
@@ -31,11 +31,11 @@ Fixture is a copy of the existing full-app pane-integration setup with synthetic
 | Invalid replicas | Explicit error text and disabled Confirm action, not color-only |
 | Escape from Scale dialog | Closes and restores focus to Scale |
 | Delete confirmation | Named target region identifies Fixture cluster; list says team-a/sample-a; Delete 1 resource enabled |
-| Escape from Delete dialog | Closes, sends no delete; focus restoration defect retained |
+| Escape from Delete dialog | Closes, sends no delete; focus returns to re-enabled Delete resource trigger in all six cases |
 | Close inspector with keyboard Enter | Closes and restores original deployment-row trigger while connected |
 | Related event Message with Enter | Navigates to exact event detail and displays diagnostic privacy warning |
 | Close after related navigation | Named Close button works; original row can be unmounted by navigation, so no stale-trigger restoration claim |
-| 200% root text resize | No document overflow; Close remains visible before and after body scroll; narrow-label clipping remains a finding |
+| 200% root text resize | No document overflow; operational text/Namespace bounds pass; internal body scrollTop becomes positive; Close stays visible; raw Ready clipping remains |
 | Browser console in six matrix cases | No console errors observed; pageerror listener rejects runtime errors |
 
 A related-navigation Escape attempt initially failed once while route/selection updates were still settling. The final related-message test uses the named Close button, so this audit does not claim settled Escape reliability for that transition. Scale dialog Escape and Delete dialog Escape are tested separately.
@@ -51,12 +51,25 @@ Calculated from actual computed foreground colors and nearest opaque ancestor ba
 
 Both sampled normal-text roles exceed 4.5:1. This is not an audit or assertion of the entire Astryx palette, semantic badges, disabled controls, selected rows or focus-ring contrast. Those remain unmeasured here.
 
+## Enlarged operational-text measurements
+
+Root font computes to **32px** after assigning `200%`; viewport remains 390x800 CSS pixels. Both themes produce the same geometry. For each button the helper locates the leaf text element, records scrollWidth/clientWidth and leaf/control DOMRects, and bounds its actual text with a DOM Range. Assertions check horizontal containment, text bottom within the button, and button right within the viewport. These buttons can sit below the viewport until the internal body is scrolled; containment does not require showing the entire long pane at once.
+
+| Exact button name | Leaf scrollWidth/clientWidth | Leaf width/height | Actual text width/height | Button width/height |
+| --- | --- | --- | --- | --- |
+| Scale | 46/46 | 45.75/80 | 36.4375/73 | 93.75/112 |
+| Restart | 46/46 | 45.75/120 | 37.84375/113 | 93.75/152 |
+| Edit YAML | 46/46 | 45.75/160 | 39.1875/153 | 93.75/192 |
+| Delete resource | 46/46 | 45.75/200 | 41.171875/193 | 93.75/232 |
+
+Namespace: scrollWidth/clientWidth **94/94**, leaf **93.75x80**, text **87.015625x73**, contained. Ready: **67/62**, still ellipsized, recorded diagnostically rather than disguised as a passing status-readability test. The operational-label regression would fail if those buttons reverted to ellipsized overflow. Full numeric positions, computed overflow styles, contrast samples and touch rectangle are retained in each test's `measurements.json` and attached JSON. No real mutation was submitted.
+
 ## Exact validation and delivery gate
 
 - Isolated Vite served `127.0.0.1:1495` using `/tmp/iceon-pane-vite.config.mjs`, HMR disabled and file watching disabled. No production source was changed to configure the server.
-- `bunx playwright test --config /tmp/iceon-pane-playwright.config.mjs`: **7 ordinary passes and 1 expected failure**. Playwright summarizes this as “8 passed”; that summary must not be represented as eight working accessibility scenarios. One worker, artifacts under `/tmp/iceon-pane-audit-artifacts`.
-- `bun run build`: passed TypeScript and production build; existing large-chunk warning remains.
-- Screenshots at enlarged text inspected at 390 light and 1440 dark. Other matrix screenshots captured, not all visually reviewed.
-- Delivery gate **not fully passed** because findings 1–3 remain. Keyboard activation, scoped plain-label contrast, reduced motion, internal scrolling and explicit confirmation text have evidence. No unsupported global accessibility, complete feature-parity or native OS claim is made.
+- `bunx playwright test --config /tmp/iceon-pane-playwright.config.mjs`: **9 ordinary passes, no expected failures** in the recheck. One worker, artifacts under `/tmp/iceon-pane-audit-artifacts`. Historical first audit: 7 ordinary passes and 1 expected failure (Playwright displayed “8 passed”); this has been superseded, not erased.
+- Prior `bun run build` passed TypeScript and production build with the existing large-chunk warning. The current recheck changes test/report files only and does not claim a new production build run.
+- Enlarged text screenshots are captured as supplementary artifacts, not browser zoom evidence. Current conclusions use DOM measurements, not screenshot-only inference.
+- Delivery gate **not fully passed**: finding 2 retains measured raw-status truncation. Findings 1 and 3 are resolved only for the measured paths. Keyboard activation, scoped plain-label contrast, reduced motion, internal scrolling and explicit confirmation text have evidence. No unsupported global accessibility, complete feature-parity or native OS claim is made.
 
 Helm, Node, Service forwarding and YAML editor were read for this targeted audit but not individually clicked in the new test. Their component-specific integration/lifecycle tests and native checks remain separate. Real browser zoom, WebKit/native webview behavior, mobile on-screen keyboard, full Tab-order traversal, screen-reader output and 3:1 focus-indicator contrast were not verified. The root 200% text-resize probe is **not browser zoom** and does not substitute for it.

@@ -38,6 +38,40 @@
   flex-shrink: 0;
 }
 
+.resource-inspector-body button {
+  max-inline-size: 100%;
+  block-size: auto;
+  min-block-size: var(--spacing-7);
+}
+
+.resource-inspector-body button > span,
+.resource-inspector-body button > span > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+}
+
+.resource-inspector-body .resource-status-badge {
+  max-inline-size: 100%;
+  block-size: auto;
+  min-block-size: var(--spacing-5);
+  white-space: normal;
+}
+
+.resource-inspector-body .resource-status-badge > span {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  overflow: visible;
+  text-overflow: clip;
+}
+
+@media (pointer: coarse) {
+  .resource-inspector-actions button {
+    min-inline-size: var(--spacing-11);
+    min-block-size: var(--spacing-11);
+  }
+}
+
 .resource-inspector[data-open="false"] {
   flex-basis: 0;
 }

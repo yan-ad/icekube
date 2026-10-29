@@ -13,7 +13,7 @@ export function statusVariant(status: string | null | undefined): StatusVariant 
 
 export function StatusBadge({ status, variant }: { status: string | boolean | null | undefined; variant?: StatusVariant }) {
   const label = typeof status === "boolean" ? status ? "True" : "False" : status?.trim() || "Unknown";
-  return <Badge label={label} variant={variant ?? statusVariant(label)} />;
+  return <Badge className="resource-status-badge" label={label} variant={variant ?? statusVariant(label)} />;
 }
 
 export function NodeConditionBadge({ condition }: { condition: NodeCondition }) {

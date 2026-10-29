@@ -1,11 +1,11 @@
 mod catalog;
 #[cfg(all(feature = "dev-engine", not(debug_assertions)))]
 compile_error!("dev-engine is restricted to debug builds");
-#[cfg(all(feature = "dev-engine", debug_assertions))]
-pub mod dev_engine;
 mod catalog_picker;
 mod connection;
 mod context_menu;
+#[cfg(all(feature = "dev-engine", debug_assertions))]
+pub mod dev_engine;
 #[cfg(target_os = "macos")]
 mod menu;
 mod native_navigation;

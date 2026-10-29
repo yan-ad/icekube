@@ -108,7 +108,12 @@ async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
     tokio::time::pause();
     let started = tokio::time::Instant::now();
     let response = engine.review_permissions(request.clone()).await.unwrap();
-    assert!(started.elapsed() < Duration::from_secs(10));
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "batch elapsed {:?}, completed {:?}",
+        started.elapsed(),
+        activity.completed.lock().unwrap()
+    );
     assert_eq!(activity.maximum.load(Ordering::SeqCst), 2);
     assert_eq!(activity.active.load(Ordering::SeqCst), 0);
     assert_eq!(activity.started.lock().unwrap().len(), 32);

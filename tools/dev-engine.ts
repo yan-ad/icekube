@@ -2,33 +2,43 @@ import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import { resolve } from "node:path";
+import { homedir } from "node:os";
 import type { Plugin } from "vite";
 
-const origins = new Set(["http://127.0.0.1:1420", "http://localhost:1420"]);
 const prefix = "/__iceon_engine";
 const bodyLimit = 2 * 1024 * 1024;
 
 export function devEngine(): Plugin {
+  const frontendPort = Number(process.env.ICEON_DEV_PORT ?? "1420");
+  if (!Number.isInteger(frontendPort) || frontendPort < 1 || frontendPort > 65535) {
+    throw new Error("ICEON_DEV_PORT must be an integer between 1 and 65535.");
+  }
+  const origins = new Set([`http://127.0.0.1:${frontendPort}`, `http://localhost:${frontendPort}`]);
   let child: ChildProcess | undefined;
   let stop: (() => Promise<void>) | undefined;
   return {
     name: "iceon-dev-engine",
     apply: "serve",
     config() {
-      return { server: { fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.iceon-dev/**",
+      return { define: { "import.meta.env.VITE_ICEON_DEV_ENGINE": JSON.stringify("1"),
+        "import.meta.env.VITE_ICEON_DEV_PORT": JSON.stringify(String(frontendPort)) },
+        server: { port: frontendPort, fs: { deny: [".env", ".env.*", "*.{crt,pem}", "**/.git/**", "**/.iceon-dev/**",
         `${resolve(process.env.ICEON_DEV_DATA_DIR || ".iceon-dev").replaceAll("\\", "/")}/**`] } } };
     },
     configResolved(config) {
-      if (config.server.port !== 1420 || config.server.https
+      if (config.server.port !== frontendPort || config.server.https
         || config.server.host && !["localhost", "127.0.0.1"].includes(String(config.server.host))) {
-        throw new Error("dev:web requires HTTP on localhost or 127.0.0.1:1420; LAN access is not supported.");
+        throw new Error(`The development engine requires HTTP on localhost or 127.0.0.1:${frontendPort}; LAN access is not supported.`);
       }
     },
     async configureServer(server) {
       const token = randomBytes(32).toString("hex");
+      const discoveryHome = process.env.ICEON_DEV_DISCOVERY_HOME
+        ?? (process.env.ICEON_DEV_DISCOVERY === "1" ? homedir() : undefined);
       child = spawn("cargo", ["run", "--manifest-path", "src-tauri/Cargo.toml", "--features", "dev-engine", "--bin", "iceon-dev-engine"], {
         cwd: server.config.root,
-        env: { ...process.env, ICEON_DEV_ENGINE_TOKEN: token,
+        env: { ...process.env, ICEON_DEV_ENGINE_TOKEN: token, ICEON_DEV_PORT: String(frontendPort),
+          ...(discoveryHome ? { ICEON_DEV_DISCOVERY_HOME: discoveryHome } : {}),
           ICEON_DEV_DATA_DIR: resolve(server.config.root, process.env.ICEON_DEV_DATA_DIR || ".iceon-dev") },
         stdio: ["pipe", "pipe", "inherit"],
       });
@@ -38,8 +48,8 @@ export function devEngine(): Plugin {
         if (closing) return;
         closing = true;
         const exited = new Promise<void>(done => {
-          if (engine.exitCode !== null || engine.signalCode !== null) done();
-          else engine.once("exit", () => done());
+          if (!engine.pid || engine.exitCode !== null || engine.signalCode !== null) done();
+          else engine.once("close", () => done());
         });
         engine.stdin?.end();
         const kill = setTimeout(() => engine.kill("SIGTERM"), 10_000);
@@ -70,7 +80,7 @@ export function devEngine(): Plugin {
         throw reason;
       }
       engine.once("exit", () => {
-        if (!closing) server.config.logger.error("Rust development engine stopped. Restart bun run dev:web to reconnect.");
+        if (!closing) server.config.logger.error("Rust development engine stopped. Restart the development command to reconnect.");
       });
       server.httpServer?.once("close", () => { void stop?.(); });
       server.middlewares.use(async (req, res, next) => {

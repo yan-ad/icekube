@@ -24,14 +24,14 @@ import { PortForwardTablePage } from "./PortForwardTablePage";
 import { ResourceActions } from "./ResourceActions";
 import { useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
-import { NamespaceFeedback, NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
+import { NamespaceSelector, useNamespaceSelection } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { StatusBadge } from "./StatusBadge";
 import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector";
 import type { ResourceReference } from "./detailApi";
 import { useResourceRowMenu } from "./RowContextMenu";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
-import { usePermissionChecks } from "./PermissionProvider";
+import { usePermissionChecks, useResourcePermissions } from "./PermissionProvider";
 import { ReadOnlyNotice } from "./ReadOnlyNotice";
 import { ResourceAge } from "./ResourceAge";
 
@@ -121,6 +121,10 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const [syncStatus, setSyncStatus] = useState<PodSyncStatus>("stopped");
   const listCheck = { kind: view.kind!, namespace: namespace || null, action: "list" as const };
   const permissions = usePermissionChecks([listCheck]);
+  const resourcePermissions = useResourcePermissions(view.kind!, namespace || null);
+  const accessWarning = !permissions.loading && permissions.decision(listCheck) === "unknown" || !resourcePermissions.loading && (["list", "create", "update", "patch", "delete"] as const).some(action => (namespace || action === "list" || !view.namespaced) && resourcePermissions.decision({ kind: view.kind!, namespace: namespace || null, action }) === "unknown")
+    ? "Access unverified. Permission review is unavailable; Kubernetes still checks each request. Changes are disabled until access is verified."
+    : resourcePermissions.readOnly ? "Read-only access. Your Kubernetes permissions allow viewing these resources, but not changing them." : undefined;
   const lastListDecision = useRef(permissions.decision(listCheck));
   if (!permissions.loading) lastListDecision.current = permissions.decision(listCheck);
   const listDecision = permissions.loading ? lastListDecision.current : permissions.decision(listCheck);
@@ -211,8 +215,7 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const emptyState = useMemo(() => <VStack gap={2} padding={6}><Text>{emptyFiltered ? `No ${view.label.toLowerCase()} match your filters.` : `No ${view.label.toLowerCase()} were returned.`}</Text></VStack>, [emptyFiltered, view.label]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
     <TableToolbar label={view.label} count={readable && page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}
-      context={view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden showFeedback={false} />}
-      feedback={view.namespaced && <NamespaceFeedback value={namespace} onChange={onNamespace} />}>
+      context={view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden accessWarning={accessWarning} />}>
       <TextInput label={`Search ${view.label}`} isLabelHidden value={filters.query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
         startIcon={IconSearch} hasClear size="sm" width="min(18rem, 100%)" />
       <Selector label="Status" isLabelHidden value={filters.status} onChange={value => onFilter({ status: value })} size="sm" presentation="adaptive"
@@ -224,14 +227,14 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
     {checking ? <ContentLoading label="Checking access…" /> : denied ? <ContentError title="Access denied"
       message={view.namespaced && !namespace ? "All-namespaces access is denied. Choose a namespace to check access within it." : "Your Kubernetes permissions do not allow viewing these resources in this scope."}
       onRetry={permissions.retry} /> : <>
-    {!permissions.loading && listDecision === "unknown" && <ReadOnlyNotice unverified />}
+    {!view.namespaced && !permissions.loading && listDecision === "unknown" && <ReadOnlyNotice unverified />}
     {syncing && syncStatus !== "syncing" && <Text role="status">Live sync: {syncStatus}</Text>}
     <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} refreshing active={visibleLoading && !!page} />
     {loading && !page && <ContentLoading label={`Loading ${view.label.toLowerCase()}…`} />}
     {error && <ContentError title={`Could not load ${view.label.toLowerCase()}`} message={`${connectionMessage(error)} (${error})`} retained={!!page}
       disabled={loading || pending} onRetry={() => setRevision(value => value + 1)} />}
     {view.kind && <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={view.kind} namespace={namespace} createLabel={view.createLabel}
-      selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
+      hidePermissionNotice={view.namespaced} selected={selection.selected} disabled={inventoryUnavailable} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} onAccepted={selection.remove} onRefresh={() => setRevision(value => value + 1)} />}
     {page && <ResourceTable aria-label={view.label} data={rows} columns={tableColumns} density="compact" idKey={resourceRowKey} hasHover textOverflow="truncate" aria-busy={visibleLoading || pending}
       plugins={plugins} emptyState={emptyState} />}
     </>}

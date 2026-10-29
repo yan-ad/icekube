@@ -5,13 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:web": "ICEON_DEV_ENGINE=1 ICEON_DEV_DISCOVERY=1 vite --host 127.0.0.1",
     "dev:inspect": "ICEON_REACT_DEVTOOLS=1 vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:dev-engine": "playwright test --config playwright.dev-engine.config.ts",
     "tauri": "tauri",
-    "tauri:inspect": "ICEON_REACT_DEVTOOLS=1 tauri dev",
+    "tauri:inspect": "ICEON_REACT_DEVTOOLS=1 ICEON_DEV_ENGINE=1 ICEON_DEV_DISCOVERY=1 tauri dev",
     "devtools": "HOST=127.0.0.1 PORT=8097 REACT_DEVTOOLS_PORT=8097 react-devtools"
   },
   "dependencies": {

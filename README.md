@@ -134,6 +134,37 @@ for release notes.
 
 For development, see the [project guide](AGENTS.md), [design direction](DESIGN.md),
 and [workspace behavior reference](docs/workspace-ui-reference.md).
+
+### Debugging the React UI in a browser
+
+Run `bun run tauri:inspect`, then open `http://localhost:1420` in your browser.
+The same command starts the desktop app, React DevTools integration, and a
+development-only Rust engine for the browser. Use `bun run dev:web` if you do
+not need a desktop window. Plain `bun run dev` remains a UI-only preview.
+
+The browser engine automatically discovers `~/.kube/config` on Catalog load and
+Refresh, using the same Rust discovery and validation as the desktop app. Discovery
+imports context metadata only; entering a cluster workspace can authenticate and
+connect, and confirmed operations affect the selected cluster. `KUBECONFIG` and
+directory scanning are not used.
+
+Browser development records/preferences are stored separately in `.iceon-dev/`,
+not the desktop app's data directory. The two engines do not share live sessions.
+Native file dialogs, window controls, menus, updater, and OS link opening remain
+desktop-only. Browser cluster sessions are single-tab owned and cleaned up on
+disconnect, tab disposal, or heartbeat expiry.
+
+The bridge is debug-only, loopback-only, and authenticated through Vite; its secret
+is never sent to the renderer. It is not a deployment backend. Stop the development
+command to stop its engine. Restart an already-running inspect command after
+updating these scripts.
+
+For fixtures, set `ICEON_DEV_DISCOVERY_HOME=/absolute/fixture/home` to discover that
+home's `.kube/config`, or `ICEON_DEV_DATA_DIR=/absolute/dev/data` to change storage.
+`ICEON_DEV_PORT` selects a different loopback port for `dev:web`; Tauri's inspect
+URL stays on 1420. `bun run test:dev-engine` uses temporary homes, synthetic
+kubeconfigs, and port 1430; it never reads your real configuration or authenticates.
+
 The project uses [Tauri](https://tauri.app/) and [Astryx](https://astryx.atmeta.com/),
 with [Freelens](https://github.com/freelensapp/freelens) as a workflow reference.
 

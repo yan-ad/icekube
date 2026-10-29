@@ -17,6 +17,7 @@ test("all-namespaces denial keeps the chooser and filters available for an allow
   await expect(page.getByRole("table", { name: "Deployments", exact: true })).toHaveCount(0);
   await expect(page.getByText("No deployments were returned.", { exact: true })).toHaveCount(0);
   expect(await calls(page, "cluster_resources")).toEqual([]);
+  await page.keyboard.press("Escape");
   await page.getByRole("textbox", { name: "Search Deployments", exact: true }).fill("api");
   await namespace(page, "team-a");
   await expect(page.getByRole("table", { name: "Deployments", exact: true })).toBeVisible();
@@ -25,7 +26,7 @@ test("all-namespaces denial keeps the chooser and filters available for an allow
   expect(reads.length).toBeGreaterThan(0);
   expect(reads.every(call => call.request.kind === "deployments" && call.request.namespace === "team-a" && call.request.query === "api")).toBe(true);
   expect((await calls(page, "cluster_permissions_review")).flatMap(call => call.request.checks).some(check => check.kind === "deployments" && check.namespace === "team-a" && check.action === "list")).toBe(true);
-  await expect(page.getByRole("status").filter({ hasText: "Read-only access." })).toBeVisible();
+  await expectReadOnlyWarning(page);
   await noMutations(page);
   await namespace(page, "team-b");
   await expect(page.getByText("Access denied", { exact: true })).toBeVisible();
@@ -88,6 +89,14 @@ async function namespace(page: Page, value: string) {
   }
   await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill(value);
   await page.getByRole("button", { name: "Use namespace", exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("dialog", { name: "Namespace options", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Namespace options", exact: true })).toBeFocused();
+}
+async function expectReadOnlyWarning(page: Page) {
+  await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Read-only access. Your Kubernetes permissions allow viewing these resources, but not changing them.");
+  await expect(page.getByRole("status").filter({ hasText: "Read-only access." })).toHaveCount(0);
 }
 async function noMutations(page: Page) {
   for (const command of ["cluster_resource_create", "cluster_resource_delete", "cluster_pod_mutate", "cluster_pod_forward_start"]) expect(await calls(page, command)).toEqual([]);
@@ -103,7 +112,7 @@ test("read-only namespace input scopes reads, shows the notice, and cannot submi
   expect((await calls(page, "cluster_resources")).some(call => call.request.kind === "namespaces")).toBe(false);
   await namespace(page, "team-a");
   await expect.poll(async () => (await calls(page, "cluster_resources")).filter(call => call.request.kind === "pods").at(-1)?.request.namespace).toBe("team-a");
-  await expect(page.getByRole("status").filter({ hasText: "Read-only access." })).toBeVisible();
+  await expectReadOnlyWarning(page);
   await expect(page.getByRole("button", { name: "Create Pod", exact: true })).toHaveCount(0);
   await page.getByRole("checkbox", { name: "Select team-a/api-pod", exact: true }).check();
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toBeDisabled();
@@ -139,7 +148,11 @@ test("Pod logs stay available while Shell and forged native mutation selections 
 
 for (const mode of ["denied", "unknown"] as const) test(`${mode} review leaves mutations inaccessible on a direct resource route`, async ({ page }) => {
   await fixture(page, mode, "deployments");
-  await expect(page.getByText(mode === "denied" ? "Access denied" : /Access unverified/).first()).toBeVisible();
+  if (mode === "denied") await expect(page.getByText("Access denied", { exact: true })).toBeVisible();
+  else {
+    await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("Access unverified. Permission review is unavailable; Kubernetes still checks each request. Changes are disabled until access is verified.");
+  }
   await expect(page.getByRole("button", { name: "Create Deployment", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete selected resources", exact: true })).toHaveCount(0);
   if (mode === "denied") expect(await calls(page, "cluster_resources")).toEqual([]);

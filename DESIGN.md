@@ -1,5 +1,22 @@
 # Iceon design
 
+## Browser development transport
+
+`bun run tauri:inspect` starts Vite's opt-in Rust development bridge alongside the
+desktop runtime. Browser presentation uses typed engine adapters, not fake Tauri
+globals; native chrome, dialogs, menus, updater, and OS openers remain desktop-only.
+The bridge uses an ephemeral IPv4 loopback listener behind Vite, exact origin/host
+validation, a per-run server-side bearer token, bounded requests/responses, and a
+single-tab workspace lease with heartbeat expiry. Release builds cannot include it.
+
+Inspect and `dev:web` discover only `~/.kube/config`, through Rust's existing
+metadata-only discovery on Catalog load/Refresh. Browser storage is isolated in
+`.iceon-dev/`; its connections are independent of the desktop engine. Workspace
+entry and confirmed cluster operations retain their existing live effects.
+Tests inject temporary discovery homes and synthetic kubeconfigs, never real
+credentials. Acceptance coverage: `tests/dev-engine.spec.ts` and Rust
+`dev_engine::tests`; this development workflow has no upstream UI reference.
+
 ## Product and objective
 
 Iceon is a desktop Kubernetes workspace for developers and operators. Freelens

@@ -6,7 +6,10 @@ import { Text } from "@astryxdesign/core/Text";
 import { VisuallyHidden } from "@astryxdesign/core/VisuallyHidden";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { IconRefresh } from "@tabler/icons-react";
+import { Icon } from "@astryxdesign/core/Icon";
+import { IconButton } from "@astryxdesign/core/IconButton";
+import { Popover } from "@astryxdesign/core/Popover";
+import { IconAlertTriangle, IconInfoCircle, IconRefresh } from "@tabler/icons-react";
 import { connectionMessage, type ConnectionErrorCode, type SessionRequest } from "./api";
 import { usePermissionChecks } from "./PermissionProvider";
 import { createNamespaceStore, NAMESPACE_LIMIT, validNamespace } from "./namespaceStore";
@@ -57,45 +60,48 @@ function NamespaceSessionScope({ clusterId, sessionId, children }: SessionReques
 }
 
 type NamespaceSelectorProps = {
-  value: string; onChange: (value: string) => void; label?: string; allowAll?: boolean; isLabelHidden?: boolean; showFeedback?: boolean;
+  value: string; onChange: (value: string) => void; label?: string; allowAll?: boolean; isLabelHidden?: boolean; showFeedback?: boolean; accessWarning?: string;
 };
-export function NamespaceSelector({ value, onChange, label = "Namespace", allowAll = true, isLabelHidden = true, showFeedback = true }: NamespaceSelectorProps) {
+export function NamespaceSelector({ value, onChange, label = "Namespace", allowAll = true, isLabelHidden = true, showFeedback = true, accessWarning }: NamespaceSelectorProps) {
   const scope = useContext(Context);
   if (!scope) throw new Error("NamespaceScopeProvider is required");
   const { namespaces, loading, error, subscribe } = scope;
   useEffect(subscribe, [subscribe]);
   const choices = namespaces.map((namespace) => ({ value: namespace, label: namespace }));
   if (value && !namespaces.includes(value)) choices.push({ value, label: `${value} (not in loaded list)` });
-  return <VStack gap={1} style={{ minWidth: 0, maxWidth: "100%" }}>
+  return <HStack gap={1} vAlign="center" style={{ minWidth: 0, maxWidth: "100%" }}>
     <Selector label={label} isLabelHidden={isLabelHidden} value={value} onChange={onChange} size="sm" width="min(18rem, 100%)" hasSearch presentation="adaptive"
       isLoading={loading && namespaces.length === 0} placeholder={allowAll ? "All namespaces" : "Choose namespace"}
       options={[...(allowAll ? [{ value: "", label: "All namespaces" }] : []), ...choices]}
       emptyText={loading ? "Loading namespaces…" : error ? "Namespace list unavailable" : "No namespaces returned"} />
     {loading && <VisuallyHidden><Text role="status" aria-label="Loading namespaces…">Loading namespaces…</Text></VisuallyHidden>}
-    {showFeedback && <NamespaceFeedback value={value} onChange={onChange} allowAll={allowAll} />}
-  </VStack>;
+    {showFeedback && <NamespaceFeedback value={value} onChange={onChange} allowAll={allowAll} accessWarning={accessWarning} />}
+  </HStack>;
 }
 
-export function NamespaceFeedback({ value, onChange, allowAll = true }: Pick<NamespaceSelectorProps, "value" | "onChange" | "allowAll">) {
+export function NamespaceFeedback({ value, onChange, allowAll = true, accessWarning }: Pick<NamespaceSelectorProps, "value" | "onChange" | "allowAll" | "accessWarning">) {
   const scope = useContext(Context);
   if (!scope) throw new Error("NamespaceScopeProvider is required");
   const { loading, cached, error, partial, denied, unverified, namespaces, retry } = scope;
   const [draft, setDraft] = useState(value);
   const [expanded, setExpanded] = useState(false);
   const [manualOpen, setManualOpen] = useState(false);
-  const detailsId = useId();
   const manualId = useId();
   useEffect(() => setDraft(value), [value]);
   const manual = denied || unverified || error === "permissionDenied";
   const empty = !loading && !error && !denied && !unverified && namespaces.length === 0;
-  if (!manual && !error && !partial && !empty && !cached) return null;
-  return <VStack gap={1} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
-    <HStack gap={2} wrap="wrap">
-      {cached && !denied && <Text role="status" type="supporting">Cached namespaces</Text>}
-      <Button label="Namespace options" size="sm" variant="ghost" aria-expanded={expanded} aria-controls={detailsId} onClick={() => setExpanded(current => !current)} />
-    </HStack>
-    {error && <Text role="status" type="supporting">Could not load namespaces. {connectionMessage(error)}</Text>}
-    {expanded && <VStack id={detailsId} gap={2}>
+  if (!manual && !error && !partial && !empty && !cached && !accessWarning) return null;
+  const messages = [
+    accessWarning,
+    denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : unverified ? "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list." : null,
+    cached && !denied ? "Cached namespaces. These names may be stale; resource access is checked by Kubernetes." : null,
+    error ? `Could not load namespaces. ${connectionMessage(error)}` : null,
+    partial ? `The namespace list is partial; at most ${NAMESPACE_LIMIT} names are loaded.${allowAll ? " All namespaces still covers the full request scope." : ""}` : null,
+    empty ? "No namespaces were returned." : null,
+  ].filter(Boolean).join(" ");
+  return <Popover label="Namespace options" placement="below" alignment="start" width="min(24rem, 100%)"
+    isOpen={expanded} onOpenChange={setExpanded} content={<VStack gap={2} style={{ minWidth: 0, overflowWrap: "anywhere" }}>
+      <Text type="supporting">{messages}</Text>
       {manual && <>
         <Text type="supporting">{denied || error === "permissionDenied" ? "Namespace discovery is denied. Enter a known namespace to request resources within it." : "Namespace discovery access is unverified. Enter a known namespace or explicitly load the bounded namespace list."}</Text>
         <Button label="Enter namespace" size="sm" variant="ghost" aria-expanded={manualOpen} aria-controls={manualId} onClick={() => setManualOpen(current => !current)} />
@@ -106,8 +112,8 @@ export function NamespaceFeedback({ value, onChange, allowAll = true }: Pick<Nam
         {unverified && !loading && <Button label="Load namespaces" size="sm" variant="ghost" onClick={retry} />}
       </>}
       {error && !denied && <Button label="Retry namespaces" icon={<IconRefresh />} isIconOnly tooltip="Retry namespaces" variant="ghost" size="sm" onClick={retry} />}
-      {partial && <Text role="status" type="supporting">The namespace list is partial; at most {NAMESPACE_LIMIT} names are loaded.{allowAll ? " All namespaces still covers the full request scope." : ""}</Text>}
-      {empty && <Text type="supporting">No namespaces were returned.</Text>}
-    </VStack>}
-  </VStack>;
+    </VStack>}>
+    <IconButton label="Namespace options" tooltip={messages} size="sm" variant="ghost"
+      icon={<Icon icon={manual || error || accessWarning ? IconAlertTriangle : IconInfoCircle} color={manual || error || accessWarning ? "warning" : "secondary"} />} />
+  </Popover>;
 }

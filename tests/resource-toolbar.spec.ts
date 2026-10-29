@@ -90,38 +90,51 @@ for (const theme of ["light", "dark"] as const) {
     expect(errors).toEqual([]);
   });
 
-  test(`${theme}: namespace fallback stays below compact filters across viewport sizes`, async ({ page }, testInfo) => {
+  test(`${theme}: namespace and RBAC warnings use the adjacent tooltip icon without moving the table`, async ({ page }, testInfo) => {
     const errors: string[] = [];
     page.on("pageerror", error => errors.push(error.message));
     await page.setViewportSize({ width: 1568, height: 900 });
     await fixture(page, theme, true);
     await change(page, { holdPermissions: false, holdNamespaces: false, holdResources: false });
-    await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toHaveCount(0);
-    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-    await page.getByRole("button", { name: "Enter namespace", exact: true }).click();
-    await expect(page.getByRole("textbox", { name: "Known namespace", exact: true })).toBeVisible();
-    await expect(page.getByRole("table", { name: "Vertical Pod Autoscalers", exact: true })).toBeVisible();
-    await expect(page.getByText("Access unverified", { exact: true })).toBeVisible();
-    const title = filters(page).getByText("Vertical Pod Autoscalers", { exact: true });
+    const table = page.getByRole("table", { name: "Vertical Pod Autoscalers", exact: true });
+    const options = page.getByRole("button", { name: "Namespace options", exact: true });
+    const selector = page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ });
+    await expect(table).toBeVisible();
+    await expect(options).toBeVisible();
+    await expect(options).toHaveText("");
+    await expect(page.getByText("Access unverified", { exact: true })).toHaveCount(0);
+    const switcher = (await selector.boundingBox())!, icon = (await options.boundingBox())!;
+    expect(icon.x).toBeGreaterThanOrEqual(switcher.x + switcher.width);
+    expect(Math.abs(icon.y + icon.height / 2 - switcher.y - switcher.height / 2)).toBeLessThan(3);
+    await options.hover();
+    await expect(page.getByRole("tooltip")).toContainText("Access unverified");
+    await expect(page.getByRole("tooltip")).toContainText("Namespace discovery access is unverified");
+    await page.mouse.move(0, 0);
+    const before = (await table.boundingBox())!;
+    await options.focus(); await page.keyboard.press("Enter");
+    const panel = page.getByRole("dialog", { name: "Namespace options", exact: true });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("Changes are disabled until access is verified");
+    expect((await table.boundingBox())!.y).toBe(before.y);
+    await page.keyboard.press("Escape");
+    await expect(panel).toHaveCount(0);
+    await expect(options).toBeFocused();
     for (const width of [1568, 900, 640, 360]) {
       await page.setViewportSize({ width, height: 900 });
-      const input = search(page), namespace = page.getByRole("textbox", { name: "Known namespace", exact: true });
-      await expect(input).toBeVisible();
-      await expect(input).toBeInViewport();
-      await input.focus(); await expect(input).toBeFocused();
-      const heading = (await title.boundingBox())!, field = (await input.boundingBox())!, manual = (await namespace.boundingBox())!;
-      expect(field.width).toBeLessThanOrEqual(300);
-      expect(manual.y).toBeGreaterThanOrEqual(Math.max(heading.y + heading.height, field.y + field.height));
-      if (width === 1568) expect(Math.abs(heading.y + heading.height / 2 - field.y - field.height / 2)).toBeLessThan(3);
+      await expect(options).toBeInViewport();
+      await expect(search(page)).toBeInViewport();
+      await options.click();
+      await expect(panel).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+      await page.keyboard.press("Escape");
     }
-    await page.screenshot({ path: testInfo.outputPath(`${theme}-narrow-fallback.png`) });
-    await page.getByRole("textbox", { name: "Known namespace", exact: true }).fill("team-a");
-    await page.getByRole("textbox", { name: "Known namespace", exact: true }).press("Enter");
+    await page.screenshot({ path: testInfo.outputPath(`${theme}-namespace-icon.png`) });
+    await options.click();
+    await panel.getByRole("button", { name: "Enter namespace", exact: true }).click();
+    await panel.getByRole("textbox", { name: "Known namespace", exact: true }).fill("team-a");
+    await panel.getByRole("textbox", { name: "Known namespace", exact: true }).press("Enter");
     await expect.poll(() => page.evaluate(() => ((window as any).__toolbar as Controls).calls.filter(call => call.command === "cluster_resources" && call.request.kind === "verticalPodAutoscalers").at(-1)?.request.namespace)).toBe("team-a");
-    await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-    await page.getByRole("button", { name: "Load namespaces", exact: true }).click();
-    await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toContainText("team-a");
+    await expect(selector).toContainText("team-a");
     expect(errors).toEqual([]);
   });
 }

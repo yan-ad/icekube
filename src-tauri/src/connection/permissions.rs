@@ -388,7 +388,7 @@ impl ConnectionEngine {
                     .session
                     .lock()
                     .map_err(|_| ConnectionError::StoreUnavailable)?;
-                let permissions = &mut current_mut(&mut state, &identity)?.permissions;
+                let permissions = &mut current_mut(&mut state, identity)?.permissions;
                 permissions.synchronize(&self.authentication_generation);
                 if permissions.epoch != epoch {
                     return Err(ConnectionError::StaleSession);
@@ -409,7 +409,7 @@ impl ConnectionEngine {
             let (item, expiry, expiry_deadline) = if let Some(cached) = cached {
                 cached
             } else {
-                let item = tokio::select! { biased; _ = cancel.cancelled() => return Err(ConnectionError::StaleSession), result = tokio::time::timeout_at(deadline, review_check(&client, check, &cancel)) => result.unwrap_or_else(|_| unknown(check, PermissionReason::Unavailable)) };
+                let item = tokio::select! { biased; _ = cancel.cancelled() => return Err(ConnectionError::StaleSession), result = tokio::time::timeout_at(deadline, review_check(client, check, cancel)) => result.unwrap_or_else(|_| unknown(check, PermissionReason::Unavailable)) };
                 let ttl = match item.decision {
                     PermissionDecision::Allowed => 30_000,
                     PermissionDecision::Denied => 10_000,
@@ -421,7 +421,7 @@ impl ConnectionEngine {
                     .session
                     .lock()
                     .map_err(|_| ConnectionError::StoreUnavailable)?;
-                let permissions = &mut current_mut(&mut state, &identity)?.permissions;
+                let permissions = &mut current_mut(&mut state, identity)?.permissions;
                 if self.authentication_generation.load(Ordering::SeqCst) != epoch
                     || cancel.is_cancelled()
                 {

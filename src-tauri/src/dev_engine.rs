@@ -36,6 +36,7 @@ struct Engine {
     stopping: AtomicBool,
     token: String,
     host: String,
+    frontend_port: u16,
     catalog: Arc<CatalogEngine>,
     connections: Arc<ConnectionEngine>,
     preferences: Arc<PreferencesEngine>,
@@ -101,7 +102,13 @@ async fn guard(State(state): State<Arc<Engine>>, request: Request, next: Next) -
     };
     let authorized = exact("host", &state.host)
         && exact("authorization", &format!("Bearer {}", state.token))
-        && (exact("origin", "http://127.0.0.1:1420") || exact("origin", "http://localhost:1420"))
+        && (exact(
+            "origin",
+            &format!("http://127.0.0.1:{}", state.frontend_port),
+        ) || exact(
+            "origin",
+            &format!("http://localhost:{}", state.frontend_port),
+        ))
         && exact("x-iceon-dev", "1")
         && headers
             .get("x-iceon-client")
@@ -642,8 +649,25 @@ fn absolute_env(name: &str) -> std::result::Result<PathBuf, &'static str> {
     }
     Ok(path)
 }
+fn configured_frontend_port(
+    value: Option<&std::ffi::OsStr>,
+) -> std::result::Result<u16, &'static str> {
+    let Some(value) = value else {
+        return Ok(1420);
+    };
+    let value = value.to_str().ok_or("invalidConfiguration")?;
+    if value.is_empty() || !value.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err("invalidConfiguration");
+    }
+    value
+        .parse::<u16>()
+        .ok()
+        .filter(|port| *port != 0)
+        .ok_or("invalidConfiguration")
+}
 /// Starts only a loopback ephemeral listener; stdout contains one readiness record.
 pub async fn run() -> std::result::Result<(), &'static str> {
+    let frontend_port = configured_frontend_port(std::env::var_os("ICEON_DEV_PORT").as_deref())?;
     let token = std::env::var("ICEON_DEV_ENGINE_TOKEN").map_err(|_| "invalidConfiguration")?;
     if token.len() != 64 || !token.bytes().all(|b| b.is_ascii_hexdigit()) {
         return Err("invalidConfiguration");
@@ -671,6 +695,7 @@ pub async fn run() -> std::result::Result<(), &'static str> {
         stopping: AtomicBool::new(false),
         token,
         host: format!("127.0.0.1:{port}"),
+        frontend_port,
         connections: Arc::new(ConnectionEngine::new(catalog.clone())),
         catalog,
         preferences,
@@ -746,6 +771,7 @@ mod tests {
             stopping: AtomicBool::new(false),
             token: "a".repeat(64),
             host: "127.0.0.1:12345".into(),
+            frontend_port: 1420,
             connections: Arc::new(ConnectionEngine::new(catalog.clone())),
             preferences: PreferencesEngine::new(root.path().into()).unwrap(),
             catalog,
@@ -766,6 +792,89 @@ mod tests {
             .header("content-type", "application/json")
             .body(body.into())
             .unwrap()
+    }
+    #[test]
+    fn frontend_port_is_optional_and_strictly_nonzero_u16() {
+        use std::ffi::OsStr;
+        assert_eq!(configured_frontend_port(None), Ok(1420));
+        for (value, port) in [("1", 1), ("1430", 1430), ("65535", 65535)] {
+            assert_eq!(configured_frontend_port(Some(OsStr::new(value))), Ok(port));
+        }
+        for value in [
+            "",
+            "0",
+            "000",
+            "65536",
+            "99999999999999999999",
+            "-1",
+            "+1430",
+            " 1430",
+            "1430 ",
+            "1430\n",
+            "1.5",
+            "0x596",
+            "localhost:1430",
+            "１４３０",
+        ] {
+            assert_eq!(
+                configured_frontend_port(Some(OsStr::new(value))),
+                Err("invalidConfiguration"),
+                "{value:?}"
+            );
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert_eq!(
+                configured_frontend_port(Some(OsStr::from_bytes(b"\xff"))),
+                Err("invalidConfiguration")
+            );
+        }
+    }
+    #[tokio::test]
+    async fn origins_are_exact_loopback_hosts_on_the_configured_port_only() {
+        let (_root, mut state) = fixture();
+        Arc::get_mut(&mut state).unwrap().frontend_port = 1430;
+        for (origin, expected) in [
+            ("http://127.0.0.1:1430", StatusCode::OK),
+            ("http://localhost:1430", StatusCode::OK),
+            ("http://127.0.0.1:1420", StatusCode::FORBIDDEN),
+            ("http://localhost:1420", StatusCode::FORBIDDEN),
+            ("http://localhost:1431", StatusCode::FORBIDDEN),
+            ("https://localhost:1430", StatusCode::FORBIDDEN),
+            ("http://example.test:1430", StatusCode::FORBIDDEN),
+            ("http://127.0.0.2:1430", StatusCode::FORBIDDEN),
+            ("http://[::1]:1430", StatusCode::FORBIDDEN),
+            ("http://localhost.evil.test:1430", StatusCode::FORBIDDEN),
+            ("http://localhost:1430/", StatusCode::FORBIDDEN),
+            ("http://localhost:01430", StatusCode::FORBIDDEN),
+            ("null", StatusCode::FORBIDDEN),
+        ] {
+            let mut request = request(r#"{"command":"route_history_get","args":{}}"#);
+            request
+                .headers_mut()
+                .insert("origin", origin.parse().unwrap());
+            assert_eq!(
+                router(state.clone())
+                    .oneshot(request)
+                    .await
+                    .unwrap()
+                    .status(),
+                expected,
+                "{origin}"
+            );
+        }
+        let mut duplicate = request("{}");
+        duplicate
+            .headers_mut()
+            .insert("origin", "http://localhost:1430".parse().unwrap());
+        duplicate
+            .headers_mut()
+            .append("origin", "http://127.0.0.1:1430".parse().unwrap());
+        assert_eq!(
+            router(state).oneshot(duplicate).await.unwrap().status(),
+            StatusCode::FORBIDDEN
+        );
     }
     async fn call(state: Arc<Engine>, client: &str, command: &str, args: Value) -> Value {
         let mut request = request(json!({"command":command,"args":args}).to_string());

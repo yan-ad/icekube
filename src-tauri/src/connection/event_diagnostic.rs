@@ -43,13 +43,12 @@ pub(super) fn credential_value(s: &str) -> bool {
             "private_key",
             "api_key",
         ] {
-            if let Some(tail) = lower[start..].strip_prefix(name) {
-                if tail
+            if let Some(tail) = lower[start..].strip_prefix(name)
+                && tail
                     .trim_start_matches([' ', '\t', '\"', '\''])
                     .starts_with(['=', ':'])
-                {
-                    return true;
-                }
+            {
+                return true;
             }
         }
     }

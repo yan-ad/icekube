@@ -135,7 +135,10 @@ test("cached namespace failures do not retry on navigation", async ({ page }) =>
   for (const section of ["workloads", "services", "pods"]) {
     await page.evaluate(section => { location.hash = `/cluster/one?section=${section}`; }, section);
     if (section === "workloads") await expect(selector(page)).toHaveCount(0);
-    else await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
+    else {
+      await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
+      await expect(page.getByRole("tooltip")).toContainText("Could not load namespaces");
+    }
   }
   expect(await calls(page, "namespaces")).toHaveLength(1);
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
@@ -352,14 +355,21 @@ test("cancels the exact pending namespace read on disposal and ignores its late 
 
 test("permission denied keeps All namespaces usable, offers retry, and retry succeeds", async ({ page }) => {
   await fixture(page, { namespaceFailure: "permissionDenied" }); await connected(page);
-  await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
+  await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("Could not load namespaces");
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Retry namespaces", exact: true })).toBeVisible();
+  const dialog = page.getByRole("dialog", { name: "Namespace options", exact: true });
+  await expect(dialog).toContainText("Namespace discovery is denied.");
+  await expect(dialog.getByRole("button", { name: "Retry namespaces", exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Namespace options", exact: true })).toBeFocused();
   await choose(page, "All namespaces");
   expect((await calls(page, "pods")).at(-1)!.request).toMatchObject({ namespace: null });
   await expect(page.getByRole("table", { name: "Pods", exact: true })).toContainText("all-pod");
   await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceFailure = undefined; });
-  await page.getByRole("button", { name: "Retry namespaces", exact: true }).click();
+  await page.getByRole("button", { name: "Namespace options", exact: true }).click();
+  await dialog.getByRole("button", { name: "Retry namespaces", exact: true }).click();
   await expect(page.getByText(/Could not load namespaces/)).toHaveCount(0);
   await expect(page.getByText("No namespaces were returned.", { exact: true })).toHaveCount(0);
   expect(await calls(page, "namespaces")).toHaveLength(2);
@@ -371,6 +381,7 @@ test("reports an empty namespace response honestly without fabricating options",
   await fixture(page, { namespaceEmpty: true }); await connected(page);
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await expect(page.getByText("No namespaces were returned.", { exact: true })).toBeVisible();
+  await page.keyboard.press("Escape");
   await selector(page).click();
   await expect(page.getByRole("option", { name: "All namespaces", exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: "team-a", exact: true })).toHaveCount(0);
@@ -392,7 +403,7 @@ test("caps namespace pagination at ten pages and 1000 names with an honest parti
   expect(await calls(page, "namespaces")).toHaveLength(10);
   await page.getByRole("button", { name: "Namespace options", exact: true }).click();
   await expect(page.getByText(/namespace list is partial/)).toBeVisible();
-
+  await page.keyboard.press("Escape");
   await selector(page).click();
   await expect(page.getByRole("option", { name: "ns-0999", exact: true })).toBeVisible();
   await expect(page.getByRole("option", { name: "ns-1000", exact: true })).toHaveCount(0);
@@ -414,7 +425,9 @@ test("namespace navigation does not cancel the current view's async resource rea
 for (const malformed of ["namespaceDuplicate", "namespaceInvalid", "namespaceRepeatedToken"] as const) {
   test(`fails closed for ${malformed} instead of showing a partial invented namespace list`, async ({ page }) => {
     await fixture(page, { [malformed]: true }); await connected(page);
-    await expect(page.getByRole("status").filter({ hasText: "Could not load namespaces" })).toContainText("unsupported response");
+    await page.getByRole("button", { name: "Namespace options", exact: true }).hover();
+    await expect(page.getByRole("tooltip")).toContainText("Could not load namespaces");
+    await expect(page.getByRole("tooltip")).toContainText("unsupported response");
     await selector(page).click();
     await expect(page.getByRole("option")).toHaveText(["All namespaces"]);
     expect(await calls(page, "namespaces")).toHaveLength(malformed === "namespaceRepeatedToken" ? 2 : 1);
