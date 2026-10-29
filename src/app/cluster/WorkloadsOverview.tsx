@@ -12,6 +12,8 @@ import { useRowContextMenu } from "./RowContextMenu";
 import { cancelResources, connectionMessage, errorCode, loadResources, nextReadId, type ConnectionErrorCode, type ResourceItem, type ResourceRequest, type SessionRequest } from "./api";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { useAutoRefresh } from "./useAutoRefresh";
+import { ContentLoading } from "../components/ContentLoading";
+import { ResourceAge } from "./ResourceAge";
 
 const MAX_PAGES = 5;
 const MAX_RESOURCES = 500;
@@ -70,16 +72,6 @@ function eventTime(item: ResourceItem) {
   }
   return -Infinity;
 }
-function age(value: string | null | undefined) {
-  const time = value ? Date.parse(value) : NaN;
-  if (!Number.isFinite(time)) return "Unknown";
-  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-
 function StatusDonut({ kind, label, items }: { kind: WorkloadKind; label: string; items: ResourceItem[] }) {
   const segments = useMemo(() => {
     const counts = new Map<Status, number>();
@@ -104,6 +96,7 @@ function StatusDonut({ kind, label, items }: { kind: WorkloadKind; label: string
 function InventoryState({ label, inventory }: { label: string; inventory: Inventory }) {
   return <>
     {inventory.loading && inventory.items === null && <Text role="status" type="supporting">Loading {label}…</Text>}
+    {inventory.loading && inventory.stale && <Text role="status" type="supporting">Refreshing {label}… Retained data is stale.</Text>}
     {inventory.error && <Text role="alert" type="supporting">{inventory.items !== null ? "Retained data is stale. " : "Could not load this inventory. "}{connectionMessage(inventory.error)}</Text>}
     {inventory.partial && <Text type="supporting">Partial loaded counts; the bounded inventory is incomplete.</Text>}
     {inventory.items?.length === 0 && <Text type="supporting">No {label.toLowerCase()} returned{inventory.partial ? " in loaded pages" : ""}.</Text>}
@@ -113,18 +106,21 @@ function InventoryState({ label, inventory }: { label: string; inventory: Invent
 export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
   const [namespace, setNamespace] = useState("");
   const [revision, setRevision] = useState(0);
-  const [state, setState] = useState<Inventories>(initialState);
+  const scope = JSON.stringify([clusterId, sessionId, namespace]);
+  const [stateScope, setStateScope] = useState(scope);
+  const [inventories, setState] = useState<Inventories>(initialState);
+  const state = stateScope === scope ? inventories : initialState();
   const previousScope = useRef("");
   const { openRelated, openResource } = useResourceInspector();
   const refresh = useCallback(() => setRevision(value => value + 1), []);
   const loading = Object.values(state).some(inventory => inventory.loading);
-  const auto = useAutoRefresh({ scope: JSON.stringify([clusterId, sessionId, namespace]), interval: 30_000, busy: loading, refresh });
+  const auto = useAutoRefresh({ scope, interval: 30_000, busy: loading, refresh });
   useRegisterWorkspaceRefresh({ clusterId, section: "workloads-overview", enabled: !loading, refresh });
   useEffect(() => {
     let disposed = false;
     let activeRequest: ResourceRequest | null = null;
-    const scope = JSON.stringify([clusterId, sessionId, namespace]);
     const sameScope = previousScope.current === scope; previousScope.current = scope;
+    setStateScope(scope);
     setState(current => sameScope ? Object.fromEntries(Object.entries(current).map(([kind, inventory]) => [kind, { ...inventory, loading: true, error: null, stale: inventory.items !== null }])) as Inventories : initialState());
     const read = async () => {
       let failure: ConnectionErrorCode | undefined;
@@ -170,7 +166,7 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
     };
     void read();
     return () => { disposed = true; if (activeRequest) void cancelResources(activeRequest).catch(() => {}); };
-  }, [clusterId, sessionId, namespace, revision]);
+  }, [clusterId, sessionId, namespace, scope, revision]);
   const events = state.events;
   const eventRows = useMemo(() => (events.items ?? []).slice().sort((a, b) => eventTime(b) - eventTime(a))
     .slice(0, MAX_EVENTS).map(item => ({ ...item, id: JSON.stringify([item.namespace, item.name]) })), [events.items]);
@@ -183,6 +179,11 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
   return <VStack gap={5} padding={4} style={{ flex: "1 1 0", minWidth: 0, minHeight: 0, overflow: "auto", overflowWrap: "anywhere" }}>
     <HStack gap={3} hAlign="between" vAlign="center" wrap="wrap"><Heading level={2}>Workloads overview</Heading><NamespaceSelector value={namespace} onChange={setNamespace} /></HStack>
     <Text type="supporting">Loaded resource counts, not live totals. Each kind is limited to {MAX_PAGES} pages ({MAX_RESOURCES} resources). Updates automatically while this view is active.</Text>
+    <ContentLoading
+      label="Refreshing workloads overview…"
+      refreshing
+      active={loading && Object.values(state).some(inventory => inventory.items !== null)}
+    />
     <Grid columns={{ minWidth: 180, max: 7 }} gap={4}>{categories.map(category => <VStack key={category.kind} as="section" aria-label={`${category.label} inventory`} gap={2} padding={3} style={{ minWidth: 0, borderBlockEnd: "var(--border-width) solid var(--color-border)" }}>
       <Link isStandalone href={`#/cluster/${encodeURIComponent(clusterId)}?section=${category.section}`}>{category.label}</Link>
       {state[category.kind].items !== null && <StatusDonut kind={category.kind} label={category.label} items={state[category.kind].items!} />}
@@ -194,15 +195,17 @@ export function WorkloadsOverview({ clusterId, sessionId }: SessionRequest) {
       <InventoryState label="events" inventory={events} />
       {eventRows.length > 0 && <Table aria-label="Latest events" data={eventRows} idKey="id" density="compact" plugins={{ rowContext: eventMenu }} columns={[
         { key: "type", header: "Type", renderCell: item => item.columns.type || item.status },
-        { key: "message", header: "Message", renderCell: item => item.columns.message || "Unknown" },
-        { key: "namespace", header: "Namespace", renderCell: item => item.namespace
-          ? <Button label={item.namespace} size="sm" variant="ghost" onClick={() => openRelated({ kind: "events", namespace: item.namespace, name: item.name, uid: item.uid }, "namespace")} /> : "Unknown" },
+         { key: "message", header: "Message", renderCell: item => item.columns.message
+           ? <Button label={item.columns.message} size="sm" variant="ghost" onClick={() => openResource({ kind: "events", namespace: item.namespace, name: item.name, uid: item.uid })} />
+           : "Unknown" },
+         { key: "namespace", header: "Namespace", renderCell: item => item.namespace
+           ? <Button label={item.namespace} aria-label={`Filter workloads to namespace ${item.namespace}`} size="sm" variant="ghost" onClick={() => setNamespace(item.namespace!)} /> : "Unknown" },
         { key: "involvedObject", header: "Involved object", renderCell: item => item.columns.involvedObject
           ? <Button label={item.columns.involvedObject} size="sm" variant="ghost" onClick={() => openRelated({ kind: "events", namespace: item.namespace, name: item.name, uid: item.uid }, "involvedObject")} /> : "Unknown" },
         { key: "source", header: "Source", renderCell: item => item.columns.source || "Unknown" },
         { key: "count", header: "Count", renderCell: item => count(item.columns.count) ?? "Unknown" },
-        { key: "createdAt", header: "Age", renderCell: item => age(item.createdAt) },
-        { key: "lastSeen", header: "Last seen", renderCell: item => age(item.columns.lastSeen) },
+        { key: "createdAt", header: "Age", renderCell: item => <ResourceAge timestamp={item.createdAt} fallback="Unknown" /> },
+        { key: "lastSeen", header: "Last seen", renderCell: item => <ResourceAge timestamp={item.columns.lastSeen} fallback="Unknown" /> },
       ]} />}
     </VStack>
   </VStack>;

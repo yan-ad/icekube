@@ -11,6 +11,20 @@ type MockWindow = Window & {
 const route = (section: string) => `/#/cluster/one?section=${section}`;
 const table = (page: Page, name = "Pods") => page.getByRole("table", { name, exact: true });
 
+test("resource ages advance locally without a new inventory read", async ({ page }) => {
+  await page.clock.install({ time: new Date("2026-01-18T02:04:00Z") });
+  await fixture(page, { section: "resource-quotas" });
+  const grid = table(page, "Resource Quotas");
+  const cell = grid.getByRole("row").nth(1).getByRole("cell").filter({ hasText: /^2w 3d 2h 4m$/ });
+  await expect(cell).toHaveCount(1);
+  await page.getByRole("textbox", { name: "Search Resource Quotas", exact: true }).focus();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+  const before = await calls(page);
+  await page.clock.fastForward(60_000);
+  await expect(grid.getByRole("row").nth(1)).toContainText("2w 3d 2h 5m");
+  expect(await calls(page)).toEqual(before);
+});
+
 test("Cluster overview reads Nodes then warning Events in its existing lease", async ({ page }) => {
   await fixture(page, { section: "overview" });
   await expect(page.getByRole("heading", { name: "Cluster overview", exact: true })).toBeVisible();

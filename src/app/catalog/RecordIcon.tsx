@@ -1,4 +1,4 @@
-import { Icon } from "@astryxdesign/core/Icon";
+import { Icon, type IconType } from "@astryxdesign/core/Icon";
 import { HStack } from "@astryxdesign/core/Stack";
 import { IconHexagons, IconWorldWww } from "@tabler/icons-react";
 
@@ -14,9 +14,9 @@ function displayColor(color: string) {
   return `#${lifted.map((channel) => channel.toString(16).padStart(2, "0")).join("")}`;
 }
 
-export function RecordIcon({ kind, color }: { kind: CatalogKind; color: string }) {
+export function RecordIcon({ kind, color, icon }: { kind: CatalogKind; color: string; icon?: IconType }) {
   return <HStack hAlign="center" vAlign="center" aria-hidden="true" data-record-color={color}
     style={{ color: displayColor(color), flexShrink: 0 }}>
-    <Icon icon={kindIcons[kind]} size="sm" />
+    <Icon icon={icon ?? kindIcons[kind]} size="sm" />
   </HStack>;
 }

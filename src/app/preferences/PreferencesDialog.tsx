@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -58,45 +58,73 @@ export function PreferencesDialog() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const openRef = useRef(false);
+  const generationRef = useRef(0);
+  const operationRef = useRef(0);
 
   useEffect(() => {
-    if (isOpen) {
+    if (isOpen && !openRef.current) {
+      generationRef.current += 1;
+      setSaving(false);
       setDraft(preferences);
       setError(null);
       setStatus(null);
     }
+    if (!isOpen) {
+      operationRef.current += 1;
+    }
+    openRef.current = isOpen;
   }, [isOpen, preferences]);
+
+  useEffect(() => () => {
+    openRef.current = false;
+    operationRef.current += 1;
+  }, []);
 
   if (!isOpen) return null;
 
   const handleSave = async () => {
+    const generation = generationRef.current;
+    const operation = ++operationRef.current;
+    const isCurrent = () =>
+      openRef.current &&
+      isOpen &&
+      generationRef.current === generation &&
+      operationRef.current === operation;
     setSaving(true);
     setError(null);
     setStatus(null);
     try {
       await save(draft);
-      setStatus("Preferences saved.");
-      setTimeout(() => {
-        closePreferences();
-      }, 500);
+      if (isCurrent()) setStatus("Preferences saved.");
     } catch (reason) {
-      setError(preferencesMessage(reason));
+      if (isCurrent()) setError(preferencesMessage(reason));
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
   const handleReset = async () => {
+    const generation = generationRef.current;
+    const operation = ++operationRef.current;
+    const isCurrent = () =>
+      openRef.current &&
+      isOpen &&
+      generationRef.current === generation &&
+      operationRef.current === operation;
     setSaving(true);
     setError(null);
+    setStatus(null);
     try {
       await reset();
-      setStatus("Preferences reset to defaults.");
-      closePreferences();
+      if (isCurrent()) {
+        setStatus("Preferences reset to defaults.");
+        closePreferences();
+      }
     } catch (reason) {
-      setError(preferencesMessage(reason));
+      if (isCurrent()) setError(preferencesMessage(reason));
     } finally {
-      setSaving(false);
+      if (isCurrent()) setSaving(false);
     }
   };
 
@@ -105,9 +133,10 @@ export function PreferencesDialog() {
       isOpen
       purpose="form"
       width="min(44rem, 100%)"
-      onOpenChange={open => { if (!open) closePreferences(); }}
+      onOpenChange={open => { if (!open && !saving) closePreferences(); }}
     >
       <DialogHeader title="Preferences" />
+      <fieldset disabled={saving} style={{ display: "contents" }}>
       <HStack gap={4} style={{ flex: 1, minHeight: "380px", overflow: "hidden", padding: "var(--spacing-3) 0" }}>
         {/* Left Navigation */}
         <VStack
@@ -308,6 +337,7 @@ export function PreferencesDialog() {
           )}
         </VStack>
       </HStack>
+      </fieldset>
 
       {/* Messages */}
       {error && <Text role="alert" style={{ color: "var(--color-danger, #ff4d4f)" }}>{error}</Text>}
@@ -316,8 +346,8 @@ export function PreferencesDialog() {
       {/* Footer Actions */}
       <HStack gap={2} hAlign="end" style={{ paddingTop: "var(--spacing-3)", borderTop: "1px solid var(--color-border-subtle, rgba(255,255,255,0.1))" }}>
         <Button label="Reset to defaults" variant="ghost" onClick={() => void handleReset()} isDisabled={saving} />
-        <Button label="Cancel" variant="secondary" onClick={closePreferences} isDisabled={saving} />
-        <Button label="Save changes" variant="primary" isLoading={saving} onClick={() => void handleSave()} />
+        <Button label={status ? "Done" : "Cancel"} variant="secondary" onClick={closePreferences} isDisabled={saving} />
+        <Button label="Save changes" variant="primary" isDisabled={saving} isLoading={saving} onClick={() => void handleSave()} />
       </HStack>
     </Dialog>
   );

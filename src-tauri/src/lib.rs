@@ -14,7 +14,7 @@ mod window;
 
 use catalog::{
     AddWebLinkRequest, CatalogEngine, CatalogError, CatalogSnapshot, ImportRequest,
-    OpenWebLinkRequest, PinRequest, RemoveRequest,
+    OpenWebLinkRequest, PinRequest, RemoveRequest, ReorderPinsRequest, SectionPinRequest,
 };
 use std::sync::Arc;
 use tauri::Manager;
@@ -484,6 +484,34 @@ async fn catalog_set_pin(
 }
 
 #[tauri::command]
+async fn catalog_set_section_pin(
+    engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: SectionPinRequest,
+) -> Result<CatalogSnapshot, CatalogError> {
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.set_section_pin(request),
+    )
+    .await
+}
+
+#[tauri::command]
+async fn catalog_reorder_pins(
+    engine: tauri::State<'_, Arc<CatalogEngine>>,
+    connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: ReorderPinsRequest,
+) -> Result<CatalogSnapshot, CatalogError> {
+    catalog_operation(
+        engine.inner().clone(),
+        connections.inner().clone(),
+        move |engine| engine.reorder_pins(request),
+    )
+    .await
+}
+
+#[tauri::command]
 async fn catalog_remove(
     engine: tauri::State<'_, Arc<CatalogEngine>>,
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
@@ -570,6 +598,8 @@ pub fn run() {
             catalog_import_kubeconfig,
             catalog_add_web_link,
             catalog_set_pin,
+            catalog_set_section_pin,
+            catalog_reorder_pins,
             catalog_remove,
             catalog_open_web_link,
             project_open_repository,
@@ -676,6 +706,8 @@ mod command_state_tests {
             "catalog_import_kubeconfig",
             "catalog_add_web_link",
             "catalog_set_pin",
+            "catalog_set_section_pin",
+            "catalog_reorder_pins",
             "catalog_remove",
             "catalog_connection_states",
         ] {

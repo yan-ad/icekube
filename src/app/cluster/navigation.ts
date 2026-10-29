@@ -1,7 +1,7 @@
 import type { IconType } from "@astryxdesign/core/Icon";
 import {
   IconActivity, IconBox, IconCalendarEvent, IconDatabase, IconFileSettings,
-  IconHexagons, IconKey, IconNetwork, IconPackages, IconServer, IconSitemap,
+  IconCube, IconHexagons, IconKey, IconNetwork, IconPackages, IconServer, IconSitemap,
 } from "@tabler/icons-react";
 
 const clusterChildren = {
@@ -79,8 +79,8 @@ export const clusterSections = [
 ] as const satisfies readonly { id: string; label: string; icon: IconType; children?: readonly { id: string; label: string }[] }[];
 
 export const clusterDestinations = clusterSections.flatMap((item) => [
-  { id: item.id, label: item.label },
-  ...("children" in item ? item.children : []),
+  { id: item.id, label: item.label, icon: item.icon },
+  ...("children" in item ? item.children.map(child => ({ ...child, icon: child.id === "pods" ? IconCube : item.icon })) : []),
 ]);
 
 export type ClusterSectionId = (typeof clusterDestinations)[number]["id"];

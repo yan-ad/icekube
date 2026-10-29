@@ -51,6 +51,66 @@ const registry = [
 const dialog = (page: Page) => page.getByRole("dialog");
 const editor = (page: Page) => dialog(page).getByRole("textbox", { name: "Resource YAML", exact: true });
 
+for (const width of [1440, 390]) test(`dock Create Resource uses server dry-run and confirmation at ${width}px`, async ({ page }) => {
+  await fixture(page); await page.setViewportSize({ width, height: 900 });
+  const trigger = page.getByRole("button", { name: "New tab", exact: true });
+  await trigger.click(); await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await expect(dialog(page)).toHaveAccessibleName("Create Resource");
+  await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(editor(page)).toBeVisible();
+  expect(await calls(page)).toHaveLength(0);
+  await validate(page, manifest.replace("team-a", "default"));
+  await expect(dialog(page)).toContainText("Server dry-run passed");
+  expect((await calls(page)).map(call => call.request.dryRun)).toEqual([true]);
+  await dialog(page).getByRole("button", { name: "Create ConfigMap", exact: true }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole("status").filter({ hasText: "ConfigMap created" })).toBeVisible();
+  const sessionId = (await calls(page, "cluster_connect")).at(-1)!.request.sessionId;
+  expect((await calls(page)).map(call => call.request)).toEqual([
+    expect.objectContaining({ clusterId: "one", sessionId, kind: "configMaps", namespace: "default", dryRun: true }),
+    expect.objectContaining({ clusterId: "one", sessionId, kind: "configMaps", namespace: "default", dryRun: false }),
+  ]);
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("dock creation cancels its pending validation on session disposal and ignores late success", async ({ page }) => {
+  await fixture(page);
+  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+  await controls(page, { hold: true });
+  await validate(page, manifest.replace("team-a", "default"));
+  await expect.poll(async () => (await calls(page)).length).toBe(1);
+  const request = (await calls(page))[0].request;
+  await page.evaluate(() => { location.hash = "/catalog"; });
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "New tab", exact: true })).toHaveCount(0);
+  await expect.poll(async () => (await calls(page, "cluster_resource_create_cancel")).map(call => call.request)).toEqual([cancelScope(request)]);
+  await release(page);
+  await navigate(page, "config-maps");
+  await page.getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(editor(page)).not.toHaveText(manifest.replace("team-a", "default"));
+  await expect(dialog(page)).not.toContainText("Server dry-run passed");
+  expect((await calls(page)).map(call => call.request.dryRun)).toEqual([true]);
+});
+
+test("dock resource kind picker opens cluster-scoped creation and Escape restores focus", async ({ page }) => {
+  await fixture(page);
+  const trigger = page.getByRole("button", { name: "New tab", exact: true });
+  await trigger.click(); await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await dialog(page).getByRole("button", { name: /^Resource kind/ }).click();
+  await page.getByRole("option", { name: "Namespace", exact: true }).click();
+  await dialog(page).getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(editor(page)).toHaveText('apiVersion: v1\nkind: Namespace\nmetadata:\n  name: ""\n');
+  await expect(dialog(page)).toContainText("Cluster-scoped");
+  await dialog(page).press("Escape");
+  await expect(trigger).toBeFocused();
+  expect(await calls(page)).toHaveLength(0);
+});
+
 test("late old dry-run cannot approve or cancel a new dialog's pending validation", async ({ page }) => {
   await fixture(page); await openEditor(page); await controls(page, { hold: true }); await validate(page);
   const old = (await calls(page))[0].request;

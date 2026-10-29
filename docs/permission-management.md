@@ -25,6 +25,18 @@ implies all-namespaces access. A successful connection is not a permission grant
 - Known denied destinations and actions are hidden in the supported scoped
   navigation and action paths. Direct entry must show a permission explanation,
   not fabricate an empty inventory.
+- Navigation visibility is an in-memory presentation projection scoped to the
+  current cluster/session and observed authorization epoch, not a file or role-name
+  cache. Unreviewed cluster-scoped destinations wait for their first review. Renewal,
+  explicit retry and unavailable reviews retain the previous visibility until a
+  known allow/deny replaces it; a first unavailable review keeps the explicit
+  read-only fallback reachable. Disconnect, replacement session and observed epoch
+  changes clear the projection. Namespaced destinations remain reachable because
+  all-namespaces denial does not establish namespace-local denial. Expired operation
+  permissions still become Unknown and never authorize a new mutation. Rust's
+  existing bounded permission cache and Kubernetes request authorization are unchanged.
+  `tests/permissions.spec.ts` and `tests/permission-navigation-cache.spec.ts` cover
+  delayed reviews, navigation, scope changes, unknown results and retries.
 - **Read-only** requires server-known allowed reads and known denied relevant
   writes. A role name, template label, successful LIST or missing write result
   cannot establish it.

@@ -118,7 +118,8 @@ unused starter CSS, not design authority. The active brand theme lives in
    sidebar on desktop and opens the navigation drawer on narrow windows. Desktop
    collapse preference is saved in non-sensitive localStorage; drawer navigation
    stays fully expanded and does not change that preference.
-   Pinned shortcuts identify individual clusters or web links, never
+   Pinned shortcuts identify individual clusters, web links, or cluster-scoped
+   workspace destinations, never
    All Categories, Clusters, or Web Links category pages.
    Opening `/cluster/<id>` temporarily auto-collapses this main navigation; it
    does not overwrite the Catalog collapse preference. The toolbar can expand it
@@ -126,7 +127,8 @@ unused starter CSS, not design authority. The active brand theme lives in
 4. **Sidebar content:** Catalog categories and a pinned-items area share one
    navigation landmark. Collapsed mode keeps named category and pinned-entry
    icons usable, with labels available to assistive technology and tooltips.
-   Categories are navigation only; pin actions belong to loaded list entries.
+   Catalog categories are navigation only. Pin actions belong to loaded list
+   entries and static cluster-navigation rows, including grouped sections.
 5. **Content:** one main landmark and an accessible, visually hidden page heading.
    No category title bar, discovery switch, or routine explanatory information
    block; the normal view begins with the filter and table. Keep actionable errors
@@ -174,8 +176,12 @@ from a name or nearby record. Unknown/deleted IDs show a missing-cluster state.
 The workspace adds a cluster-specific inset sidebar beside the collapsed main
 sidebar, preserving the Astryx section shell. Cluster identity lives in the toolbar
 selector, without a duplicate sidebar name header. The sidebar routes
-between Cluster, Nodes, Workloads, Config, Network, Storage, Namespaces, Events,
-Helm, Access Control, and Custom Resources. These are navigable workspace sections
+between Cluster, Nodes, Namespaces, Events and the leaf destinations inside
+Workloads, Config, Network, Storage, Helm, Access Control and Custom Resources.
+Grouped parent rows are disclosure buttons: clicking the label or chevron toggles
+the children without changing the page or closing the narrow-window drawer.
+Only child activation navigates. Existing parent-section URLs remain available
+as legacy destination directories. These are navigable workspace sections
 with explicit disconnected or unsupported states where applicable. Nodes and Namespaces
 show read-only resource tables after automatic connection. Resource tables, Pod
 sessions, Helm inventory, and loopback port-forward sessions are also Rust-owned
@@ -217,10 +223,20 @@ their loaded cache locally. Row-menu fingerprints are
 memoized by rows/actions, rather than serializing the full inventory on every
 keystroke. This describes scheduling and invalidation, not measured FPS.
 
-`ContentLoading.tsx` centers a named Astryx spinner in the content region on an
-initial load, leaving filters editable. Retained content uses a nonblocking progress
-bar below filters; reduced motion stops animation. Failed refreshes remove progress
-without hiding errors or retained stale rows.
+`TableToolbar.tsx` keeps search compact (at most 18rem) on the right, beside status
+and other filters, rather than stretching across the remaining space. Resource and
+Helm tables keep namespace context beside the title; denied, unverified, partial or
+failed namespace-discovery guidance and manual namespace entry sit below the control
+row. At narrow widths controls wrap without horizontal page overflow. Namespace
+selectors use one built-in loading indicator, with a named announcement rather than
+a second visible spinner.
+
+`ContentLoading.tsx` centers a visibly labeled Astryx spinner in the remaining
+content region on an initial load or first permission check, leaving filters editable.
+Retained content uses a nonblocking progress bar below filters; reduced motion stops
+animation. Failed refreshes remove progress without hiding errors or retained stale
+rows. `tests/resource-toolbar.spec.ts` covers the Vertical Pod Autoscalers loading,
+failure/retry and unverified-access states in both themes and 360–1568-wide layouts.
 
 `ContentError.tsx` centers blocking first-load failures below the top search/filter
 controls instead of showing an empty table. Retained data gets a compact error
@@ -306,6 +322,47 @@ The old `iceon.pinned-pages.v1` UI preference is no longer read or written;
 existing category pins do not migrate into item pins. Pinned cluster/link identities
 are stored through Rust-managed domain storage. localStorage is reserved for non-sensitive UI preferences, not
 credentials or cluster domain state.
+
+### Cluster destination pins
+
+Each static cluster-sidebar row has a separate Pin/Unpin action. Pinning does
+not navigate, toggle a disclosure, or dismiss the narrow-window drawer. A saved
+shortcut opens the exact cluster ID and section; a group shortcut opens its
+existing destination directory. Resource access still follows the normal
+workspace connection and permission checks. Dynamic custom-resource instances
+and Catalog category pages are not pinnable.
+
+Unpinned actions appear on row hover or keyboard focus; pinned actions remain
+visible. Devices without hover keep actions visible. Group pins sit before the
+expand/collapse chevron. Config children use the same controls as other static
+children. The Cluster/overview action shares the Catalog cluster pin rather than
+creating a second destination shortcut. Previously saved overview section pins
+are validated then folded into that cluster pin on load; the next save persists
+the canonical representation, and unpinning cannot resurrect the old shortcut.
+
+Shortcuts use the existing section icon (Pods uses a cube) and the owning
+cluster's existing color renderer. Names include both cluster and destination
+to distinguish identical sections in different clusters. Expanded shortcuts
+offer Unpin; collapsed shortcuts retain accessible names and tooltips, with
+pin controls available in the cluster sidebar. No new palette or layout is added.
+
+Rust `CatalogEngine::set_section_pin` owns persistence and validates an exact
+static section allowlist plus an existing cluster ID. SQLite schema 3 adds
+`pinned_sections` JSON, transactionally upgrading schema 1/2 without changing
+catalog revision, item pins, colors or provenance. Reimport retains section pins
+only for surviving cluster identities. Removing a cluster removes its pins.
+Repeated writes are idempotent; failed saves retain previous data and display
+the existing catalog error. Pins never read kubeconfig files or persist session,
+namespace, resource-selection or credential state.
+
+This is the requested Iceon workflow, not a newly verified Freelens port. The
+previous catalog reference is Freelens v1.10.3-533 at
+`cd07118f843c4a69f937a319a37a7c12ef2c92d8`; the local `freelens` checkout was
+unavailable during implementation, so no upstream section-pinning parity is
+claimed. Acceptance fixtures: `catalog/section_pin_tests.rs` covers migrations,
+restart, reconciliation, bounds and corrupt records; `tests/section-pins.spec.ts`
+covers exact routes, icons/colors, keyboard actions, save failure and narrow
+drawer behavior with synthetic metadata and mocked IPC only.
 
 ### First catalog engine slice
 
@@ -521,8 +578,10 @@ counts or fan-out requests. Resource inventories stay compact tables. Nodes reta
 table behavior.
 
 `src/app/cluster/NamespaceScope.tsx` is the shared selector for every connected-lease
-page that needs namespace scope. It lazy-loads namespace names automatically when a
-namespaced page is entered, using the Rust `cluster_resources` path for the
+page that needs namespace scope. Its ephemeral Zustand store in `namespaceStore.ts`
+is owned by the connected cluster/session, not by individual page subscriptions.
+It lazy-loads namespace names once when the first namespaced consumer mounts,
+using the Rust `cluster_resources` path for the
 `namespaces` resource. Each Rust page contains at most 100 entries; the shared
 loader stops at 1,000 names or 10 pages. These are safety bounds, not a claim about
 the cluster's namespace total. The selector exposes the loaded names, reports
@@ -531,6 +590,21 @@ empty, failed/retry, and no-search-match states. "All namespaces" remains availa
 for inventory scope even when namespace discovery fails; the forward form requires
 a specific namespace. Search filters loaded selector options locally. There is no
 free-text namespace entry or Apply step: choosing a namespace takes effect immediately.
+
+Successful, empty, partial and failed selector results are reused across page
+navigation, including visits to pages without namespace filters. Consumers also
+share an in-flight discovery; leaving one page does not cancel it. Automatic table
+refresh, permission renewal with the same authorization epoch, search, pagination
+and filter changes never refetch the selector list. Explicit workspace-toolbar
+Refresh or Cmd/Ctrl+R invalidates the namespace cache alongside the current page;
+an explicit namespace retry is also available after failure or unverified access.
+If no selector is mounted, refresh invalidates lazily for the next consumer.
+Disconnect/session replacement disposes the store and cancels its exact pending
+read. Permission denial or a changed authorization epoch clears cached names and
+invalidates old results; normal permission/backend checks still gate every read.
+No namespace data is persisted to localStorage. Generation checks reject results
+from before refresh, disposal or authorization invalidation. Lifecycle coverage is
+in `tests/namespace-store.spec.ts` and `tests/namespace-selector.spec.ts`.
 
 Namespace selection immediately scopes the resource read in Rust, resets its
 continuation, and disposes the previous read. A changed namespace also disposes the
@@ -697,6 +771,25 @@ keep the dock and its sessions mounted; minimizing is not
 disconnecting. Dock and tab disposal closes owned IPC handles; session replacement
 and disconnect cancel all child work. A closed or
 unmounted tab cannot accept a late stream or detail result.
+
+The dock's **New tab** (+) menu stays available with no tabs and alongside open
+or minimized sessions. **New Terminal** asks for a namespace and Pod name, using
+the active Pod as its initial target; it opens another existing Rust-owned Pod
+shell, not a host terminal. Pod get/exec access checks, container selection,
+bounded streams and cleanup remain owned by `connection/pod_runtime.rs`.
+**Create Resource** chooses one of the allowlisted kinds and reuses
+`ResourceCreate.tsx` for namespace-specific access, YAML, server dry-run and
+explicit confirmation through Rust `connection/create.rs`. It does not submit
+anything merely by opening the menu or choosing a kind. Session teardown removes
+dialogs and cancels their outstanding requests. The compact upward-opening menu
+uses existing Astryx tokens and action icons to keep working space available.
+Behavior reference: local Freelens `v1.10.3-533-gcd07118f`, commit
+`cd07118f843c4a69f937a319a37a7c12ef2c92d8`,
+`packages/core/src/renderer/components/dock/dock.tsx:162-180`; no source copied.
+Acceptance: dock-action cases in `tests/pod-workspace.spec.ts` and
+`tests/resource-create.spec.ts` cover keyboard dismissal/focus, empty/minimized
+docks, denied exec, scoped creation/confirmation, stream cleanup and narrow width.
+These are mocked IPC checks, not real-cluster or native terminal verification.
 
 Pod details expose a deliberately reduced YAML view. YAML editing is protected by
 Rust: the submitted document must preserve immutable identity and resource-version

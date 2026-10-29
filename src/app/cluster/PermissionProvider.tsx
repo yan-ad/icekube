@@ -7,6 +7,8 @@ type Entry = { decision: PermissionDecision; expiresAt: number; epoch: string | 
 const MAX_CACHE = 1024;
 const MAX_SUBSCRIPTIONS = 1024;
 const MAX_SUBSCRIPTION_CHECKS = 256;
+const navigationChecks = [{ kind: "nodes" as const, action: "list" as const }, ...resourceViews.flatMap(view => view.kind ? [{ kind: view.kind, action: "list" as const }] : [])];
+const navigationKeys = new Set(navigationChecks.map(permissionKey));
 /** One queue owns the backend's latest-review slot. Subscribers never cancel each other's shared checks. */
 export class PermissionStore {
   private context: SessionRequest | null = null;
@@ -18,6 +20,8 @@ export class PermissionStore {
   private listeners = new Set<() => void>();
   private subscriptions = new Map<symbol, PermissionCheck[]>();
   private cache = new Map<string, Entry>();
+  // Presentation only: renewal must not briefly reveal a previously denied destination.
+  private navigation = new Map<string, boolean>();
   private pending: PermissionReviewRequest | null = null;
   private scheduled = false;
   private timer: ReturnType<typeof setTimeout> | undefined;
@@ -36,13 +40,18 @@ export class PermissionStore {
     this.epoch = null;
     this.revision = -1;
     this.cache.clear();
+    this.navigation.clear();
     this.emit(); this.schedule();
     return () => {
       if (this.owner !== owner) return;
       this.generation++; this.cancel(); this.context = null; this.owner = null;
-      this.cache.clear(); this.epoch = null; this.revision = -1; this.emit();
+      this.cache.clear(); this.navigation.clear(); this.epoch = null; this.revision = -1; this.emit();
     };
   }
+  navigationVisible = (check: PermissionCheckInput, clusterId?: string) => {
+    if (!this.context || (clusterId !== undefined && this.context.clusterId !== clusterId)) return false;
+    return this.navigation.get(permissionKey(check)) ?? false;
+  };
   private cancel() {
     clearTimeout(this.timer); this.timer = undefined;
     if (this.pending) void cancelPermissionReview(this.pending).catch(() => {});
@@ -97,18 +106,23 @@ export class PermissionStore {
     try {
       const response = await reviewPermissions(request);
       if (generation !== this.generation) return;
-      if (this.epoch !== response.authorizationEpoch) { this.cache.clear(); this.epoch = response.authorizationEpoch; this.revision = -1; }
+      if (this.epoch !== response.authorizationEpoch) { this.cache.clear(); this.navigation.clear(); this.epoch = response.authorizationEpoch; this.revision = -1; }
       if (response.revision < this.revision) throw "invalidResponse";
       this.revision = response.revision;
       for (const item of response.items) {
         const key = permissionKey(item.check);
         this.cache.delete(key);
         this.cache.set(key, { decision: item.decision, epoch: this.epoch, used: Date.now(), expiresAt: Math.min(response.expiresAt, Date.now() + (item.decision === "unknown" ? 5_000 : 60_000)) });
+        if (navigationKeys.has(key)) this.navigation.set(key, item.decision === "unknown" ? this.navigation.get(key) ?? true : item.decision === "allowed");
       }
       while (this.cache.size > MAX_CACHE) this.cache.delete(this.cache.keys().next().value!);
     } catch {
       if (generation !== this.generation) return;
-      for (const check of checks) this.cache.set(permissionKey(check), { decision: "unknown", epoch: this.epoch, used: Date.now(), expiresAt: Date.now() + 5_000 });
+      for (const check of checks) {
+        const key = permissionKey(check);
+        this.cache.set(key, { decision: "unknown", epoch: this.epoch, used: Date.now(), expiresAt: Date.now() + 5_000 });
+        if (navigationKeys.has(key) && !this.navigation.has(key)) this.navigation.set(key, true);
+      }
       while (this.cache.size > MAX_CACHE) this.cache.delete(this.cache.keys().next().value!);
     } finally {
       if (generation === this.generation) { this.pending = null; this.emit(); this.schedule(); }
@@ -141,13 +155,14 @@ export function usePermissionChecks(inputs: readonly PermissionCheckInput[]) {
 export function useResourcePermissions(kind: ResourceKind, namespace: string | null = null, name: string | null = null) { const allNamespaces = namespace === null && resourceViews.some(view => view.kind === kind && view.namespaced); const actions = allNamespaces ? ["list"] as const : ["list", "get", "create", "update", "patch", "delete"] as const; return usePermissionChecks(actions.map(action => ({ kind, namespace, name: action === "create" || action === "list" ? null : name, action }))); }
 export function destinationPermission(id: string): PermissionCheck | null { if (id === "users") return null; const kind = id === "nodes" ? "nodes" : id === "custom-resources" ? "customResourceDefinitions" : resourceView(id)?.kind; return kind ? permissionCheck({ kind, action: "list" }) : null; }
 export function usersPermissionChecks(namespace: string | null = null): PermissionCheck[] { return (["roleBindings", "clusterRoleBindings", "serviceAccounts"] as const).map(kind => permissionCheck({ kind, namespace, action: "list" })); }
-export function useNavigationPermissions() {
-  const permissions = usePermissionChecks([{ kind: "nodes", action: "list" }, ...resourceViews.flatMap(view => view.kind ? [{ kind: view.kind, action: "list" as const }] : [])]);
+export function useNavigationPermissions(clusterId: string) {
+  const store = usePermissions();
+  const permissions = usePermissionChecks(navigationChecks);
   return { ...permissions, visible: (id: string) => {
     if (id === "users") return true;
     // An all-namespaces denial does not decide access within a chosen namespace.
     if (resourceView(id)?.namespaced) return true;
     const check = destinationPermission(id);
-    return !check || permissions.decision(check) !== "denied";
+    return !check || store.navigationVisible(check, clusterId);
   } };
 }

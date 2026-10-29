@@ -21,6 +21,7 @@ type Controls = {
   streamReadError?: string;
   noRunningContainers?: boolean;
   streamStatus?: "running" | "exited" | "error";
+  denyExec?: boolean;
 };
 type MockWindow = Window & {
   __podCalls: Call[];
@@ -56,6 +57,143 @@ test("live sync keeps an open actions menu usable across polling and repeated to
     await page.waitForTimeout(600);
     expect(await calls(page, "cluster_pod_sync_read")).toHaveLength(stoppedReads);
   }
+});
+
+for (const width of [1440, 390]) test(`New tab menu opens a scoped terminal and remains available after close at ${width}px`, async ({ page }) => {
+  await fixture(page);
+  await page.setViewportSize({ width, height: 900 });
+  const trigger = page.getByRole("button", { name: "New tab", exact: true });
+  await trigger.focus(); await trigger.press("Enter");
+  await expect(page.getByRole("menuitem", { name: "Create Resource", exact: true })).toBeVisible();
+  await page.getByRole("menuitem", { name: "New Terminal", exact: true }).press("Enter");
+  const dialog = page.getByRole("dialog", { name: "New Terminal", exact: true });
+  await expect(dialog).toContainText("not a local terminal");
+  await expect(dialog.getByRole("button", { name: "Open terminal", exact: true })).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "Pod name", exact: true }).fill("INVALID/name");
+  await expect(dialog.getByRole("button", { name: "Open terminal", exact: true })).toBeDisabled();
+  await dialog.getByRole("textbox", { name: "Pod name", exact: true }).fill("api-pod");
+  await dialog.getByRole("button", { name: "Open terminal", exact: true }).click();
+  await expect(dock(page).getByRole("tab", { name: "api-pod · shell", exact: true })).toBeVisible();
+  await expect(dock(page).locator(".xterm-helper-textarea")).toHaveCount(1);
+  const opened = await calls(page, "cluster_pod_stream_open");
+  expect(opened.length).toBeGreaterThan(0);
+  const connected = (await calls(page, "cluster_connect")).at(-1)!.request;
+  for (const call of opened) expect(call.request).toMatchObject({ clusterId: "one", sessionId: connected.sessionId, namespace: "default", name: "api-pod", mode: "shell", uid: "pod-uid-123" });
+  await dock(page).getByRole("button", { name: "Close api-pod shell", exact: true }).click();
+  await allStreamsClosed(page);
+  await expect(trigger).toBeVisible();
+  await trigger.click(); await page.keyboard.press("Escape");
+  await expect(trigger).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+});
+
+test("New Terminal reuses the active Pod target while keeping sessions independent", async ({ page }) => {
+  await fixture(page); await openLogs(page);
+  const logStreams = (await calls(page, "cluster_pod_stream_open")).map((_, index) => `stream-${index + 1}`);
+  const alreadyClosed = (await calls(page, "cluster_pod_stream_close")).map(call => call.request.streamId);
+  const liveLogs = logStreams.filter(id => !alreadyClosed.includes(id));
+  await dock(page).getByRole("button", { name: "Minimize dock", exact: true }).click();
+  await dock(page).getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: "New Terminal", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "New Terminal", exact: true });
+  await expect(dialog.getByRole("textbox", { name: "Pod name", exact: true })).toHaveValue("api-pod");
+  await expect(dialog).toContainText("team-a");
+  await dialog.getByRole("button", { name: "Open terminal", exact: true }).click();
+  await expect(dock(page).locator(".xterm-helper-textarea")).toHaveCount(1);
+  await expect(dock(page).getByRole("tab")).toHaveCount(2);
+  expect(new Set((await calls(page, "cluster_pod_stream_open")).map(call => call.request.mode))).toEqual(new Set(["logs", "shell"]));
+  await dock(page).getByRole("button", { name: "Close api-pod shell", exact: true }).click();
+  await expect(dock(page).getByLabel("Pod logs", { exact: true })).toBeVisible();
+  expect(liveLogs.length).toBeGreaterThan(0);
+  for (const id of liveLogs) expect((await calls(page, "cluster_pod_stream_close")).map(call => call.request.streamId)).not.toContain(id);
+});
+
+test("New Terminal enforces the tab limit without blocking resource creation", async ({ page }) => {
+  await fixture(page);
+  for (let count = 0; count < 12; count++) {
+    await action(page, "Logs");
+    await expect(dock(page).getByRole("tab")).toHaveCount(count + 1);
+  }
+  await page.setViewportSize({ width: 390, height: 900 });
+  await dock(page).getByRole("button", { name: "New tab", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "New Terminal", exact: true })).toBeDisabled();
+  await expect(page.getByRole("menuitem", { name: "Create Resource", exact: true })).toBeEnabled();
+  await page.keyboard.press("Escape");
+  await dock(page).getByRole("button", { name: "Close api-pod logs", exact: true }).last().click();
+  await dock(page).getByRole("button", { name: "New tab", exact: true }).click();
+  await expect(page.getByRole("menuitem", { name: "New Terminal", exact: true })).toBeEnabled();
+});
+
+for (const colorScheme of ["light", "dark"] as const) test(`dock action menu opens above its trigger in ${colorScheme} mode`, async ({ page }, testInfo) => {
+  await page.emulateMedia({ colorScheme });
+  await fixture(page);
+  await page.setViewportSize({ width: 390, height: 900 });
+  const trigger = page.getByRole("button", { name: "New tab", exact: true });
+  await trigger.click();
+  const menu = page.getByRole("menu", { name: "New tab", exact: true });
+  await expect(menu).toBeVisible();
+  await expect.poll(async () => {
+    const bounds = (await menu.boundingBox())!;
+    const button = (await trigger.boundingBox())!;
+    return bounds.y + bounds.height <= button.y;
+  }).toBe(true);
+  const bounds = (await menu.boundingBox())!;
+  const button = (await trigger.boundingBox())!;
+  expect(bounds.y + bounds.height).toBeLessThanOrEqual(button.y);
+  expect(bounds.x).toBeGreaterThanOrEqual(0);
+  expect(bounds.x + bounds.width).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: testInfo.outputPath(`dock-menu-${colorScheme}.png`) });
+  await page.keyboard.press("Escape"); await expect(trigger).toBeFocused();
+});
+
+test("dock Create Resource keeps an existing stream mounted through editor cancellation", async ({ page }) => {
+  await fixture(page); await openLogs(page);
+  const opened = (await calls(page, "cluster_pod_stream_open")).length;
+  const closed = (await calls(page, "cluster_pod_stream_close")).length;
+  await dock(page).getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Continue", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Resource YAML", exact: true })).toBeVisible();
+  await page.getByRole("dialog").press("Escape");
+  await expect(dock(page).getByLabel("Pod logs", { exact: true })).toBeVisible();
+  expect(await calls(page, "cluster_pod_stream_open")).toHaveLength(opened);
+  expect(await calls(page, "cluster_pod_stream_close")).toHaveLength(closed);
+});
+
+test("dock resource creation on a category page never reconnects or disposes existing streams", async ({ page }) => {
+  await fixture(page); await openLogs(page);
+  await navigate(page, "workloads");
+  await expect(page.getByRole("button", { name: "Refresh cluster", exact: true })).toBeVisible();
+  const connects = (await calls(page, "cluster_connect")).length;
+  const disconnects = (await calls(page, "cluster_disconnect")).length;
+  const closed = (await calls(page, "cluster_pod_stream_close")).length;
+  await dock(page).getByRole("button", { name: "New tab", exact: true }).click();
+  await page.getByRole("menuitem", { name: "Create Resource", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Continue", exact: true }).click();
+  await page.getByRole("textbox", { name: "Resource YAML", exact: true }).fill("apiVersion: v1\nkind: ConfigMap\nmetadata:\n  name: dock-created\n  namespace: default\n");
+  await page.getByRole("button", { name: "Validate YAML", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("Server dry-run passed");
+  await page.getByRole("dialog").getByRole("button", { name: "Create ConfigMap", exact: true }).click();
+  await expect(page.getByRole("status").filter({ hasText: "ConfigMap created" })).toBeVisible();
+  await expect(dock(page).getByLabel("Pod logs", { exact: true })).toBeVisible();
+  expect(await calls(page, "cluster_connect")).toHaveLength(connects);
+  expect(await calls(page, "cluster_disconnect")).toHaveLength(disconnects);
+  expect(await calls(page, "cluster_pod_stream_close")).toHaveLength(closed);
+  expect((await calls(page, "cluster_resource_create")).map(call => call.request.dryRun)).toEqual([true, false]);
+});
+
+test("New Terminal respects denied exec access and cancels without opening a stream", async ({ page }) => {
+  await fixture(page, { denyExec: true });
+  const trigger = page.getByRole("button", { name: "New tab", exact: true });
+  await trigger.click(); await page.getByRole("menuitem", { name: "New Terminal", exact: true }).click();
+  await page.getByRole("dialog").press("Escape");
+  await expect(trigger).toBeFocused();
+  expect(await calls(page, "cluster_pod_stream_open")).toHaveLength(0);
+  await trigger.click(); await page.getByRole("menuitem", { name: "New Terminal", exact: true }).click();
+  await page.getByRole("dialog").getByRole("textbox", { name: "Pod name", exact: true }).fill("api-pod");
+  await page.getByRole("button", { name: "Open terminal", exact: true }).click();
+  await expect(dock(page)).toContainText("Access denied");
+  expect(await calls(page, "cluster_pod_stream_open")).toHaveLength(0);
 });
 
 test("live sync serializes reads and ignores a read resolved after pause", async ({ page }) => {
@@ -196,7 +334,7 @@ async function fixture(page: Page, options: Controls = {}) {
           if (command === "cluster_permissions_cancel") return null;
           if (command === "cluster_permissions_review") {
             const request = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
-            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: "allowed", reason: null })) };
+            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: `fixture-epoch-${request.sessionId}`, revision: request.readId, checkedAt: Date.now(), expiresAt: Date.now() + 30000, items: request.checks.map(check => ({ check, decision: control.denyExec && check.action === "exec" ? "denied" : "allowed", reason: null })) };
           }
           calls.push({ command, request: r });
           switch (command) {
@@ -269,6 +407,7 @@ async function fixture(page: Page, options: Controls = {}) {
                 status: control.syncStatus ?? (control.syncError ? "error" : "syncing"), error: control.syncError ?? null };
             }
             case "cluster_pod_sync_close": syncs.delete(String(r.syncId)); return null;
+            case "cluster_resource_create": return { ...scope(r), kind: r.kind, namespace: r.namespace, name: "dock-created", created: !r.dryRun };
             default: throw new Error(`Unexpected mock IPC: ${command}`);
           }
         },
@@ -297,7 +436,7 @@ test("Pod name and Details reuse the sidebar; stream actions open only bottom do
   for (const [label, value] of [["Namespace", "team-a"], ["UID", "pod-uid-123"], ["Resource version", "42"], ["Node", "worker-a"], ["Pod IPs", "10.0.0.8"], ["Host IPs", "10.0.0.1"], ["Service account", "default"], ["QoS", "Burstable"], ["Created", "2026-10-01T00:00:00Z"], ["Reason", "Started"], ["Type", "Normal"], ["Count", "2"]]) {
     await expect(fact(page, label)).toHaveText(value);
   }
-  await expect(fact(page, "Age")).toHaveText(/^\d+[smhd]$/);
+  await expect(fact(page, "Age")).toHaveText(/^\d+[smhdw](?: \d+[dhm])*$/);
   await inspector(page).getByRole("button", { name: "Close inspector", exact: true }).click();
   await row(page).getByRole("button", { name: "api-pod", exact: true }).press("Enter");
   await expect(inspector(page)).toBeVisible();

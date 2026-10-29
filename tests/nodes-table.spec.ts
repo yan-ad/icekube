@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-type Options = { metrics?: string; malformed?: "negative" | "conditions" | "timestamp"; failedRefresh?: boolean; empty?: boolean; paginated?: boolean };
+type Options = { metrics?: string; malformed?: "negative" | "conditions" | "timestamp"; failedRefresh?: boolean; empty?: boolean; paginated?: boolean; ageMinutes?: number };
 async function fixture(page: Page, options: Options = {}) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript((options) => {
@@ -46,7 +46,7 @@ async function fixture(page: Page, options: Options = {}) {
           if (options.failedRefresh && ++reads > 1) throw "network";
           const matched = (options.empty ? [] : [
               { name: "gke-kaj-prd-cluster-kaj-pool-1-very-long-node-name", status: "Ready", namespace: null,
-                createdAt: new Date(Date.now() - 25 * 3600_000).toISOString(), columns: {}, node },
+                createdAt: new Date(Date.now() - (options.ageMinutes ?? 25 * 60) * 60_000).toISOString(), columns: {}, node },
               { name: "gke-kaj-prd-cluster-kaj-pool-2", status: "NotReady", namespace: null, createdAt: null, columns: {},
                 node: { ...node, roles: ["control-plane"], taints: 2, internalIps: ["10.184.0.88"], schedulable: false,
                   cpu: { used: 0, allocatable: 15.5, capacity: 16 }, memory: { used: null, allocatable: null, capacity: null },
@@ -70,6 +70,70 @@ async function fixture(page: Page, options: Options = {}) {
 const table = (page: Page) => page.getByRole("table", { name: "Nodes", exact: true });
 const calls = (page: Page) => page.evaluate(() => (window as unknown as { __nodesCalls: { command: string; request: Record<string, string | number> }[] }).__nodesCalls);
 
+test("node ages advance from the client clock while refresh is blocked", async ({ page }) => {
+  await page.clock.install();
+  await fixture(page);
+  const cell = table(page).getByRole("row").nth(1).getByRole("cell").nth(9);
+  await expect(cell).toHaveText("1d 1h");
+  await page.getByRole("textbox", { name: "Search nodes", exact: true }).focus();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+  const before = (await calls(page)).filter(call => call.command === "cluster_resources");
+  await page.clock.fastForward(60_000);
+  await expect(cell).toHaveText("1d 1h 1m");
+  expect((await calls(page)).filter(call => call.command === "cluster_resources")).toEqual(before);
+});
+
+test("ages catch up on visibility changes and follow wall-clock corrections", async ({ page }) => {
+  await page.clock.install();
+  await fixture(page);
+  const cell = table(page).getByRole("row").nth(1).getByRole("cell").nth(9);
+  await page.getByRole("textbox", { name: "Search nodes", exact: true }).focus();
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+  const before = (await calls(page)).filter(call => call.command === "cluster_resources");
+  const start = await page.evaluate(() => Date.now());
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await page.clock.setSystemTime(start + 60 * 60_000);
+  await page.clock.runFor(1000);
+  await expect(cell).toHaveText("1d 1h");
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(cell).toHaveText("1d 2h");
+  await page.clock.setSystemTime(start + 5 * 60_000);
+  await page.clock.runFor(1000);
+  await expect(cell).toHaveText("1d 1h 5m");
+  expect((await calls(page)).filter(call => call.command === "cluster_resources")).toEqual(before);
+});
+
+test("age labels share one timer and dispose it on navigation", async ({ page }) => {
+  await page.addInitScript(() => {
+    const active = new Set<number>();
+    const start = window.setInterval.bind(window), stop = window.clearInterval.bind(window);
+    window.setInterval = ((handler: TimerHandler, delay?: number, ...args: unknown[]) => {
+      const timer = start(handler, delay, ...args);
+      if (delay === 1000) active.add(timer);
+      return timer;
+    }) as typeof window.setInterval;
+    window.clearInterval = timer => { if (timer !== undefined) active.delete(timer); stop(timer); };
+    Object.assign(window, { __ageTimers: () => active.size });
+  });
+  await fixture(page);
+  const timers = () => page.evaluate(() => (window as unknown as { __ageTimers: () => number }).__ageTimers());
+  await expect.poll(timers).toBe(1);
+  await page.evaluate(() => { location.hash = "/catalog/all"; });
+  await expect(table(page)).toHaveCount(0);
+  await expect.poll(timers).toBe(0);
+  await page.evaluate(() => {
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  expect(await timers()).toBe(0);
+});
+
 test("nodes table renders the reference columns and Rust facts with readable units", async ({ page }, info) => {
   await fixture(page);
   await expect(table(page).getByRole("columnheader")).toHaveText([
@@ -79,7 +143,7 @@ test("nodes table renders the reference columns and Rust facts with readable uni
   const first = table(page).getByRole("row").nth(1);
   await expect(first).toContainText("6.70 / 23.9");
   await expect(first).toContainText("8.8 Gi / 73.2 Gi");
-  await expect(first).toContainText("25h");
+  await expect(first.getByRole("cell").nth(9)).toHaveText("1d 1h");
   await expect(first).toContainText("worker");
   await expect(first).toContainText("10.184.0.89, 2001:db8::1");
   const firstConditions = first.getByRole("cell").nth(11);
@@ -103,6 +167,21 @@ test("nodes table renders the reference columns and Rust facts with readable uni
   await expect(first).toContainText("v1.35.8-gke.123456789");
   await page.screenshot({ path: info.outputPath("nodes-table.png") });
 });
+
+for (const colorScheme of ["light", "dark"] as const) {
+  test(`compound node ages remain readable in ${colorScheme}`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme });
+    await fixture(page, { ageMinutes: ((122 * 7 + 3) * 24 + 23) * 60 + 59 });
+    const cell = table(page).getByRole("row").nth(1).getByRole("cell").nth(9);
+    await expect(cell).toHaveText("122w 3d 23h 59m");
+    for (const width of [1563, 390]) {
+      await page.setViewportSize({ width, height: 850 });
+      await cell.scrollIntoViewIfNeeded();
+      expect(await cell.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+    }
+  });
+}
 
 test("node search is Rust-scoped across pages, case-insensitive, clearable and distinguishes filtered empty", async ({ page }) => {
   await fixture(page, { paginated: true });

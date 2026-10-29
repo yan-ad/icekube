@@ -47,7 +47,6 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   const [query, setQuery] = useState("");
   const [tokens, setTokens] = useState<(string | null)[]>([null]);
   const [index, setIndex] = useState(0);
-  const [now, setNow] = useState(Date.now);
   const { committed, pending } = useDebouncedSearch(query);
   const needle = committed.trim();
   const token = tokens[index];
@@ -56,11 +55,6 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
   useRegisterWorkspaceRefresh({ clusterId, section: kind, enabled: !loading && !pending, refresh: () => {
     setTokens([null]); setIndex(0); setLoading(true); setRevision((value) => value + 1);
   } });
-  useEffect(() => {
-    if (kind !== "nodes") return;
-    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, [kind]);
   useEffect(() => {
     if (pending) return;
     let disposed = false;
@@ -74,7 +68,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
       void loadResources(request).then((next) => {
         if (!disposed) auto.deliver(() => {
           if (disposed) return;
-          setError(null); setPage(current => sameInventory(current, next) ? current : next); setNow(Date.now());
+          setError(null); setPage(current => sameInventory(current, next) ? current : next);
           auto.complete();
         });
       }).catch((reason) => { if (!disposed) auto.deliver(() => { if (!disposed) { setError(errorCode(reason)); auto.complete(reason); } }); })
@@ -120,7 +114,7 @@ function ResourceSnapshot({ clusterId, sessionId, kind }: SessionRequest & { kin
     <ResourceActions key={actionScope} clusterId={clusterId} sessionId={sessionId} kind={kind} selected={selection.selected} contextTarget={rowMenu.contextTarget} onContextClose={rowMenu.onContextClose} disabled={unavailable} onAccepted={selection.remove} onRefresh={() => {
       setTokens([null]); setIndex(0); setRevision(value => value + 1);
     }} />
-    {page && (kind === "nodes" ? <NodesTable items={items} loading={visibleLoading || pending} filtered={!!needle} now={now} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
+    {page && (kind === "nodes" ? <NodesTable items={items} loading={visibleLoading || pending} filtered={!!needle} selection={selection.plugin} rowContext={rowMenu.plugin} /> :
       <Table data={page.items} columns={columns} idKey={resourceRowKey} density="compact" aria-label="Namespaces" aria-busy={visibleLoading} plugins={{ viewport: tableViewport<ResourceItem>(), selection: selection.plugin, rowContext: rowMenu.plugin }}
         emptyState={<VStack padding={6} gap={2}><Text>No namespaces were returned.</Text><Text color="secondary">Refresh to check again.</Text></VStack>} />)}
   </VStack>;

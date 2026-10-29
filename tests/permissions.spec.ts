@@ -23,6 +23,74 @@ test("permission replies are exact, bounded and session scoped", async ({ page }
   })).toEqual({ rejected: Array(12).fill(true), clusterScope: null });
 });
 
+for (const theme of ["light", "dark"] as const) {
+  test(`${theme}: denied Nodes stays hidden during navigation and delayed permission renewal`, async ({ page }) => {
+    const errors: string[] = [];
+    page.on("pageerror", error => errors.push(error.message));
+    await page.clock.install();
+    await page.emulateMedia({ colorScheme: theme });
+    await page.setViewportSize({ width: 1200, height: 800 });
+    await page.addInitScript(() => {
+      const state = { hold: true, pending: 0, reviews: 0, opens: 0, nodes: "denied", releases: [] as (() => void)[] };
+      Object.assign(window, { isTauri: true, __sidebarPermissions: state, __TAURI_INTERNALS__: {
+        invoke: async (command: string, args: any) => {
+          const request = args?.request;
+          if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [
+            { id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", status: "disconnected", pinned: false },
+          ] };
+          if (command === "cluster_session_open") { state.opens++; return { clusterId: "one", sessionId: "session", contextName: "dev", status: "disconnected", apiVersion: null, error: null }; }
+          if (command === "cluster_connect") return { ...request, contextName: "dev", status: "connected", apiVersion: "v1.35.8", error: null };
+          if (command === "cluster_permissions_review") {
+            state.reviews++;
+            if (state.hold) { state.pending++; await new Promise<void>(resolve => state.releases.push(resolve)); state.pending--; }
+            return { clusterId: request.clusterId, sessionId: request.sessionId, readId: request.readId, authorizationEpoch: "epoch", revision: state.reviews, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
+              items: request.checks.map((check: any) => ({ check, decision: check.kind === "nodes" ? state.nodes : "allowed", reason: check.kind === "nodes" && state.nodes === "denied" ? "reviewDenied" : null })) };
+          }
+          if (command === "cluster_resources") return { ...request, namespace: request.namespace ?? null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: Date.now() };
+          return null;
+        },
+      } });
+    });
+    await page.goto("/#/cluster/one?section=deployments");
+    const nav = page.locator("#cluster-sidebar");
+    const nodes = nav.getByRole("link", { name: "Nodes", exact: true });
+    await expect.poll(() => page.evaluate(() => (window as any).__sidebarPermissions.pending)).toBe(1);
+    await expect(nodes).toHaveCount(0);
+    await page.evaluate(() => {
+      const state = (window as any).__sidebarPermissions;
+      state.hold = false; state.releases.splice(0).forEach((release: () => void) => release());
+    });
+    await expect(page.getByRole("table", { name: "Deployments", exact: true })).toBeVisible();
+    const opens = await page.evaluate(() => (window as any).__sidebarPermissions.opens);
+    await expect(nodes).toHaveCount(0);
+    await page.evaluate(() => {
+      const state = (window as any).__sidebarPermissions;
+      state.hold = true;
+      state.appearances = 0;
+      new MutationObserver(() => {
+        if (document.querySelector('#cluster-sidebar a[aria-label="Nodes"]')) state.appearances++;
+      }).observe(document.querySelector("#cluster-sidebar")!, { childList: true, subtree: true });
+    });
+    await page.clock.fastForward(30_001);
+    await expect.poll(() => page.evaluate(() => (window as any).__sidebarPermissions.pending)).toBe(1);
+    await nav.getByRole("link", { name: "Pods", exact: true }).click();
+    await expect(page).toHaveURL(/section=pods$/);
+    await nav.getByRole("link", { name: "Events", exact: true }).click();
+    await expect(page).toHaveURL(/section=events$/);
+    await expect(nodes).toHaveCount(0);
+    await page.evaluate(() => {
+      const state = (window as any).__sidebarPermissions;
+      state.hold = false; state.releases.splice(0).forEach((release: () => void) => release());
+    });
+    await expect(page.getByRole("table", { name: "Events", exact: true })).toBeVisible();
+    expect(await page.evaluate(() => ({ appearances: (window as any).__sidebarPermissions.appearances, opens: (window as any).__sidebarPermissions.opens }))).toEqual({ appearances: 0, opens });
+    await page.evaluate(() => { (window as any).__sidebarPermissions.nodes = "allowed"; });
+    await page.clock.fastForward(30_001);
+    await expect(nodes).toBeVisible();
+    expect(errors).toEqual([]);
+  });
+}
+
 test("permission queue deduplicates subscribers and serializes batches above 32", async ({ page }) => {
   await page.addInitScript(() => {
     (window as any).isTauri = true;

@@ -101,7 +101,10 @@ function ClusterSession({ cluster, section, onReopen, dockOutlet }: { cluster: C
     {connected && resourceKind && !replacement && <PermissionGate check={{ kind: resourceKind, action: "list" }}><ClusterResources key={`${cluster.id}:${connection.sessionId}:${resourceKind}`} clusterId={cluster.id} sessionId={connection.sessionId} kind={resourceKind} /></PermissionGate>}
     {destinations.length > 0 && <DestinationGrid clusterId={cluster.id} title={selected?.label ?? "Cluster"} destinations={destinations} />}
     </ResourceInspectorLayout>
-    <PodDock />
+    <PodDock clusterId={cluster.id} sessionId={connection.sessionId} onResourceCreated={() => {
+      const action = workspaceRefresh.action;
+      if (action?.clusterId === cluster.id && action.section !== "cluster" && action.enabled) action.refresh();
+    }} />
     </NamespaceScopeProvider>
     </PodDockProvider></ResourceInspectorProvider></PermissionSession>}
     {connected && selected && !users && !clusterOverview && !workloadsOverview && !resourceKind && !replacement && !destinations.length && <Text as="p">Live {selected.label.toLowerCase()} data is not implemented yet.</Text>}

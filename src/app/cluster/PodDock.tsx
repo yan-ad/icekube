@@ -21,6 +21,8 @@ import { usePermissionChecks } from "./PermissionProvider";
 import { ReadOnlyNotice } from "./ReadOnlyNotice";
 import type { PermissionAction } from "./permissionsApi";
 import { useUpdateBlocker } from "../updates/UpdateProvider";
+import { DockActions } from "./DockActions";
+import type { SessionRequest } from "./api";
 
 type Tab = { id: string; pod: PodRequest; mode: PodMode };
 const modeIcons = { details: IconFileText, edit: IconFileText, logs: IconList, shell: IconTerminal2, attach: IconTerminal2, forward: IconPlug };
@@ -66,13 +68,19 @@ export function PodDockProvider({ clusterId, sessionId, children, onMutation, ou
   return <Context.Provider value={{ openPod, tabs, active, minimized, setMinimized, setActive, close, onMutation, error, outlet }}>{children}</Context.Provider>;
 }
 export function usePodDock() { const value = useContext(Context); if (!value) throw new Error("usePodDock must be used inside PodDockProvider"); return value; }
-export function PodDock() {
+export function PodDock({ clusterId, sessionId, onResourceCreated }: SessionRequest & { onResourceCreated: () => void }) {
   const dock = usePodDock();
   const [height, setHeight] = useState(40);
   const [maximized, setMaximized] = useState(false);
   const root = useRef<HTMLElement>(null);
   const select = (id: string) => { dock.setActive(id); dock.setMinimized(false); };
-  if (!dock.tabs.length && !dock.error) return null;
+  const actions = <DockActions clusterId={clusterId} sessionId={sessionId} pod={dock.tabs.find(tab => tab.id === dock.active)?.pod}
+    full={dock.tabs.length >= 12} onTerminal={pod => dock.openPod(pod, "shell")} onCreated={onResourceCreated} />;
+  const empty = !dock.tabs.length && !dock.error;
+  if (empty) {
+    const bar = <HStack aria-label="Workspace dock actions" gap={1} paddingInline={2} vAlign="center" style={{ minWidth: 0, borderBlockStart: "var(--spacing-px, thin) solid var(--color-border)" }}>{actions}</HStack>;
+    return dock.outlet ? createPortal(bar, dock.outlet) : bar;
+  }
   const panel = <VStack as="aside" ref={root} aria-label="Pod dock" gap={0} style={{ flex: "0 0 auto", minHeight: 0, height: dock.minimized ? "auto" : `${maximized ? 80 : height}dvh`, maxHeight: "85dvh", overflow: "hidden", borderBlockStart: "var(--spacing-px, thin) solid var(--color-border)" }} onKeyDown={e => {
     if (e.shiftKey && e.key === "Escape") { e.preventDefault(); dock.setMinimized(true); }
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w" && dock.active) { e.preventDefault(); dock.close(dock.active); }
@@ -91,7 +99,8 @@ export function PodDock() {
         if (e.key === "Delete" && dock.active) { e.preventDefault(); dock.close(dock.active); }
         if (target) { e.preventDefault(); select(target.id); document.getElementById(`pod-tab-${target.id}`)?.focus(); }
       }}>{dock.tabs.map(t => <HStack key={t.id} gap={0} vAlign="center" style={{ flexShrink: 0, minWidth: 0, maxWidth: "min(70vw, calc(var(--spacing-10) * 9))", borderBlockEnd: `var(--spacing-0-5) solid ${dock.active === t.id ? "var(--color-text-primary)" : "transparent"}` }}><Button id={`pod-tab-${t.id}`} role="tab" aria-selected={dock.active === t.id} aria-controls={`pod-panel-${t.id}`} tabIndex={dock.active === t.id ? 0 : -1} label={`${t.pod.name} · ${t.mode}`} tooltip={`${t.pod.namespace}/${t.pod.name} · ${t.mode}`} icon={<Icon icon={modeIcons[t.mode]} />} size="sm" variant="ghost" style={{ minWidth: 0 }} onClick={() => select(t.id)} onAuxClick={event => { if (event.button === 1) { event.preventDefault(); dock.close(t.id); } }} /><IconButton label={`Close ${t.pod.name} ${t.mode}`} tooltip="Close tab" icon={<Icon icon={IconX} />} size="sm" variant="ghost" onClick={() => dock.close(t.id)} /></HStack>)}</HStack>
-      <DropdownMenu presentation="popover" alignment="end" hasChevron={false} renderTrigger={props => <IconButton {...props} label="Tab actions" tooltip="Tab actions" icon={<Icon icon={IconDots} />} size="sm" variant="ghost" />}
+      {actions}
+      <DropdownMenu presentation="popover" placement="above" alignment="end" hasChevron={false} renderTrigger={props => <IconButton {...props} label="Tab actions" tooltip="Tab actions" icon={<Icon icon={IconDots} />} size="sm" variant="ghost" />}
         items={[
           { label: "Close active tab", onClick: () => { if (dock.active) dock.close(dock.active); } },
           { label: "Close other tabs", onClick: () => dock.tabs.filter(tab => tab.id !== dock.active).forEach(tab => dock.close(tab.id)) },

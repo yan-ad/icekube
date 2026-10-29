@@ -308,7 +308,8 @@ test("canceling automatic connection leaves the workspace disconnected until exp
   const calls = await callList(page);
   const previous = calls.find((call) => call.command === "cluster_connect")!.request;
   expect(calls.some((call) => call.command === "cluster_disconnect" && call.request.sessionId === previous.sessionId)).toBe(true);
-  await section(page, "Nodes");
+  await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true }).getByRole("link", { name: "Nodes", exact: true })).toHaveCount(0);
+  await page.evaluate(() => { window.location.hash = "/cluster/one?section=nodes"; });
   await expect(page.getByRole("main")).toContainText("Refresh to reconnect");
   expect((await callList(page)).filter((call) => call.command === "cluster_resources")).toHaveLength(0);
   await clusterAction(page, "Refresh nodes");

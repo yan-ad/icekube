@@ -16,17 +16,65 @@ body,
 }
 
 .table-toolbar {
-  overflow-x: auto;
-  overscroll-behavior-x: contain;
-  scrollbar-width: thin;
+  overflow-wrap: anywhere;
+}
+
+.table-toolbar-row,
+.table-toolbar-context {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .table-toolbar-controls {
-  flex: 1 1 auto;
-  min-width: max-content;
+  flex: 0 1 auto;
+  width: max-content;
+  min-width: 0;
+  max-width: 100%;
+  margin-inline-start: auto;
   justify-content: flex-end;
 }
 
 .table-toolbar-controls > * {
-  flex: 0 0 auto;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* Keep secondary pin controls quiet until a row is being inspected. Pinned
+   destinations stay discoverable so their saved state is always reversible. */
+.section-pin-action {
+  opacity: 0;
+  pointer-events: none;
+}
+
+[data-section-pin-action][data-pinned="true"],
+[data-section-pin-action]:focus-visible,
+[data-section-pin-action]:focus-within,
+[data-section-pin-action]:hover,
+[data-testid^="cluster-nav-"]:hover > :has(> [data-section-pin-action]) > [data-section-pin-action],
+[data-testid^="cluster-nav-"]:focus-within > :has(> [data-section-pin-action]) > [data-section-pin-action] {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Astryx keeps the disclosure glyph inside the primary button. Reserve its
+   trailing space so the sibling action precedes it without nesting controls. */
+[data-testid^="cluster-nav-"]:has(> button[aria-expanded]) {
+  position: relative;
+}
+
+[data-testid^="cluster-nav-"]:has(> button[aria-expanded]) > :has(> [data-section-pin-action]) {
+  margin-inline-end: var(--spacing-8);
+}
+
+[data-testid^="cluster-nav-"] > button[aria-expanded] > [aria-hidden="true"]:last-child {
+  position: absolute;
+  inset-inline-end: var(--spacing-2);
+}
+
+@media (hover: none) {
+  .section-pin-action {
+    opacity: 1;
+    pointer-events: auto;
+  }
 }

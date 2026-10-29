@@ -240,6 +240,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
       {detail.sections?.map((section, index) => <MetadataList key={`${section.title}-${index}`} title={section.title} label={{ position: "top" }}>
         {section.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}><Text wordBreak="break-all">{fact.value}</Text></MetadataListItem>)}
       </MetadataList>)}
+      <DetailCollections clusterId={clusterId} sessionId={sessionId} reference={selection.reference} revision={revision} />
       <Text type="supporting">Only reviewed inventory metadata is shown. Raw objects, credentials, and configuration contents are not exposed.</Text>
     </>}
   </VStack>;

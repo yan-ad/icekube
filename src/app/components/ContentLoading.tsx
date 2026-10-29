@@ -9,8 +9,9 @@ export function ContentLoading({ label, refreshing = false, active = true }: { l
       <VisuallyHidden><Text>{label}</Text></VisuallyHidden>
     </VStack>}
   </VStack>;
-  return <VStack className="content-loading-initial" gap={0} hAlign="center" vAlign="center">
-    <Spinner size="lg" aria-label={label} />
-    <VisuallyHidden><Text>{label}</Text></VisuallyHidden>
+  if (!active) return null;
+  return <VStack className="content-loading-initial" gap={0} hAlign="center" vAlign="center"
+    style={{ flex: "1 1 0", minHeight: "calc(var(--spacing-10) * 4)", minWidth: 0 }}>
+    <Spinner size="lg" label={label} />
   </VStack>;
 }

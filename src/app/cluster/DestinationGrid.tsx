@@ -24,7 +24,7 @@ function destinationIcon(id: ClusterSectionId): IconType {
 }
 
 export function DestinationGrid({ clusterId, title, destinations }: DestinationGridProps) {
-  const permissions = useNavigationPermissions();
+  const permissions = useNavigationPermissions(clusterId);
   return <VStack as="nav" aria-label={`${title} destinations`} padding={4} gap={4}
     style={{ flex: "1 1 0", minHeight: 0, minWidth: 0, overflow: "auto" }}>
     <Grid columns={{ minWidth: 256, max: 6 }} gap={4}>

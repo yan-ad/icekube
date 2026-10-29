@@ -181,7 +181,7 @@ fn schema_one_upgrade_preserves_records_revision_settings_colors() {
     );
     let connection = storage::open(&engine.directory).unwrap();
     let stored = storage::load(&connection).unwrap();
-    assert_eq!(stored.schema_version, 2);
+    assert_eq!(stored.schema_version, 4);
     assert!(stored.auto_discover);
     drop(connection);
     let updated = engine
@@ -211,7 +211,7 @@ fn invalid_and_newer_schema_upgrade_fail_closed() {
         if newer {
             connection
                 .execute_batch(
-                    "PRAGMA ignore_check_constraints=ON; UPDATE metadata SET schema_version=3;",
+                    "PRAGMA ignore_check_constraints=ON; UPDATE metadata SET schema_version=5;",
                 )
                 .unwrap();
         } else {

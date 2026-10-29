@@ -1,9 +1,15 @@
-import { createContext, useCallback, useContext, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { checkForUpdates } from "../layouts/nativeNavigationApi";
 import { hasUpdateEngine, readUpdateState, reportUpdateWindowPrepared, reportUpdateWindowReady, updateError, type UpdateSnapshot } from "./api";
 
 type UpdateState = { snapshot: UpdateSnapshot | null; busy: boolean; error: string | null; check: () => Promise<void>; block: (token: symbol, reason: string | null) => void };
 const UpdateContext = createContext<UpdateState | null>(null);
+function sameSnapshot(previous: UpdateSnapshot | null, next: UpdateSnapshot): boolean {
+  return previous !== null && previous.phase === next.phase && previous.version === next.version
+    && previous.error === next.error && previous.preparationId === next.preparationId
+    && (previous.progress === next.progress || previous.progress != null && next.progress != null
+      && previous.progress.downloaded === next.progress.downloaded && previous.progress.total === next.progress.total);
+}
 type Editable = HTMLInputElement | HTMLTextAreaElement;
 function isDraftField(element: Element): element is Editable {
   if (!(element instanceof HTMLInputElement || element instanceof HTMLTextAreaElement) || element.readOnly || element.disabled) return false;
@@ -66,7 +72,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
       }
     } else thaw();
     phase.current = next.phase;
-    setSnapshot(next); setError(next.error ? updateError(next.error) : null);
+    setSnapshot(current => sameSnapshot(current, next) ? current : next);
+    setError(next.error ? updateError(next.error) : null);
   }, [thaw]);
   useLayoutEffect(() => {
     mounted.current = true;
@@ -147,7 +154,8 @@ export function UpdateProvider({ children }: { children: ReactNode }) {
     catch (reason) { if (mounted.current) setError(updateError(reason)); }
     finally { operation.current = false; if (mounted.current) setBusy(false); }
   }, [apply]);
-  return <UpdateContext value={{ snapshot, busy, error, check, block }}><section ref={admission} data-update-admission="" style={{ display: "contents" }}>{children}</section></UpdateContext>;
+  const value = useMemo(() => ({ snapshot, busy, error, check, block }), [snapshot, busy, error, check, block]);
+  return <UpdateContext value={value}><section ref={admission} data-update-admission="" style={{ display: "contents" }}>{children}</section></UpdateContext>;
 }
 export function useUpdateBlocker(active: boolean, reason: string) {
   const context = useContext(UpdateContext);

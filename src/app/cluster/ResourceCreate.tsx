@@ -42,7 +42,7 @@ function ScopedResourceCreate(props: Props) {
       }} />}
   </>;
 }
-function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterName, contextName, onCreated, onClose }: Props & {
+export function CreateEditor({ clusterId, sessionId, kind, namespace, label, clusterName, contextName, onCreated, onClose }: Props & {
   label: string; clusterName: string; contextName: string; onClose: (sent: boolean) => void;
 }) {
   const info = resourceCreation[kind];

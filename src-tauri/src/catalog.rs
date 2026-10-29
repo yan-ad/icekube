@@ -1,6 +1,6 @@
 //! Catalog workflow reference: Freelens v1.10.3-533, cd07118f843c4a69f937a319a37a7c12ef2c92d8,
 //! common/catalog/catalog-entity.ts and common/catalog-entities/web-link.ts (behavior only).
-//! CatalogEngine owns imported disconnected contexts, local links, and entry-only pins.
+//! CatalogEngine owns imported disconnected contexts, local links, entry pins and cluster-section pins.
 //! Snapshot results cover empty/loaded states; sanitized errors cover rejected/unavailable states.
 //! Acceptance fixtures live in catalog/tests.rs and catalog/open_tests.rs.
 
@@ -21,6 +21,65 @@ const MAX_NAME: usize = 256;
 const MAX_URL: usize = 2048;
 const MAX_PATH: usize = 4096;
 
+// Static destinations in src/app/cluster/navigation.ts; dynamic custom-resource instances
+// are deliberately not catalog pin targets.
+const SECTIONS: &[&str] = &[
+    "overview",
+    "nodes",
+    "workloads",
+    "workloads-overview",
+    "pods",
+    "deployments",
+    "daemon-sets",
+    "stateful-sets",
+    "replica-sets",
+    "replication-controllers",
+    "jobs",
+    "cron-jobs",
+    "config",
+    "config-maps",
+    "secrets",
+    "resource-quotas",
+    "limit-ranges",
+    "horizontal-pod-autoscalers",
+    "vertical-pod-autoscalers",
+    "pod-disruption-budgets",
+    "priority-classes",
+    "runtime-classes",
+    "leases",
+    "mutating-webhook-configs",
+    "validating-webhook-configs",
+    "validating-admission-policies",
+    "validating-admission-policy-bindings",
+    "network",
+    "services",
+    "endpoint-slices",
+    "endpoints",
+    "ingresses",
+    "ingress-classes",
+    "network-policies",
+    "port-forwarding",
+    "storage",
+    "persistent-volume-claims",
+    "persistent-volumes",
+    "storage-classes",
+    "namespaces",
+    "events",
+    "helm",
+    "helm-charts",
+    "helm-releases",
+    "access-control",
+    "users",
+    "service-accounts",
+    "cluster-roles",
+    "roles",
+    "cluster-role-bindings",
+    "role-bindings",
+    "pod-security-policies",
+    "custom-resources",
+    "custom-resource-definitions",
+];
+
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub enum CatalogError {
@@ -33,6 +92,26 @@ pub enum CatalogError {
     StoreUnavailable,
     StoreCorrupt,
     OpenFailed,
+}
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct PinTarget {
+    pub id: String,
+    pub section: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ReorderPinsRequest {
+    pub items: Vec<PinTarget>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SectionPinRequest {
+    pub cluster_id: String,
+    pub section: String,
+    pub pinned: bool,
 }
 
 /// Ephemeral connection state projected onto a catalog entry. This is never
@@ -51,6 +130,7 @@ pub struct CatalogSnapshot {
     pub revision: u64,
     pub clusters: Vec<ClusterSummary>,
     pub web_links: Vec<WebLinkSummary>,
+    pub pinned_items: Vec<PinTarget>,
     pub discovery_error: Option<CatalogError>,
 }
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -62,6 +142,7 @@ pub struct ClusterSummary {
     pub source: String,
     pub status: &'static str,
     pub pinned: bool,
+    pub pinned_sections: Vec<String>,
     pub labels: Vec<String>,
     pub color: String,
 }
@@ -118,6 +199,8 @@ struct Store {
     revision: u64,
     clusters: Vec<ClusterRecord>,
     web_links: Vec<WebLinkSummary>,
+    #[serde(default)]
+    pin_order: Vec<PinTarget>,
     auto_discover: bool, // Legacy storage field; discovery no longer consults it.
 }
 #[derive(Clone, Serialize, Deserialize)]
@@ -128,12 +211,14 @@ struct ClusterRecord {
     source_path: String,
     provenance_path: String,
     pinned: bool,
+    #[serde(default)]
+    pinned_sections: Vec<String>,
     color: String,
 }
 impl Store {
     fn empty() -> Self {
         Self {
-            schema_version: 2,
+            schema_version: 4,
             ..Self::default()
         }
     }
@@ -154,6 +239,7 @@ impl Store {
                 color: c.color.clone(),
                 status: "disconnected",
                 pinned: c.pinned,
+                pinned_sections: c.pinned_sections.clone(),
             })
             .collect();
         clusters.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
@@ -163,18 +249,82 @@ impl Store {
             revision: self.revision,
             clusters,
             web_links,
+            pinned_items: self.pin_order.clone(),
             discovery_error,
         }
     }
+    fn current_pins(&self) -> Vec<PinTarget> {
+        let mut clusters: Vec<_> = self.clusters.iter().collect();
+        clusters.sort_by(|a, b| (&a.context_name, &a.id).cmp(&(&b.context_name, &b.id)));
+        let mut links: Vec<_> = self.web_links.iter().collect();
+        links.sort_by(|a, b| (&a.name, &a.id).cmp(&(&b.name, &b.id)));
+        let mut pins: Vec<_> = clusters
+            .iter()
+            .filter(|c| c.pinned)
+            .map(|c| PinTarget {
+                id: c.id.clone(),
+                section: None,
+            })
+            .chain(links.iter().filter(|l| l.pinned).map(|l| PinTarget {
+                id: l.id.clone(),
+                section: None,
+            }))
+            .collect();
+        for cluster in clusters {
+            for section in SECTIONS.iter().filter(|section| **section != "overview") {
+                if cluster
+                    .pinned_sections
+                    .iter()
+                    .any(|pinned| pinned == section)
+                {
+                    pins.push(PinTarget {
+                        id: cluster.id.clone(),
+                        section: Some((*section).into()),
+                    });
+                }
+            }
+        }
+        pins
+    }
+
+    fn reconcile_pins(&mut self) -> bool {
+        let current = self.current_pins();
+        let valid: HashSet<_> = current.iter().collect();
+        let previous = self.pin_order.clone();
+        let mut retained = HashSet::new();
+        self.pin_order
+            .retain(|target| valid.contains(target) && retained.insert(target.clone()));
+        for target in current {
+            if retained.insert(target.clone()) {
+                self.pin_order.push(target);
+            }
+        }
+        self.pin_order != previous
+    }
+
     fn validate(&self) -> Result<()> {
-        if self.schema_version != 2 || self.clusters.len() + self.web_links.len() > MAX_ENTRIES {
+        if self.schema_version != 4 || self.clusters.len() + self.web_links.len() > MAX_ENTRIES {
+            return Err(CatalogError::StoreCorrupt);
+        }
+        let mut targets = HashSet::new();
+        if self.pin_order.len() > MAX_ENTRIES * SECTIONS.len()
+            || self
+                .pin_order
+                .iter()
+                .any(|target| !valid_pin_target(target) || !targets.insert(target))
+        {
             return Err(CatalogError::StoreCorrupt);
         }
         let mut ids = HashSet::new();
         let mut urls = HashSet::new();
         for c in &self.clusters {
             let path = Path::new(&c.source_path);
+            let mut sections = HashSet::new();
             if !valid_name(&c.context_name)
+                || c.pinned_sections.len() > SECTIONS.len()
+                || c.pinned_sections.iter().any(|section| {
+                    !SECTIONS.contains(&section.as_str()) || !sections.insert(section)
+                })
                 || c.source_path.len() > MAX_PATH
                 || !path.is_absolute()
                 || !path
@@ -301,6 +451,7 @@ impl CatalogEngine {
                 Err(error) => discovery_error = Some(error),
             }
         }
+        changed |= store.reconcile_pins();
         if changed {
             store.revision = store
                 .revision
@@ -342,6 +493,40 @@ impl CatalogEngine {
             Ok(true)
         })
     }
+    pub fn reorder_pins(&self, request: ReorderPinsRequest) -> Result<CatalogSnapshot> {
+        self.change(|store| {
+            let current: HashSet<_> = store.pin_order.iter().collect();
+            let requested: HashSet<_> = request.items.iter().collect();
+            if request.items.len() != current.len()
+                || requested.len() != request.items.len()
+                || request.items.iter().any(|target| !valid_pin_target(target))
+                || requested != current
+            {
+                return Err(CatalogError::InvalidInput);
+            }
+            let changed = store.pin_order != request.items;
+            store.pin_order = request.items;
+            Ok(changed)
+        })
+    }
+
+    #[allow(dead_code)] // Native menu consumers validate saved targets without discovery.
+    pub fn validate_pin_target(&self, target: &PinTarget) -> Result<()> {
+        if !valid_pin_target(target) {
+            return Err(CatalogError::InvalidInput);
+        }
+        let _guard = self
+            .operations
+            .lock()
+            .map_err(|_| CatalogError::StoreUnavailable)?;
+        let store = storage::read_existing(&self.directory)?;
+        if store.pin_order.contains(target) {
+            Ok(())
+        } else {
+            Err(CatalogError::NotFound)
+        }
+    }
+
     pub fn set_pin(&self, request: PinRequest) -> Result<CatalogSnapshot> {
         if request.id.len() > MAX_NAME {
             return Err(CatalogError::InvalidInput);
@@ -359,6 +544,40 @@ impl CatalogEngine {
             Ok(changed)
         })
     }
+    pub fn set_section_pin(&self, request: SectionPinRequest) -> Result<CatalogSnapshot> {
+        if !valid_name(&request.cluster_id) || !SECTIONS.contains(&request.section.as_str()) {
+            return Err(CatalogError::InvalidInput);
+        }
+        self.change(|store| {
+            let cluster = store
+                .clusters
+                .iter_mut()
+                .find(|cluster| cluster.id == request.cluster_id)
+                .ok_or(CatalogError::NotFound)?;
+            if request.section == "overview" {
+                let changed = cluster.pinned != request.pinned;
+                cluster.pinned = request.pinned;
+                return Ok(changed);
+            }
+            let position = cluster
+                .pinned_sections
+                .iter()
+                .position(|section| section == &request.section);
+            match (position, request.pinned) {
+                (None, true) => {
+                    if cluster.pinned_sections.len() >= SECTIONS.len() {
+                        return Err(CatalogError::LimitExceeded);
+                    }
+                    cluster.pinned_sections.push(request.section);
+                }
+                (Some(position), false) => {
+                    cluster.pinned_sections.remove(position);
+                }
+                _ => return Ok(false),
+            }
+            Ok(true)
+        })
+    }
     pub fn remove(&self, request: RemoveRequest) -> Result<CatalogSnapshot> {
         if request.id.len() > MAX_NAME {
             return Err(CatalogError::InvalidInput);
@@ -374,6 +593,14 @@ impl CatalogEngine {
         })
     }
 }
+fn valid_pin_target(target: &PinTarget) -> bool {
+    valid_name(&target.id)
+        && target
+            .section
+            .as_deref()
+            .is_none_or(|section| section != "overview" && SECTIONS.contains(&section))
+}
+
 fn source_label(source: &str, home: Option<&Path>) -> String {
     if home.is_some_and(|home| {
         let default = home.join(".kube/config");
@@ -475,6 +702,9 @@ fn reconcile(store: &mut Store, input: &Path) -> Result<bool> {
             source_path: source.clone(),
             provenance_path: alias.to_owned(),
             pinned: previous.is_some_and(|c| c.pinned),
+            pinned_sections: previous
+                .map(|c| c.pinned_sections.clone())
+                .unwrap_or_default(),
             color,
         };
         staged.clusters.push(record.clone());
@@ -652,3 +882,9 @@ mod symlink_tests;
 
 #[cfg(test)]
 mod open_tests;
+
+#[cfg(test)]
+mod section_pin_tests;
+
+#[cfg(test)]
+mod pin_order_tests;

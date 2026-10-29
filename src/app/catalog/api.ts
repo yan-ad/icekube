@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { clusterDestinations, type ClusterSectionId } from "../cluster/navigation";
 
 export type ClusterConnectionStatus = "disconnected" | "connecting" | "connected" | "error";
 export type ClusterSummary = {
@@ -8,12 +9,13 @@ export type ClusterSummary = {
   source: string;
   status: ClusterConnectionStatus;
   pinned: boolean;
+  pinnedSections: ClusterSectionId[];
   labels: string[];
   color: string;
 };
 export type WebLinkSummary = { id: string; name: string; url: string; source: string; labels: string[]; color: string; pinned: boolean };
 export type CatalogSnapshot = { revision: number; clusters: ClusterSummary[]; webLinks: WebLinkSummary[]; discoveryError: string | null };
-export type CatalogCommand = "catalog_list" | "catalog_import_kubeconfig" | "catalog_add_web_link" | "catalog_set_pin" | "catalog_remove";
+export type CatalogCommand = "catalog_list" | "catalog_import_kubeconfig" | "catalog_add_web_link" | "catalog_set_pin" | "catalog_set_section_pin" | "catalog_remove";
 
 const messages: Record<string, string> = {
   invalidInput: "Check the name and URL. Use an HTTP(S) URL without credentials, query parameters, or fragments, or an absolute kubeconfig path.",
@@ -69,10 +71,17 @@ function parseSnapshot(value: unknown): CatalogSnapshot {
     || !Array.isArray(value.clusters) || !Array.isArray(value.webLinks)
     || value.clusters.length + value.webLinks.length > 1000
     || !value.clusters.every((item) => summary(item) && record(item)
-      && typeof item.contextName === "string" && typeof item.source === "string" && connectionStatus(item.status))
+      && typeof item.contextName === "string" && typeof item.source === "string" && connectionStatus(item.status)
+      && (item.pinnedSections === undefined || (Array.isArray(item.pinnedSections)
+        && item.pinnedSections.length <= clusterDestinations.length
+        && new Set(item.pinnedSections).size === item.pinnedSections.length
+        && item.pinnedSections.every(section => clusterDestinations.some(destination => destination.id === section)))))
     || !value.webLinks.every((item) => summary(item) && typeof item.url === "string")
     || new Set([...value.clusters, ...value.webLinks].map((item) => item.id)).size !== value.clusters.length + value.webLinks.length) throw "invalidResponse";
-  return value as CatalogSnapshot;
+  return { ...value, clusters: value.clusters.map(item => ({ ...item,
+    pinned: item.pinned || (item.pinnedSections as string[] | undefined)?.includes("overview") === true,
+    pinnedSections: ((item.pinnedSections ?? []) as string[]).filter(section => section !== "overview"),
+  })) } as CatalogSnapshot;
 }
 
 export async function catalogRequest(command: CatalogCommand, request?: Record<string, unknown>): Promise<CatalogSnapshot> {

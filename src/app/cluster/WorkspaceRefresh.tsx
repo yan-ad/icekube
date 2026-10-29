@@ -10,9 +10,20 @@ const Context = createContext<{
   action: RefreshAction | null; register: (action: RefreshAction) => () => void;
   clusterActions: ClusterActions | null; registerCluster: (action: ClusterActions) => () => void;
   pageActions: PageActions | null; registerPage: (action: PageActions) => () => void;
+  registerClusterRefresh: (clusterId: string, refresh: () => void) => () => void;
+  refreshClusterCaches: (clusterId: string) => void;
 } | null>(null);
 
 export function WorkspaceRefreshProvider({ children }: { children: ReactNode }) {
+  const clusterRefresh = useRef(new Map<symbol, { clusterId: string; refresh: () => void }>());
+  const registerClusterRefresh = useCallback((clusterId: string, refresh: () => void) => {
+    const owner = Symbol();
+    clusterRefresh.current.set(owner, { clusterId, refresh });
+    return () => { clusterRefresh.current.delete(owner); };
+  }, []);
+  const refreshClusterCaches = useCallback((clusterId: string) => {
+    for (const entry of clusterRefresh.current.values()) if (entry.clusterId === clusterId) entry.refresh();
+  }, []);
   const [action, setAction] = useState<Registration | null>(null);
   const [clusterActions, setClusterActions] = useState<(ClusterActions & { owner: symbol }) | null>(null);
   const [pageActions, setPageActions] = useState<(PageActions & { owner: symbol }) | null>(null);
@@ -29,7 +40,12 @@ export function WorkspaceRefreshProvider({ children }: { children: ReactNode }) 
     const owner = Symbol(); setPageActions({ ...next, owner });
     return () => setPageActions(previous => previous?.owner === owner ? null : previous);
   }, []);
-  return <Context value={{ action, register, clusterActions, registerCluster, pageActions, registerPage }}>{children}</Context>;
+  return <Context value={{ action, register, clusterActions, registerCluster, pageActions, registerPage, registerClusterRefresh, refreshClusterCaches }}>{children}</Context>;
+}
+
+export function useRegisterClusterRefresh(clusterId: string, refresh: () => void) {
+  const { registerClusterRefresh } = useWorkspaceRefresh();
+  useEffect(() => registerClusterRefresh(clusterId, refresh), [registerClusterRefresh, clusterId, refresh]);
 }
 
 export function useRegisterClusterActions(action: ClusterActions) {

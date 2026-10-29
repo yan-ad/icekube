@@ -11,6 +11,7 @@ import type { ResourceItem } from "./api";
 import type { NodeCondition, Usage } from "./nodeContract";
 import { tableViewport } from "./TableToolbar";
 import { resourceRowKey } from "./deleteApi";
+import { ResourceAge } from "./ResourceAge";
 
 function cores(value: number): string {
   return value === 0 ? "0" : value < 0.01 ? "<0.01" : value.toFixed(value < 10 ? 2 : 1);
@@ -35,18 +36,8 @@ function UsageCell({ usage, name, resource }: { usage: Usage | undefined; name: 
     <Text type="supporting" hasTabularNumbers maxLines={1}>{text}</Text>
   </VStack></Tooltip>;
 }
-function age(value: string | null, now: number): string {
-  if (!value) return "N/A";
-  const elapsed = now - Date.parse(value);
-  if (!Number.isFinite(elapsed) || elapsed < 0) return "N/A";
-  const seconds = Math.floor(elapsed / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 48 * 3600) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
 
-export const NodesTable = memo(function NodesTable({ items, loading, filtered, now, selection, rowContext }: { items: ResourceItem[]; loading: boolean; filtered: boolean; now: number; selection?: TablePlugin<ResourceItem>; rowContext?: TablePlugin<ResourceItem> }) {
+export const NodesTable = memo(function NodesTable({ items, loading, filtered, selection, rowContext }: { items: ResourceItem[]; loading: boolean; filtered: boolean; selection?: TablePlugin<ResourceItem>; rowContext?: TablePlugin<ResourceItem> }) {
   const { openResource } = useResourceInspector();
   const conditionSummary = (item: ResourceItem) => {
     const conditions = item.node?.conditions ?? [];
@@ -68,7 +59,7 @@ export const NodesTable = memo(function NodesTable({ items, loading, filtered, n
     { key: "taints", header: "Taints", width: pixel(90), renderCell: (item) => <Text hasTabularNumbers>{item.node?.taints ?? "N/A"}</Text> },
     { key: "version", header: "Version", width: pixel(190), renderCell: (item) => <Text maxLines={1}>{item.node?.version ?? "N/A"}</Text> },
     { key: "internalIp", header: "Internal IP", width: pixel(190), renderCell: (item) => <Text maxLines={1}>{item.node?.internalIps.join(", ") || "N/A"}</Text> },
-    { key: "age", header: "Age", width: pixel(80), renderCell: (item) => <Tooltip content={item.createdAt ? `Created ${item.createdAt}` : "Creation time unavailable"}><Text hasTabularNumbers>{age(item.createdAt, now)}</Text></Tooltip> },
+    { key: "age", header: "Age", width: pixel(180), renderCell: (item) => <Tooltip content={item.createdAt ? `Created ${item.createdAt}` : "Creation time unavailable"}><ResourceAge timestamp={item.createdAt} /></Tooltip> },
     { key: "schedulable", header: "Schedulable", width: pixel(130), renderCell: (item) => <StatusBadge status={item.node?.schedulable} variant={item.node?.schedulable === false ? "warning" : "neutral"} /> },
     { key: "conditions", header: "Conditions", width: pixel(conditionsWidth), renderCell: (item) => {
       const node = item.node;
@@ -81,7 +72,7 @@ export const NodesTable = memo(function NodesTable({ items, loading, filtered, n
         </Tooltip>}
       </HStack>;
     } },
-  ], [conditionsWidth, now, openResource]);
+  ], [conditionsWidth, openResource]);
   return <Table data={items} columns={columns} idKey={resourceRowKey} density="compact" hasHover textOverflow="truncate" style={{ minWidth: "100rem" }}
     aria-label="Nodes" aria-busy={loading} plugins={{ viewport: tableViewport<ResourceItem>(), ...(selection ? { selection } : {}), ...(rowContext ? { rowContext } : {}) }}
     emptyState={<VStack padding={6} gap={2}>

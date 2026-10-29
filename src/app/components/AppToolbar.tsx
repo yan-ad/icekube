@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams, useRouterState, useSearch } from "@tanstack/react-router";
 import { useAppShellMobile } from "@astryxdesign/core/AppShell";
 import { Icon } from "@astryxdesign/core/Icon";
@@ -79,6 +79,11 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
   const { openPreferences } = usePreferences();
   const { clusterId } = useParams({ strict: false });
   const refresh = workspaceRefresh.action?.clusterId === clusterId ? workspaceRefresh.action : null;
+  const refreshWorkspace = useCallback(() => {
+    if (!refresh?.enabled || !clusterId) return;
+    workspaceRefresh.refreshClusterCaches(clusterId);
+    refresh.refresh();
+  }, [refresh, clusterId, workspaceRefresh.refreshClusterCaches]);
   const catalog = useCatalog();
   const clusterActions = workspaceRefresh.clusterActions?.clusterId === clusterId ? workspaceRefresh.clusterActions : null;
   const pageActions = workspaceRefresh.pageActions && workspaceRefresh.pageActions.clusterId === clusterId && workspaceRefresh.pageActions.section === refresh?.section ? workspaceRefresh.pageActions : null;
@@ -105,12 +110,12 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         if (event.repeat) return;
         if (isCatalog) {
           if (catalog.available && !catalog.busy && !catalog.loading) void catalog.run("catalog_list");
-        } else if (refresh?.enabled) refresh.refresh();
+        } else refreshWorkspace();
       }
     }
     window.addEventListener("keydown", onRefresh);
     return () => window.removeEventListener("keydown", onRefresh);
-  }, [refresh, isCatalog, catalog.available, catalog.busy, catalog.loading, catalog.run]);
+  }, [refresh, refreshWorkspace, isCatalog, catalog.available, catalog.busy, catalog.loading, catalog.run]);
 
   return (
     <>
@@ -149,7 +154,7 @@ export function AppToolbar({ onSearch, isSidebarCollapsed, onToggleSidebar }: { 
         />
         {isCatalog && <CatalogRefreshButton />}
         {refresh && <IconButton label={`Refresh ${refresh.section}`} tooltip={`Refresh ${refresh.section}`}
-          variant="ghost" icon={<Icon icon={IconRefresh} />} isDisabled={!refresh.enabled} onClick={refresh.refresh} />}
+          variant="ghost" icon={<Icon icon={IconRefresh} />} isDisabled={!refresh.enabled} onClick={refreshWorkspace} />}
       </HStack>
       {clusterId && <ClusterSwitcher clusterId={clusterId} />}
       <StackItem

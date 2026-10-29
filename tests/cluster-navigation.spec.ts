@@ -2,6 +2,21 @@ import { expect, test, type Page } from "@playwright/test";
 import { clusterSections } from "../src/app/cluster/navigation";
 import { resourceViews } from "../src/app/cluster/resourceViews";
 
+test("group labels toggle their children without opening a landing page", async ({ page }) => {
+  await fixture(page);
+  const nav = navigation(page);
+  for (const group of clusterSections.filter(item => "children" in item)) {
+    await nav.getByText(group.label, { exact: true }).filter({ visible: true }).click();
+    await expect(page).toHaveURL(/section=overview$/);
+    await expect(nav.getByRole("link", { name: group.label, exact: true })).toHaveCount(0);
+    await expect(nav.getByRole("button", { name: `Collapse ${group.label}`, exact: true })).toHaveAttribute("aria-expanded", "true");
+    await expect(nav.getByRole("link", { name: group.children[0].label, exact: true })).toBeVisible();
+    await nav.getByText(group.label, { exact: true }).filter({ visible: true }).click();
+    await expect(nav.getByRole("button", { name: `Expand ${group.label}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+  }
+  await onlyReadRequests(page);
+});
+
 async function fixture(page: Page, section = "overview", narrow = false) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript(() => {
@@ -58,7 +73,11 @@ test("disclosures expand and collapse by keyboard without navigation; children h
   await expect(nav.getByRole("link", { name: "Pods", exact: true })).toHaveCount(0);
   await page.keyboard.press("Space");
   await page.keyboard.press("Tab");
+  await expect(nav.getByRole("button", { name: "Pin Workloads for Development", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
   await expect(nav.getByRole("link", { name: "Overview", exact: true })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(nav.getByRole("button", { name: "Pin Overview for Development", exact: true })).toBeFocused();
   await page.keyboard.press("Tab");
   await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/section=pods$/);

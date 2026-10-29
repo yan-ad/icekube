@@ -27,6 +27,87 @@ const calls = (page: Page, kind?: string) => page.evaluate((kind) => (window as 
   call.command === "cluster_resources" && (!kind || call.request.kind === kind)), kind);
 const selector = (page: Page) => page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
 
+test("namespace cache survives pages without filters and reappearing consumers", async ({ page }) => {
+  await fixture(page); await connected(page);
+  const initial = await calls(page, "namespaces");
+  for (const section of ["workloads", "services", "config", "helm-releases", "workloads", "pods"]) {
+    await page.evaluate(section => { location.hash = `/cluster/one?section=${section}`; }, section);
+    if (["workloads", "config"].includes(section)) await expect(selector(page)).toHaveCount(0);
+    else await expect(selector(page)).toBeVisible();
+  }
+  expect(await calls(page, "namespaces")).toEqual(initial);
+  await choose(page, "production");
+});
+
+test("pending namespace discovery is shared across route changes instead of cancelled and restarted", async ({ page }) => {
+  await fixture(page, { holdNamespaces: true }); await expect(selector(page)).toBeVisible();
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(1);
+  const pending = (await calls(page, "namespaces"))[0].request;
+  for (const section of ["workloads", "services", "helm-releases", "pods"]) {
+    await page.evaluate(section => { location.hash = `/cluster/one?section=${section}`; }, section);
+    if (section === "workloads") await expect(selector(page)).toHaveCount(0);
+    else await expect(selector(page)).toBeVisible();
+  }
+  expect(await calls(page, "namespaces")).toHaveLength(1);
+  const cancels = await page.evaluate(() => (window as MockWindow).__namespaceCalls.filter(call => call.command === "cluster_resources_cancel"));
+  expect(cancels.some(call => call.request.readId === pending.readId)).toBe(false);
+  await page.evaluate(() => (window as MockWindow).__releaseNamespaces());
+  await connected(page); await choose(page, "production");
+});
+
+test("only explicit toolbar refresh or shortcut refetches the shared namespace list", async ({ page }) => {
+  await fixture(page); await connected(page);
+  await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceNames = ["after-refresh"]; });
+  await page.getByRole("button", { name: "Refresh pods", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(2);
+  await connected(page);
+  await selector(page).click();
+  await expect(page.getByRole("option")).toHaveText(["All namespaces", "after-refresh"]);
+  await page.keyboard.press("Escape");
+  await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceNames = ["after-shortcut"]; });
+  await page.keyboard.press("Control+r");
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(3);
+  await connected(page);
+  await selector(page).click();
+  await expect(page.getByRole("option")).toHaveText(["All namespaces", "after-shortcut"]);
+});
+
+test("refresh on a page without namespace consumers invalidates lazily", async ({ page }) => {
+  await fixture(page); await connected(page);
+  await page.evaluate(() => { location.hash = "/cluster/one?section=workloads"; });
+  await expect(selector(page)).toHaveCount(0);
+  await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceNames = ["lazy-refresh"]; });
+  await page.getByRole("button", { name: "Refresh cluster", exact: true }).click();
+  await page.evaluate(() => { location.hash = "/cluster/one?section=pods"; });
+  await connected(page);
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(2);
+  await selector(page).click();
+  await expect(page.getByRole("option")).toHaveText(["All namespaces", "lazy-refresh"]);
+});
+
+test("permission renewal and automatic resource refresh reuse namespaces", async ({ page }) => {
+  await page.clock.install();
+  await fixture(page); await connected(page);
+  const initial = await calls(page, "namespaces");
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 100));
+  await page.clock.runFor(65_000);
+  expect(await calls(page, "namespaces")).toEqual(initial);
+  await choose(page, "production");
+});
+
+test("cached namespace failures do not retry on navigation", async ({ page }) => {
+  await fixture(page, { namespaceFailure: "network" }); await connected(page);
+  await page.evaluate(() => { (window as MockWindow).__namespaceControls.namespaceFailure = undefined; });
+  for (const section of ["workloads", "services", "pods"]) {
+    await page.evaluate(section => { location.hash = `/cluster/one?section=${section}`; }, section);
+    if (section === "workloads") await expect(selector(page)).toHaveCount(0);
+    else await expect(page.getByText(/Could not load namespaces/)).toBeVisible();
+  }
+  expect(await calls(page, "namespaces")).toHaveLength(1);
+  await page.getByRole("button", { name: "Retry namespaces", exact: true }).click();
+  await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(2);
+});
+
 test("the actual Namespaces page does not cancel its read when the selector cache completes late", async ({ page }) => {
   await fixture(page, { holdNamespaces: true }); await expect(selector(page)).toBeVisible();
   await expect.poll(async () => (await calls(page, "namespaces")).length).toBe(1);
@@ -38,7 +119,7 @@ test("the actual Namespaces page does not cancel its read when the selector cach
   await page.evaluate(() => (window as MockWindow).__releaseNamespaces());
   await expect(page.getByRole("table", { name: "Namespaces", exact: true })).toContainText("production");
   const cancels = await page.evaluate(() => (window as MockWindow).__namespaceCalls.filter((call) => call.command === "cluster_resources_cancel"));
-  expect(cancels).toContainEqual({ command: "cluster_resources_cancel", request: cacheRead });
+  expect(cancels.some((call) => call.request.readId === cacheRead.readId)).toBe(false);
   expect(cancels.some((call) => call.request.readId === viewRead.readId)).toBe(false);
 });
 

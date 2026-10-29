@@ -24,7 +24,7 @@ import { PortForwardTablePage } from "./PortForwardTablePage";
 import { ResourceActions } from "./ResourceActions";
 import { useResourceSelection } from "./ResourceSelection";
 import { resourceRowKey } from "./deleteApi";
-import { NamespaceSelector } from "./NamespaceScope";
+import { NamespaceFeedback, NamespaceSelector } from "./NamespaceScope";
 import { TableToolbar, tableViewport } from "./TableToolbar";
 import { StatusBadge } from "./StatusBadge";
 import { ResourceRelationLink, useResourceInspector } from "./ResourceInspector";
@@ -33,6 +33,7 @@ import { useResourceRowMenu } from "./RowContextMenu";
 import { sameInventory, useAutoRefresh } from "./useAutoRefresh";
 import { usePermissionChecks } from "./PermissionProvider";
 import { ReadOnlyNotice } from "./ReadOnlyNotice";
+import { ResourceAge } from "./ResourceAge";
 
 function PodHealth({ item }: { item: ResourceItem }) {
   const state = item.columns.health;
@@ -47,16 +48,7 @@ function PodHealth({ item }: { item: ResourceItem }) {
 const relationColumns = new Set(["node", "controlledBy", "storageClass", "volume", "claim", "roleRef", "policy", "target", "class", "involvedObject"]);
 const stateColumns = new Set(["phase", "suspend", "globalDefault", "readOnly", "allowExpansion", "privileged", "hostNetwork"]);
 
-function age(timestamp: string | null, now: number) {
-  if (!timestamp) return "N/A";
-  const seconds = Math.floor((now - Date.parse(timestamp)) / 1000);
-  if (!Number.isFinite(seconds) || seconds < 0) return "N/A";
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 172800) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
-function columns(view: ResourceView, now: number, openResource: (reference: ResourceReference) => void, openRelated: (reference: ResourceReference, column: string) => void, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
+function columns(view: ResourceView, openResource: (reference: ResourceReference) => void, openRelated: (reference: ResourceReference, column: string) => void, openPod?: (item: ResourceItem, mode: PodMode) => void): TableColumn<ResourceItem>[] {
   const reference = (item: ResourceItem): ResourceReference => ({ kind: view.kind!, namespace: item.namespace, name: item.name, uid: item.uid });
   return [
     { key: "name", header: "Name", width: proportional(2), renderCell: (item) => <Button label={item.name} variant="ghost" size="sm" onClick={() => openPod ? openPod(item, "details") : openResource(reference(item))} /> },
@@ -67,7 +59,7 @@ function columns(view: ResourceView, now: number, openResource: (reference: Reso
         ? column.key === "class" && view.kind === "ingresses" ? <ResourceRelationLink reference={{ kind: "ingressClasses", namespace: null, name: item.columns[column.key] }}>{item.columns[column.key]}</ResourceRelationLink>
           : <Button label={item.columns[column.key]} variant="ghost" size="sm" onClick={() => openRelated(reference(item), column.key)} />
         : stateColumns.has(column.key) ? <StatusBadge status={item.columns[column.key]} /> : <Text maxLines={1}>{item.columns[column.key] || "N/A"}</Text> })),
-    { key: "age", header: "Age", renderCell: (item) => <Text hasTabularNumbers>{age(item.createdAt, now)}</Text> },
+    { key: "age", header: "Age", renderCell: (item) => <ResourceAge timestamp={item.createdAt} /> },
     { key: "status", header: "Status", renderCell: (item) => <StatusBadge status={item.status} /> },
 
   ];
@@ -203,10 +195,11 @@ function ResourceSnapshotContent({ view, clusterId, sessionId, namespace, token,
   const inventoryUnavailable = !readable || pending || visibleLoading || !!error || syncing && syncStatus !== "syncing";
   const selection = useResourceSelection(rows, selectionScope, !inventoryUnavailable);
   const rowMenu = useResourceRowMenu({ clusterId, sessionId, rows, scope: selectionScope, kind: view.kind!, unavailable: inventoryUnavailable, openResource, openPod });
-  const tableColumns = useMemo(() => columns(view, Date.now(), openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
+  const tableColumns = useMemo(() => columns(view, openResource, openRelated, openPod), [view, page, openResource, openRelated, openPod]);
   return <VStack gap={0} style={{ position: "relative", flex: 1, minWidth: 0, minHeight: 0, overflow: "hidden" }}>
-    <TableToolbar label={view.label} count={readable && page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}>
-      {view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden />}
+    <TableToolbar label={view.label} count={readable && page ? `${rows.length}${page.truncated ? "+" : ""} items` : undefined}
+      context={view.namespaced && <NamespaceSelector value={namespace} onChange={onNamespace} isLabelHidden showFeedback={false} />}
+      feedback={view.namespaced && <NamespaceFeedback value={namespace} onChange={onNamespace} />}>
       <TextInput label={`Search ${view.label}`} isLabelHidden value={filters.query} onChange={value => onFilter({ query: value })} placeholder={`Search ${view.label}…`}
         startIcon={IconSearch} hasClear size="sm" width="min(18rem, 100%)" />
       <Selector label="Status" isLabelHidden value={filters.status} onChange={value => onFilter({ status: value })} size="sm" presentation="adaptive"

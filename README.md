@@ -3,7 +3,8 @@
 # Iceon
 
 > [!IMPORTANT]  
-> This an early development project, small release number might be break the flow. Do it with your cautions
+> Iceon is in early development. Even patch releases may disrupt existing workflows;
+> use it with caution.
 
 A desktop workspace for everyday Kubernetes work.
 
@@ -15,7 +16,7 @@ The goal is a familiar daily workspace where you can understand what is running,
 investigate a problem, and take the next action without constantly switching tools.
 
 [Iceon 0.0.6 downloads](https://github.com/yan-ad/iceon/releases/tag/0.0.6)
-(pending CI and publication): Apple Silicon macOS and Windows 32-bit x86.
+for Apple Silicon macOS and Windows 32-bit x86.
 [Latest published release](https://github.com/yan-ad/iceon/releases/latest).
 
 ## What you can do today
@@ -46,6 +47,40 @@ investigate a problem, and take the next action without constantly switching too
 Iceon is early in development. Detail coverage varies by resource kind. Loading,
 empty, failed, stale, and partial results have distinct states, so a retained list
 is not presented as a fresh or complete view of the cluster.
+
+## Local performance comparison
+
+Measured **2026-10-29**, using the installed **Iceon 0.0.6** and **Freelens 1.10.3**
+ARM64 apps—no rebuilds—on an Apple M4 Mac with 16 GiB RAM and macOS 27.0.1.
+The user confirmed matching connected Pods views: same cluster, namespace and Pod
+count, with optional inspectors, logs, terminals and forwards closed. Both apps
+ran concurrently, untouched, for three consecutive 60-second sampling windows.
+
+| Metric | Iceon 0.0.6 | Freelens 1.10.3 |
+| --- | ---: | ---: |
+| Median physical memory footprint, including attributed helpers | 148.5 MiB | 398.1 MiB |
+| Observed memory footprint range | 148.2–149.6 MiB | 322.1–402.3 MiB |
+| Mean CPU, 100% = one logical core | 0.53% | 0.47% |
+| 95th-percentile one-second CPU | 1.15% | 0.30% |
+| Installed app bundle, regular-file bytes | 13.7 MiB | 574.9 MiB |
+
+Iceon's median memory footprint was **62.7% lower in this session**. CPU was low
+for both and slightly higher for Iceon on average; this is not a CPU-efficiency
+win. Bundle size is storage, not speed, and excludes Iceon's OS-provided WebKit
+runtime while Freelens includes Electron.
+
+**This does not establish an overall performance winner.** Startup, refresh/API
+latency, search/scroll responsiveness, sustained load and battery use were not
+measured. This is one local session with different app uptimes and uncontrolled
+background work, not independent benchmark trials. Accessibility access was
+denied, so matching views were user-confirmed rather than inspected automatically;
+the exact Pod count was not retained. See the
+[methodology, per-window results and raw data](docs/benchmarks/2026-10-29-macos.md)
+and [read-only macOS sampler](tools/benchmarks/macos_apps.py) to reproduce or extend it.
+
+A [follow-up source optimization](docs/benchmarks/updater-render-optimization.md)
+removes redundant updater-context renders. It is not part of the installed-build
+measurements above, and native CPU savings have not been measured.
 
 ## Install
 

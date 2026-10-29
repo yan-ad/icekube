@@ -1,22 +1,28 @@
 import { Children, cloneElement, isValidElement, type ComponentProps, type ReactNode } from "react";
 import { TextInput } from "@astryxdesign/core/TextInput";
-import { HStack } from "@astryxdesign/core/Stack";
+import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import type { TablePlugin } from "@astryxdesign/core/Table";
 
-export function TableToolbar({ label, count, children }: { label: string; count?: ReactNode; children?: ReactNode }) {
-  return <HStack role="region" aria-label={`${label} filters`} tabIndex={0} className="table-toolbar" gap={3} paddingInline={3} paddingBlock={2} vAlign="center"
+export function TableToolbar({ label, count, context, feedback, children }: { label: string; count?: ReactNode; context?: ReactNode; feedback?: ReactNode; children?: ReactNode }) {
+  return <VStack role="region" aria-label={`${label} filters`} tabIndex={0} className="table-toolbar" gap={2} paddingInline={3} paddingBlock={2}
     style={{ flexShrink: 0, minWidth: 0, background: "var(--color-background-surface)" }}>
-    <HStack gap={3} vAlign="center" style={{ flexShrink: 0, whiteSpace: "nowrap" }}>
-      <Text weight="semibold">{label}</Text>
-      {count !== undefined && <Text role="status" type="supporting">{count}</Text>}
+    <HStack className="table-toolbar-row" gap={3} vAlign="center" wrap="wrap">
+      <HStack className="table-toolbar-context" gap={3} vAlign="center" wrap="wrap">
+        <HStack gap={3} vAlign="center" wrap="wrap" style={{ minWidth: 0 }}>
+          <Text weight="semibold">{label}</Text>
+          {count !== undefined && <Text role="status" type="supporting">{count}</Text>}
+        </HStack>
+        {context}
+      </HStack>
+      {children && <HStack className="table-toolbar-controls" gap={2} vAlign="center" wrap="wrap">{Children.map(children, child =>
+        isValidElement<ComponentProps<typeof TextInput>>(child) && child.type === TextInput
+          ? cloneElement(child, { width: "18rem", containerStyle: { ...child.props.containerStyle, flex: "0 1 auto", minWidth: "min(10rem, 100%)", maxWidth: "100%" } })
+          : child,
+      )}</HStack>}
     </HStack>
-    <HStack className="table-toolbar-controls" gap={2} vAlign="center">{Children.map(children, child =>
-      isValidElement<ComponentProps<typeof TextInput>>(child) && child.type === TextInput
-        ? cloneElement(child, { width: undefined, containerStyle: { ...child.props.containerStyle, flex: "1 1 18rem", minWidth: "10rem" } })
-        : child,
-    )}</HStack>
-  </HStack>;
+    {feedback}
+  </VStack>;
 }
 
 export function TableActionOverlay({ children, label }: { children: ReactNode; label: string }) {

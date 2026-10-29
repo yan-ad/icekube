@@ -14,9 +14,10 @@ use std::{
 const DATABASE: &str = "catalog.sqlite3";
 const MAX_DATABASE: u64 = 16 * 1024 * 1024;
 const SCHEMA: &str = "
-CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 2), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
-CREATE TABLE clusters (id TEXT PRIMARY KEY NOT NULL, context_name TEXT NOT NULL, source_path TEXT NOT NULL, source_alias TEXT NOT NULL, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL, UNIQUE(source_path, context_name)) STRICT;
+CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+CREATE TABLE clusters (id TEXT PRIMARY KEY NOT NULL, context_name TEXT NOT NULL, source_path TEXT NOT NULL, source_alias TEXT NOT NULL, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL, pinned_sections TEXT NOT NULL, UNIQUE(source_path, context_name)) STRICT;
 CREATE TABLE web_links (id TEXT PRIMARY KEY NOT NULL, name TEXT NOT NULL, url TEXT NOT NULL UNIQUE, pinned INTEGER NOT NULL CHECK(pinned IN (0,1)), color TEXT NOT NULL) STRICT;
+CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;
 ";
 
 pub(super) fn sql_error(error: rusqlite::Error) -> CatalogError {
@@ -254,28 +255,43 @@ fn upgrade(connection: &mut Connection) -> Result<()> {
         )
         .map_err(|_| CatalogError::StoreCorrupt)?;
     match version {
-        1 => {
+        1..=3 => {
             // Validate all old rows before DDL; a failed upgrade rolls back intact.
-            let store = load_version(&transaction, 1)?;
+            let store = load_version(&transaction, version)?;
+            if version == 1 {
+                transaction
+                    .execute_batch(
+                        "
+                    ALTER TABLE clusters ADD COLUMN source_alias TEXT NOT NULL DEFAULT '';
+                    UPDATE clusters SET source_alias=source_path;
+                ",
+                    )
+                    .map_err(|_| CatalogError::StoreCorrupt)?;
+            }
+            if version < 3 {
+                transaction.execute_batch("ALTER TABLE clusters ADD COLUMN pinned_sections TEXT NOT NULL DEFAULT '[]';")
+                    .map_err(|_| CatalogError::StoreCorrupt)?;
+            }
             transaction.execute_batch("
-                ALTER TABLE clusters ADD COLUMN source_alias TEXT NOT NULL DEFAULT '';
-                UPDATE clusters SET source_alias=source_path;
-                ALTER TABLE metadata RENAME TO metadata_v1;
-                CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 2), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
-                INSERT INTO metadata SELECT singleton, 2, revision, auto_discover FROM metadata_v1;
-                DROP TABLE metadata_v1;
+                ALTER TABLE metadata RENAME TO metadata_old;
+                CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton = 1), schema_version INTEGER NOT NULL CHECK(schema_version = 4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+                DROP TABLE metadata_old;
+                CREATE TABLE pin_order (position INTEGER PRIMARY KEY CHECK(position >= 0), id TEXT NOT NULL, section TEXT) STRICT;
             ").map_err(|_| CatalogError::StoreCorrupt)?;
-            if load(&transaction)?.revision != store.revision {
+            save(&transaction, &store)?;
+            if serde_json::to_vec(&load(&transaction)?).map_err(|_| CatalogError::StoreCorrupt)?
+                != serde_json::to_vec(&store).map_err(|_| CatalogError::StoreCorrupt)?
+            {
                 return Err(CatalogError::StoreCorrupt);
             }
         }
-        2 => {}
+        4 => {}
         _ => return Err(CatalogError::StoreCorrupt),
     }
     transaction.commit().map_err(sql_error)
 }
 pub(super) fn load(connection: &Connection) -> Result<Store> {
-    load_version(connection, 2)
+    load_version(connection, 4)
 }
 fn load_version(connection: &Connection, expected_version: u32) -> Result<Store> {
     let (schema_version, revision, auto_discover): (u32, String, i64) = connection
@@ -289,16 +305,23 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
         return Err(CatalogError::StoreCorrupt);
     }
     let mut store = Store {
-        schema_version: 2,
+        schema_version: 4,
         revision: revision.parse().map_err(|_| CatalogError::StoreCorrupt)?,
         auto_discover: auto_discover == 1,
         clusters: vec![],
         web_links: vec![],
+        pin_order: vec![],
     };
-    let query = if expected_version == 1 {
-        "SELECT id, context_name, source_path, pinned, color, source_path FROM clusters ORDER BY id LIMIT 1001"
-    } else {
-        "SELECT id, context_name, source_path, pinned, color, source_alias FROM clusters ORDER BY id LIMIT 1001"
+    let query = match expected_version {
+        1 => {
+            "SELECT id, context_name, source_path, pinned, color, source_path, '[]' FROM clusters ORDER BY id LIMIT 1001"
+        }
+        2 => {
+            "SELECT id, context_name, source_path, pinned, color, source_alias, '[]' FROM clusters ORDER BY id LIMIT 1001"
+        }
+        _ => {
+            "SELECT id, context_name, source_path, pinned, color, source_alias, pinned_sections FROM clusters ORDER BY id LIMIT 1001"
+        }
     };
     let mut statement = connection
         .prepare(query)
@@ -311,6 +334,8 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
                 source_path: r.get(2)?,
                 provenance_path: r.get(5)?,
                 pinned: r.get(3)?,
+                pinned_sections: serde_json::from_str(&r.get::<_, String>(6)?)
+                    .map_err(|_| rusqlite::Error::InvalidQuery)?,
                 color: r.get(4)?,
             })
         })
@@ -341,8 +366,45 @@ fn load_version(connection: &Connection, expected_version: u32) -> Result<Store>
             .web_links
             .push(row.map_err(|_| CatalogError::StoreCorrupt)?);
     }
+    if expected_version == 4 {
+        let mut statement = connection
+            .prepare("SELECT position, id, section FROM pin_order ORDER BY position LIMIT ?1")
+            .map_err(|_| CatalogError::StoreCorrupt)?;
+        let rows = statement
+            .query_map([(MAX_ENTRIES * SECTIONS.len() + 1) as u32], |row| {
+                Ok((
+                    row.get::<_, u32>(0)?,
+                    PinTarget {
+                        id: row.get(1)?,
+                        section: row.get(2)?,
+                    },
+                ))
+            })
+            .map_err(|_| CatalogError::StoreCorrupt)?;
+        for (position, row) in rows.enumerate() {
+            let (stored_position, target) = row.map_err(|_| CatalogError::StoreCorrupt)?;
+            if stored_position as usize != position {
+                return Err(CatalogError::StoreCorrupt);
+            }
+            store.pin_order.push(target);
+        }
+    }
     store.validate()?;
     validate_size(&store).map_err(|_| CatalogError::StoreCorrupt)?;
+    // Older section pins treated overview as a second route to the same cluster.
+    for cluster in &mut store.clusters {
+        if cluster
+            .pinned_sections
+            .iter()
+            .any(|section| section == "overview")
+        {
+            cluster.pinned = true;
+            cluster
+                .pinned_sections
+                .retain(|section| section != "overview");
+        }
+    }
+    store.reconcile_pins();
     Ok(store)
 }
 pub(super) fn validate_size(store: &Store) -> Result<()> {
@@ -360,7 +422,7 @@ pub(super) fn save(connection: &rusqlite::Transaction<'_>, store: &Store) -> Res
     validate_size(store)?;
     store.validate()?;
     connection
-        .execute_batch("DELETE FROM clusters; DELETE FROM web_links; DELETE FROM metadata;")
+        .execute_batch("DELETE FROM clusters; DELETE FROM web_links; DELETE FROM pin_order; DELETE FROM metadata;")
         .map_err(sql_error)?;
     connection
         .execute(
@@ -375,8 +437,9 @@ pub(super) fn save(connection: &rusqlite::Transaction<'_>, store: &Store) -> Res
     for c in &store.clusters {
         connection
             .execute(
-                "INSERT INTO clusters (id, context_name, source_path, pinned, color, source_alias) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![c.id, c.context_name, c.source_path, c.pinned, c.color, c.provenance_path],
+                "INSERT INTO clusters (id, context_name, source_path, pinned, color, source_alias, pinned_sections) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![c.id, c.context_name, c.source_path, c.pinned, c.color, c.provenance_path,
+                    serde_json::to_string(&c.pinned_sections).map_err(|_| CatalogError::StoreUnavailable)?],
             )
             .map_err(sql_error)?;
     }
@@ -385,6 +448,14 @@ pub(super) fn save(connection: &rusqlite::Transaction<'_>, store: &Store) -> Res
             .execute(
                 "INSERT INTO web_links VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![l.id, l.name, l.url, l.pinned, l.color],
+            )
+            .map_err(sql_error)?;
+    }
+    for (position, target) in store.pin_order.iter().enumerate() {
+        connection
+            .execute(
+                "INSERT INTO pin_order VALUES (?1, ?2, ?3)",
+                params![position as u32, target.id, target.section],
             )
             .map_err(sql_error)?;
     }
@@ -432,6 +503,7 @@ fn migrate(bytes: &[u8]) -> Result<Store> {
             provenance_path: c.source_path.clone(),
             source_path: c.source_path,
             pinned: c.pinned,
+            pinned_sections: vec![],
             color,
         });
     }
@@ -447,6 +519,7 @@ fn migrate(bytes: &[u8]) -> Result<Store> {
             labels: vec![],
         });
     }
+    store.reconcile_pins();
     store.validate()?;
     validate_size(&store).map_err(|_| CatalogError::StoreCorrupt)?;
     Ok(store)

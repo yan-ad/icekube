@@ -1,6 +1,297 @@
 use super::*;
 use serde_json::json;
 
+fn encoded(kind: ResourceKind, value: Value) -> String {
+    let sections = project(kind, &value);
+    assert!(sections.len() <= MAX_SECTIONS);
+    assert!(sections.iter().all(|s| s.facts.len() <= MAX_FACTS));
+    let text = serde_json::to_string(&sections).unwrap();
+    assert!(text.len() <= MAX_TOTAL);
+    assert!(!text.contains("PRIVATE"));
+    text
+}
+
+#[test]
+fn storage_rbac_and_crd_extensions_never_project_unreviewed_payloads() {
+    for (kind, value, expected) in [
+        (
+            ResourceKind::PersistentVolumeClaims,
+            json!({"spec":{"selector":{"matchExpressions":[{"key":"disk","operator":"In","values":["ssd"]}]}}}),
+            "ssd",
+        ),
+        (
+            ResourceKind::PersistentVolumes,
+            json!({"spec":{"mountOptions":["noatime"],"csi":{"volumeAttributes":{"key":"PRIVATE"},"nodePublishSecretRef":{"name":"PRIVATE"}}}}),
+            "noatime",
+        ),
+        (
+            ResourceKind::StorageClasses,
+            json!({"parameters":{"token":"PRIVATE"},"allowedTopologies":[{"matchLabelExpressions":[{"key":"zone","values":["west"]}]}]}),
+            "west",
+        ),
+        (
+            ResourceKind::ClusterRoles,
+            json!({"rules":[{"nonResourceURLs":["/healthz"]}],"aggregationRule":{"clusterRoleSelectors":[{"matchExpressions":[{"key":"aggregate","operator":"Exists"}]}]}}),
+            "/healthz",
+        ),
+        (
+            ResourceKind::IngressClasses,
+            json!({"spec":{"parameters":{"namespace":"routing"}}}),
+            "routing",
+        ),
+        (
+            ResourceKind::CustomResourceDefinitions,
+            json!({"spec":{"names":{"singular":"widget","listKind":"WidgetList","shortNames":["wd"]},"versions":[{"name":"v1","schema":{"openAPIV3Schema":{"description":"PRIVATE"}},"additionalPrinterColumns":[{"name":"Queue","type":"string","jsonPath":".status.queue","priority":0}]}]}}),
+            ".status.queue",
+        ),
+    ] {
+        let text = encoded(kind, value);
+        assert!(text.contains(expected), "{kind:?}: {expected}");
+    }
+}
+
+#[test]
+fn reviewed_structured_projection_discloses_unsupported_and_fact_overflow() {
+    let sections = project(
+        ResourceKind::RuntimeClasses,
+        &json!({"scheduling":{"tolerations":[{"key":"safe","unreviewed":"PRIVATE"}]}}),
+    );
+    assert_partial(&sections);
+    assert!(
+        !serde_json::to_string(&sections)
+            .unwrap()
+            .contains("PRIVATE")
+    );
+    let expr = json!({"key":"zone","operator":"In","values":vec!["west";12]});
+    let sections = project(
+        ResourceKind::NetworkPolicies,
+        &json!({"spec":{"ingress":[{"from":[{"podSelector":{"matchExpressions":vec![expr;12]}}]}]}}),
+    );
+    assert_partial(&sections);
+    assert!(sections.iter().all(|s| s.facts.len() <= MAX_FACTS));
+}
+
+#[test]
+fn service_lb_protocol_and_false_allocation_are_reported() {
+    let text = encoded(
+        ResourceKind::Services,
+        json!({"spec":{
+        "allocateLoadBalancerNodePorts":false,"healthCheckNodePort":0,
+        "ports":[{"appProtocol":"kubernetes.io/h2c"}]},
+        "status":{"loadBalancer":{"ingress":[{"ipMode":"Proxy"}]}}}),
+    );
+    for value in ["false", "Proxy", "kubernetes.io/h2c", "\"0\""] {
+        assert!(text.contains(value));
+    }
+}
+
+#[test]
+fn all_workload_templates_project_reviewed_scheduling_not_container_payloads() {
+    let spec = json!({"containers":[{"name":"app","image":"image:v2","env":[{"value":"PRIVATE"}],"command":["PRIVATE"]}],
+        "initContainers":[{"name":"init","image":"init:v3"}],
+        "nodeSelector":{"zone":"west"},"tolerations":[{"key":"dedicated","tolerationSeconds":0}],
+        "affinity":{"nodeAffinity":{"requiredDuringSchedulingIgnoredDuringExecution":{"nodeSelectorTerms":[{"matchExpressions":[{"key":"disk","operator":"In","values":["nvme"]}]}]}}}});
+    for kind in [
+        ResourceKind::Pods,
+        ResourceKind::Deployments,
+        ResourceKind::DaemonSets,
+        ResourceKind::StatefulSets,
+        ResourceKind::ReplicaSets,
+        ResourceKind::ReplicationControllers,
+        ResourceKind::Jobs,
+        ResourceKind::CronJobs,
+    ] {
+        let value = match kind {
+            ResourceKind::Pods => json!({"spec":spec}),
+            ResourceKind::CronJobs => {
+                json!({"spec":{"jobTemplate":{"spec":{"template":{"spec":spec}}}}})
+            }
+            _ => json!({"spec":{"template":{"spec":spec}}}),
+        };
+        let text = encoded(kind, value);
+        for value in ["image:v2", "init:v3", "west", "dedicated", "nvme"] {
+            assert!(text.contains(value), "{kind:?}: {value}");
+        }
+    }
+}
+
+#[test]
+fn selectors_include_values_and_disclose_nested_overflow() {
+    let expr = json!({"key":"zone","operator":"In","values":["east", "west", ""]});
+    let text = encoded(
+        ResourceKind::Deployments,
+        json!({"spec":{"selector":{"matchExpressions":[expr]}}}),
+    );
+    assert!(text.contains("east") && text.contains("west") && text.contains("(empty)"));
+    let sections = project(
+        ResourceKind::Deployments,
+        &json!({"spec":{"selector":{"matchExpressions":[{"key":"zone","operator":"In","values":vec!["east";13]}]}}}),
+    );
+    assert_partial(&sections);
+}
+
+#[test]
+fn arbitrary_reviewed_resource_keys_and_provider_id_are_retained() {
+    let text = encoded(
+        ResourceKind::Nodes,
+        json!({"spec":{"providerID":"cloud:///node-1"},"status":{"capacity":{"vendor.test/gpu":"8"},"allocatable":{"hugepages-2Mi":"0"}}}),
+    );
+    assert!(
+        text.contains("cloud:///node-1")
+            && text.contains("vendor.test/gpu")
+            && text.contains("hugepages-2Mi")
+    );
+    let text = encoded(
+        ResourceKind::ResourceQuotas,
+        json!({"status":{"hard":{"count/jobs.batch":"9"},"used":{"count/jobs.batch":"0"}},"spec":{"scopeSelector":{"matchExpressions":[{"scopeName":"PriorityClass","operator":"In","values":["batch"]}]}}}),
+    );
+    for value in ["count/jobs.batch", "PriorityClass", "batch"] {
+        assert!(text.contains(value));
+    }
+}
+
+#[test]
+fn hpa_metric_types_keep_current_and_targets_independent_with_zero_values() {
+    for (kind, field) in [
+        ("Resource", "resource"),
+        ("ContainerResource", "containerResource"),
+        ("Pods", "pods"),
+        ("Object", "object"),
+        ("External", "external"),
+    ] {
+        let mut target = json!({"type":kind});
+        target[field] = json!({"name":"cpu","container":"app","metric":{"name":"queue","selector":{"matchExpressions":[{"key":"queue","operator":"In","values":["primary"]}]}},"target":{"type":"AverageValue","averageValue":"0"}});
+        let mut current = json!({"type":kind});
+        current[field] = json!({"name":"cpu","current":{"averageUtilization":0}});
+        let text = encoded(
+            ResourceKind::HorizontalPodAutoscalers,
+            json!({"spec":{"metrics":[target]},"status":{"currentMetrics":[current]}}),
+        );
+        for value in [
+            "Metric targets",
+            "Current metrics",
+            "primary",
+            "averageUtilization",
+            "\"0\"",
+        ] {
+            assert!(text.contains(value), "{kind}: {value}");
+        }
+    }
+}
+
+#[test]
+fn vpa_policies_and_all_recommendation_bounds_preserve_resource_keys() {
+    let text = encoded(
+        ResourceKind::VerticalPodAutoscalers,
+        json!({"spec":{"updatePolicy":{"minReplicas":0},"recommenders":[{"name":"custom"}],"resourcePolicy":{"containerPolicies":[{"containerName":"*","mode":"Off","minAllowed":{"cpu":"0"},"maxAllowed":{"vendor/gpu":"2"},"controlledResources":["cpu"],"controlledValues":"RequestsOnly"}]}},"status":{"recommendation":{"containerRecommendations":[{"containerName":"app","target":{"cpu":"1"},"lowerBound":{"memory":"1Mi"},"upperBound":{"memory":"8Mi"},"uncappedTarget":{"vendor/gpu":"3"}}]}}}),
+    );
+    for value in [
+        "Off",
+        "RequestsOnly",
+        "custom",
+        "1Mi",
+        "8Mi",
+        "uncappedTarget",
+        "vendor/gpu",
+    ] {
+        assert!(text.contains(value));
+    }
+}
+
+#[test]
+fn network_policy_structure_preserves_rules_peers_and_empty_vs_absent() {
+    let text = encoded(
+        ResourceKind::NetworkPolicies,
+        json!({"spec":{"podSelector":{},"ingress":[{"ports":[{"port":"http","endPort":8081}],"from":[{"namespaceSelector":{},"podSelector":{"matchExpressions":[{"key":"app","operator":"In","values":["frontend"]}]}},{"ipBlock":{"cidr":"10.0.0.0/8","except":["10.1.0.0/16"]}}]}],"egress":[]}}),
+    );
+    for value in [
+        "frontend",
+        "10.1.0.0/16",
+        "endPort",
+        "(empty object)",
+        "(empty list)",
+        "from · 2",
+    ] {
+        assert!(text.contains(value), "{value}");
+    }
+    let absent = encoded(ResourceKind::NetworkPolicies, json!({"spec":{}}));
+    assert!(!absent.contains("(empty list)"));
+}
+
+#[test]
+fn runtime_class_scheduling_and_extended_limits_are_bounded() {
+    let text = encoded(
+        ResourceKind::RuntimeClasses,
+        json!({"scheduling":{"nodeSelector":{"runtime":"kata"},"tolerations":[{"key":"sandbox","operator":"Exists","tolerationSeconds":0}]},"overhead":{"podFixed":{"vendor/resource":"0"}}}),
+    );
+    for value in ["kata", "sandbox", "vendor/resource", "\"0\""] {
+        assert!(text.contains(value));
+    }
+    let text = encoded(
+        ResourceKind::LimitRanges,
+        json!({"spec":{"limits":[{"type":"Container","maxLimitRequestRatio":{"vendor/resource":"2"}}]}}),
+    );
+    assert!(text.contains("vendor/resource"));
+}
+
+#[test]
+fn admission_cel_matching_and_warnings_are_display_only() {
+    let text = encoded(
+        ResourceKind::ValidatingAdmissionPolicies,
+        json!({"spec":{"matchConstraints":{"matchPolicy":"Exact","resourceRules":[{"apiGroups":[""],"resources":["pods"],"operations":["CREATE"]}],"excludeResourceRules":[]},"validations":[{"expression":"object.spec.replicas >= 0","messageExpression":"'invalid'","reason":"Invalid"}],"variables":[{"name":"replicas","expression":"object.spec.replicas"}],"auditAnnotations":[{"key":"audit","valueExpression":"'checked'"}]},"status":{"typeChecking":{"expressionWarnings":[{"fieldRef":"spec.validations[0]","warning":"type mismatch"}]}}}),
+    );
+    for value in [
+        "Exact",
+        "(core)",
+        "CREATE",
+        "object.spec.replicas >= 0",
+        "'checked'",
+        "type mismatch",
+    ] {
+        assert!(text.contains(value));
+    }
+    let text = encoded(
+        ResourceKind::ValidatingWebhookConfigurations,
+        json!({"webhooks":[{"name":"safe","clientConfig":{"caBundle":"PRIVATE","url":"PRIVATE"},"namespaceSelector":{"matchLabels":{"team":"platform"}},"matchConditions":[{"name":"guard","expression":"true"}]}]}),
+    );
+    assert!(text.contains("platform") && text.contains("guard"));
+    let text = encoded(
+        ResourceKind::ValidatingAdmissionPolicyBindings,
+        json!({"spec":{"paramRef":{"selector":{"matchLabels":{"tier":"prod"}}},"matchResources":{"objectSelector":{}}}}),
+    );
+    assert!(text.contains("prod"));
+}
+
+#[test]
+fn reviewed_shapes_reject_nested_payloads_and_disclose_limits() {
+    for value in [
+        json!({"bad":"PRIVATE"}),
+        json!("\u{202e}PRIVATE"),
+        json!("x".repeat(1025)),
+    ] {
+        let sections = project(
+            ResourceKind::RuntimeClasses,
+            &json!({"scheduling":{"nodeSelector":{"safe":value}}}),
+        );
+        assert_partial(&sections);
+        assert!(
+            !serde_json::to_string(&sections)
+                .unwrap()
+                .contains("PRIVATE")
+        );
+    }
+    assert_partial(&project(
+        ResourceKind::NetworkPolicies,
+        &json!({"spec":{"ingress":vec![json!({});13]}}),
+    ));
+    let text = encoded(
+        ResourceKind::RuntimeClasses,
+        json!({"scheduling":{"nodeSelector":{},"tolerations":[]}}),
+    );
+    assert!(text.contains("(empty map)") && text.contains("(empty list)"));
+    assert!(!encoded(ResourceKind::RuntimeClasses, json!({})).contains("(empty"));
+}
+
 #[test]
 fn every_kind_has_explicit_safe_facts_or_sensitive_empty() {
     let source = include_str!("../../connection.rs");

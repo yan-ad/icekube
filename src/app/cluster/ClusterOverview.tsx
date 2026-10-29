@@ -23,6 +23,7 @@ import {
 import { useResourceInspector } from "./ResourceInspector";
 import { useRegisterWorkspaceRefresh } from "./WorkspaceRefresh";
 import { useAutoRefresh } from "./useAutoRefresh";
+import { ResourceAge } from "./ResourceAge";
 
 type Inventory = {
   page: ResourcePage | null;
@@ -172,15 +173,6 @@ function eventTime(item: ResourceItem) {
   }
   return -Infinity;
 }
-function age(item: ResourceItem) {
-  const time = eventTime(item);
-  if (!Number.isFinite(time)) return "Unknown";
-  const seconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h`;
-  return `${Math.floor(seconds / 86400)}d`;
-}
 
 export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
   const scope = JSON.stringify([clusterId, sessionId]);
@@ -191,7 +183,7 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
   const current = state.scope === scope ? state : initial(scope);
   const busy = current.nodes.loading || current.events.loading;
   const auto = useAutoRefresh({ scope, interval: 30_000, busy, refresh });
-  const { openRelated } = useResourceInspector();
+  const { openRelated, openResource } = useResourceInspector();
   useRegisterWorkspaceRefresh({
     clusterId,
     section: "overview",
@@ -282,6 +274,15 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
   }, [clusterId, sessionId, scope, revision]);
   const nodes = current.nodes,
     events = current.events;
+  const nodeWarnings = (nodes.page?.items ?? []).flatMap((item) =>
+    (item.node?.conditions ?? [])
+      .filter((condition) => condition.status === "True" && !["Ready", "HostUpgrades", "SchedulingDisabled"].includes(condition.type))
+      .map((condition) => ({
+        id: JSON.stringify([item.name, condition.type]),
+        item,
+        condition: condition.type,
+      })),
+  );
   const eventRows = (events.page?.items ?? [])
     .filter((item) => (item.columns.type || item.status) === "Warning")
     .slice()
@@ -344,6 +345,27 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
         Metrics Server supplies current utilization, not a time series.
       </Text>
       <VStack gap={3} style={{ minWidth: 0 }}>
+        <Heading level={2}>Node condition warnings</Heading>
+        <Text type="supporting">
+          {nodes.page ? `Active warning conditions in the loaded node snapshot: ${nodeWarnings.length}.` : "Node warning coverage unavailable until nodes load."}
+          Condition messages are not available. Events below are separate observations,
+          not grouped or checked for recovery.
+        </Text>
+        {nodeWarnings.length > 0 && <Table
+          aria-label="Node condition warnings"
+          density="compact"
+          data={nodeWarnings}
+          idKey="id"
+          columns={[
+            { key: "condition", header: "Condition", renderCell: ({ item, condition }) => <Button
+              label={`${condition}: True`}
+              variant="ghost"
+              size="sm"
+              onClick={() => openResource({ kind: "nodes", namespace: null, name: item.name, uid: item.uid })}
+            /> },
+            { key: "node", header: "Node", renderCell: ({ item }) => item.name },
+          ]}
+        />}
         <Heading level={2}>Latest warning events</Heading>
         <Text type="supporting">
           Latest 10 within the loaded warning events, ordered by last occurrence
@@ -370,7 +392,22 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
               {
                 key: "message",
                 header: "Event message",
-                renderCell: (item) => item.columns.message || "Unknown",
+                renderCell: (item) => item.columns.message ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    label={item.columns.message}
+                    onClick={() => openRelated(
+                      {
+                        kind: "events",
+                        namespace: item.namespace,
+                        name: item.name,
+                        uid: item.uid,
+                      },
+                      "involvedObject",
+                    )}
+                  />
+                ) : "Unknown",
               },
               {
                 key: "involvedObject",
@@ -422,7 +459,7 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
                     "Unknown"
                   ),
               },
-              { key: "age", header: "Age", renderCell: (item) => age(item) },
+              { key: "age", header: "Age", renderCell: (item) => <ResourceAge timestamp={eventTime(item)} fallback="Unknown" /> },
               {
                 key: "source",
                 header: "Source",

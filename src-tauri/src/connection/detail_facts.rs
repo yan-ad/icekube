@@ -8,6 +8,146 @@ const MAX_VALUE: usize = 1024;
 const MAX_TOTAL: usize = 64 * 1024;
 const MAX_ITEMS: usize = 12;
 
+// These schemas describe reviewed API fields, not arbitrary object serialization.
+enum Shape {
+    Scalar,
+    Map,
+    List(&'static Shape),
+    Object(&'static [(&'static str, &'static Shape)]),
+}
+const SCALAR: Shape = Shape::Scalar;
+const MAP: Shape = Shape::Map;
+const STRINGS: Shape = Shape::List(&SCALAR);
+const EXPRESSION: Shape = Shape::Object(&[
+    ("key", &SCALAR),
+    ("operator", &SCALAR),
+    ("values", &STRINGS),
+]);
+const SELECTOR: Shape = Shape::Object(&[
+    ("matchLabels", &MAP),
+    ("matchExpressions", &Shape::List(&EXPRESSION)),
+]);
+const TOLERATION: Shape = Shape::Object(&[
+    ("key", &SCALAR),
+    ("operator", &SCALAR),
+    ("value", &SCALAR),
+    ("effect", &SCALAR),
+    ("tolerationSeconds", &SCALAR),
+]);
+const NODE_TERM: Shape = Shape::Object(&[
+    ("matchExpressions", &Shape::List(&EXPRESSION)),
+    ("matchFields", &Shape::List(&EXPRESSION)),
+]);
+const POD_TERM: Shape = Shape::Object(&[
+    ("labelSelector", &SELECTOR),
+    ("namespaceSelector", &SELECTOR),
+    ("namespaces", &STRINGS),
+    ("topologyKey", &SCALAR),
+    ("matchLabelKeys", &STRINGS),
+    ("mismatchLabelKeys", &STRINGS),
+]);
+const POD_AFFINITY: Shape = Shape::Object(&[
+    (
+        "requiredDuringSchedulingIgnoredDuringExecution",
+        &Shape::List(&POD_TERM),
+    ),
+    (
+        "preferredDuringSchedulingIgnoredDuringExecution",
+        &Shape::List(&Shape::Object(&[
+            ("weight", &SCALAR),
+            ("podAffinityTerm", &POD_TERM),
+        ])),
+    ),
+]);
+const AFFINITY: Shape = Shape::Object(&[
+    (
+        "nodeAffinity",
+        &Shape::Object(&[
+            (
+                "requiredDuringSchedulingIgnoredDuringExecution",
+                &Shape::Object(&[("nodeSelectorTerms", &Shape::List(&NODE_TERM))]),
+            ),
+            (
+                "preferredDuringSchedulingIgnoredDuringExecution",
+                &Shape::List(&Shape::Object(&[
+                    ("weight", &SCALAR),
+                    ("preference", &NODE_TERM),
+                ])),
+            ),
+        ]),
+    ),
+    ("podAffinity", &POD_AFFINITY),
+    ("podAntiAffinity", &POD_AFFINITY),
+]);
+const METRIC_VALUE: Shape = Shape::Object(&[
+    ("type", &SCALAR),
+    ("value", &SCALAR),
+    ("averageValue", &SCALAR),
+    ("averageUtilization", &SCALAR),
+]);
+const METRIC_SOURCE: Shape = Shape::Object(&[
+    ("name", &SCALAR),
+    ("container", &SCALAR),
+    (
+        "metric",
+        &Shape::Object(&[("name", &SCALAR), ("selector", &SELECTOR)]),
+    ),
+    (
+        "describedObject",
+        &Shape::Object(&[
+            ("apiVersion", &SCALAR),
+            ("kind", &SCALAR),
+            ("name", &SCALAR),
+        ]),
+    ),
+    ("target", &METRIC_VALUE),
+    ("current", &METRIC_VALUE),
+]);
+const METRIC: Shape = Shape::Object(&[
+    ("type", &SCALAR),
+    ("resource", &METRIC_SOURCE),
+    ("containerResource", &METRIC_SOURCE),
+    ("pods", &METRIC_SOURCE),
+    ("object", &METRIC_SOURCE),
+    ("external", &METRIC_SOURCE),
+]);
+const ADMISSION_RULE: Shape = Shape::Object(&[
+    ("operations", &STRINGS),
+    ("apiGroups", &STRINGS),
+    ("apiVersions", &STRINGS),
+    ("resources", &STRINGS),
+    ("resourceNames", &STRINGS),
+    ("scope", &SCALAR),
+]);
+const MATCHING: Shape = Shape::Object(&[
+    ("matchPolicy", &SCALAR),
+    ("namespaceSelector", &SELECTOR),
+    ("objectSelector", &SELECTOR),
+    ("resourceRules", &Shape::List(&ADMISSION_RULE)),
+    ("excludeResourceRules", &Shape::List(&ADMISSION_RULE)),
+]);
+const MATCH_CONDITION: Shape = Shape::Object(&[("name", &SCALAR), ("expression", &SCALAR)]);
+const NETWORK_PEER: Shape = Shape::Object(&[
+    ("podSelector", &SELECTOR),
+    ("namespaceSelector", &SELECTOR),
+    (
+        "ipBlock",
+        &Shape::Object(&[("cidr", &SCALAR), ("except", &STRINGS)]),
+    ),
+]);
+const NETWORK_RULE: Shape = Shape::Object(&[
+    (
+        "ports",
+        &Shape::List(&Shape::Object(&[
+            ("protocol", &SCALAR),
+            ("port", &SCALAR),
+            ("endPort", &SCALAR),
+        ])),
+    ),
+    ("from", &Shape::List(&NETWORK_PEER)),
+    ("to", &Shape::List(&NETWORK_PEER)),
+]);
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct DetailFact {
     pub label: String,
@@ -37,6 +177,103 @@ struct Facts {
     partial: bool,
 }
 impl Facts {
+    fn reviewed(&mut self, title: &str, v: &Value, path: &str, shape: &Shape) {
+        let Some(value) = v.pointer(path) else { return };
+        let mut facts = Vec::new();
+        self.walk(&mut facts, title, value, shape);
+        self.push(title, facts);
+    }
+
+    fn walk(&mut self, facts: &mut Vec<DetailFact>, label: &str, v: &Value, shape: &Shape) {
+        if v.is_null() {
+            return;
+        }
+        if facts.len() >= MAX_FACTS {
+            self.partial = true;
+            return;
+        }
+        match shape {
+            Shape::Scalar => {
+                let value = match v {
+                    Value::String(s) if s.is_empty() => Some(if label.ends_with("apiGroups") {
+                        "(core)".into()
+                    } else {
+                        "(empty)".into()
+                    }),
+                    Value::String(s) => safe(s),
+                    Value::Number(n) => Some(n.to_string()),
+                    Value::Bool(b) => Some(b.to_string()),
+                    _ => None,
+                };
+                if let Some(value) = value.filter(|_| safe(label).is_some()) {
+                    facts.push(DetailFact {
+                        label: label.into(),
+                        value,
+                    });
+                } else {
+                    self.partial = true;
+                }
+            }
+            Shape::List(item) => {
+                let Some(items) = v.as_array() else {
+                    self.partial = true;
+                    return;
+                };
+                self.partial |= items.len() > MAX_ITEMS;
+                if items.is_empty() {
+                    self.walk(facts, label, &Value::String("(empty list)".into()), &SCALAR);
+                }
+                for (i, value) in items.iter().take(MAX_ITEMS).enumerate() {
+                    // Scalar list labels retain their field suffix (notably apiGroups).
+                    let child = if matches!(item, Shape::Scalar) {
+                        label.to_owned()
+                    } else {
+                        format!("{label} · {}", i + 1)
+                    };
+                    self.walk(facts, &child, value, item);
+                }
+            }
+            Shape::Map => {
+                let Some(map) = v.as_object() else {
+                    self.partial = true;
+                    return;
+                };
+                self.partial |= map.len() > MAX_ITEMS;
+                if map.is_empty() {
+                    self.walk(facts, label, &Value::String("(empty map)".into()), &SCALAR);
+                }
+                for (key, value) in map.iter().take(MAX_ITEMS) {
+                    if safe(key).is_none() || key.len() > 128 {
+                        self.partial = true;
+                        continue;
+                    }
+                    self.walk(facts, &format!("{label} · {key}"), value, &SCALAR);
+                }
+            }
+            Shape::Object(fields) => {
+                let Some(map) = v.as_object() else {
+                    self.partial = true;
+                    return;
+                };
+                self.partial |= map
+                    .keys()
+                    .any(|key| !fields.iter().any(|(field, _)| key == field));
+                if map.is_empty() {
+                    self.walk(
+                        facts,
+                        label,
+                        &Value::String("(empty object)".into()),
+                        &SCALAR,
+                    );
+                }
+                for (key, shape) in *fields {
+                    if let Some(value) = map.get(*key) {
+                        self.walk(facts, &format!("{label} · {key}"), value, shape);
+                    }
+                }
+            }
+        }
+    }
     fn scalar(&mut self, v: &Value, path: &str) -> Option<String> {
         let value = v.pointer(path)?;
         let result = match value {
@@ -226,8 +463,11 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                         "/status/nodeInfo/containerRuntimeVersion",
                     ),
                     ("Unschedulable", "/spec/unschedulable"),
+                    ("Provider ID", "/spec/providerID"),
                 ],
             );
+            f.reviewed("Capacity resources", v, "/status/capacity", &MAP);
+            f.reviewed("Allocatable resources", v, "/status/allocatable", &MAP);
             f.fields(
                 "Capacity",
                 v,
@@ -353,12 +593,14 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                     "/spec/selector/matchLabels"
                 },
             );
-            f.rows(
-                "Selector expressions",
-                v,
-                "/spec/selector/matchExpressions",
-                &[("Key", "/key"), ("Operator", "/operator")],
-            );
+            if kind != ReplicationControllers {
+                f.reviewed(
+                    "Selector expressions",
+                    v,
+                    "/spec/selector/matchExpressions",
+                    &Shape::List(&EXPRESSION),
+                );
+            }
         }
         Jobs => f.fields(
             "Job execution",
@@ -415,6 +657,12 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                     ("Internal traffic policy", "/spec/internalTrafficPolicy"),
                     ("Session affinity", "/spec/sessionAffinity"),
                     ("IP family policy", "/spec/ipFamilyPolicy"),
+                    (
+                        "Allocate load balancer node ports",
+                        "/spec/allocateLoadBalancerNodePorts",
+                    ),
+                    ("Load balancer class", "/spec/loadBalancerClass"),
+                    ("Health check node port", "/spec/healthCheckNodePort"),
                 ],
             );
             f.rows(
@@ -427,6 +675,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                     ("Target port", "/targetPort"),
                     ("Protocol", "/protocol"),
                     ("Node port", "/nodePort"),
+                    ("Application protocol", "/appProtocol"),
                 ],
             );
             f.strings(
@@ -442,7 +691,11 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 "Load balancer",
                 v,
                 "/status/loadBalancer/ingress",
-                &[("IP", "/ip"), ("Hostname", "/hostname")],
+                &[
+                    ("IP", "/ip"),
+                    ("Hostname", "/hostname"),
+                    ("IP mode", "/ipMode"),
+                ],
             );
             f.selector("Service selector", v, "/spec/selector");
         }
@@ -574,7 +827,19 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 ],
             );
             f.strings("Policy types", v, &[("Type", "/spec/policyTypes")]);
-            f.selector("Pod selector", v, "/spec/podSelector/matchLabels");
+            f.reviewed("Pod selector", v, "/spec/podSelector", &SELECTOR);
+            f.reviewed(
+                "Ingress rules",
+                v,
+                "/spec/ingress",
+                &Shape::List(&NETWORK_RULE),
+            );
+            f.reviewed(
+                "Egress rules",
+                v,
+                "/spec/egress",
+                &Shape::List(&NETWORK_RULE),
+            );
         }
         PersistentVolumeClaims | PersistentVolumes => {
             f.fields(
@@ -739,6 +1004,19 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
             ],
         ),
         ResourceQuotas => {
+            f.reviewed("Hard resource limits", v, "/status/hard", &MAP);
+            f.reviewed("Resource usage", v, "/status/used", &MAP);
+            f.reviewed("Quota scopes", v, "/spec/scopes", &STRINGS);
+            f.reviewed(
+                "Scope selector",
+                v,
+                "/spec/scopeSelector/matchExpressions",
+                &Shape::List(&Shape::Object(&[
+                    ("scopeName", &SCALAR),
+                    ("operator", &SCALAR),
+                    ("values", &STRINGS),
+                ])),
+            );
             f.fields(
                 "Quota hard limits",
                 v,
@@ -794,6 +1072,37 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
             ],
         ),
         VerticalPodAutoscalers => {
+            f.reviewed(
+                "Recommendation resources",
+                v,
+                "/status/recommendation/containerRecommendations",
+                &Shape::List(&Shape::Object(&[
+                    ("containerName", &SCALAR),
+                    ("target", &MAP),
+                    ("lowerBound", &MAP),
+                    ("upperBound", &MAP),
+                    ("uncappedTarget", &MAP),
+                ])),
+            );
+            f.reviewed(
+                "Container policies",
+                v,
+                "/spec/resourcePolicy/containerPolicies",
+                &Shape::List(&Shape::Object(&[
+                    ("containerName", &SCALAR),
+                    ("mode", &SCALAR),
+                    ("minAllowed", &MAP),
+                    ("maxAllowed", &MAP),
+                    ("controlledResources", &STRINGS),
+                    ("controlledValues", &SCALAR),
+                ])),
+            );
+            f.rows(
+                "Recommenders",
+                v,
+                "/spec/recommenders",
+                &[("Name", "/name")],
+            );
             f.fields(
                 "Vertical scaling",
                 v,
@@ -801,6 +1110,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                     ("Target kind", "/spec/targetRef/kind"),
                     ("Target", "/spec/targetRef/name"),
                     ("Update mode", "/spec/updatePolicy/updateMode"),
+                    ("Minimum replicas", "/spec/updatePolicy/minReplicas"),
                 ],
             );
             f.rows(
@@ -813,6 +1123,10 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                     ("Target memory", "/target/memory"),
                     ("Lower CPU", "/lowerBound/cpu"),
                     ("Upper CPU", "/upperBound/cpu"),
+                    ("Lower memory", "/lowerBound/memory"),
+                    ("Upper memory", "/upperBound/memory"),
+                    ("Uncapped CPU", "/uncappedTarget/cpu"),
+                    ("Uncapped memory", "/uncappedTarget/memory"),
                 ],
             );
         }
@@ -830,6 +1144,12 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 ],
             );
             f.selector("Pod selector", v, "/spec/selector/matchLabels");
+            f.reviewed(
+                "Pod selector expressions",
+                v,
+                "/spec/selector/matchExpressions",
+                &Shape::List(&EXPRESSION),
+            );
         }
         PriorityClasses => f.fields(
             "Scheduling priority",
@@ -838,6 +1158,7 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 ("Value", "/value"),
                 ("Global default", "/globalDefault"),
                 ("Preemption policy", "/preemptionPolicy"),
+                ("Description", "/description"),
             ],
         ),
         RuntimeClasses => f.fields(
@@ -932,6 +1253,252 @@ pub(super) fn project(kind: ResourceKind, v: &Value) -> Vec<DetailSection> {
                 ("FS group rule", "/spec/fsGroup/rule"),
             ],
         ),
+    }
+    match kind {
+        Pods
+        | Deployments
+        | DaemonSets
+        | StatefulSets
+        | ReplicaSets
+        | ReplicationControllers
+        | Jobs
+        | CronJobs => {
+            let base = match kind {
+                Pods => "/spec",
+                CronJobs => "/spec/jobTemplate/spec/template/spec",
+                _ => "/spec/template/spec",
+            };
+            let image = Shape::List(&Shape::Object(&[("name", &SCALAR), ("image", &SCALAR)]));
+            f.reviewed("Container images", v, &format!("{base}/containers"), &image);
+            f.reviewed(
+                "Init container images",
+                v,
+                &format!("{base}/initContainers"),
+                &image,
+            );
+            f.reviewed("Node selector", v, &format!("{base}/nodeSelector"), &MAP);
+            f.reviewed(
+                "Tolerations",
+                v,
+                &format!("{base}/tolerations"),
+                &Shape::List(&TOLERATION),
+            );
+            f.reviewed("Affinity", v, &format!("{base}/affinity"), &AFFINITY);
+            if matches!(kind, Jobs | CronJobs | ReplicationControllers) {
+                let base = if kind == CronJobs {
+                    "/spec/jobTemplate/spec"
+                } else {
+                    "/spec"
+                };
+                f.fields(
+                    "Workload readiness",
+                    v,
+                    &[
+                        ("Minimum ready seconds", "/spec/minReadySeconds"),
+                        ("Fully labeled replicas", "/status/fullyLabeledReplicas"),
+                    ],
+                );
+                if kind != ReplicationControllers {
+                    f.reviewed(
+                        "Workload selector",
+                        v,
+                        &format!("{base}/selector"),
+                        &SELECTOR,
+                    );
+                }
+            }
+        }
+        HorizontalPodAutoscalers => {
+            f.fields(
+                "Legacy CPU utilization",
+                v,
+                &[
+                    ("Target percent", "/spec/targetCPUUtilizationPercentage"),
+                    ("Current percent", "/status/currentCPUUtilizationPercentage"),
+                ],
+            );
+            // Keep spec/status lists independent: array order is not metric identity.
+            f.reviewed("Metric targets", v, "/spec/metrics", &Shape::List(&METRIC));
+            f.reviewed(
+                "Current metrics",
+                v,
+                "/status/currentMetrics",
+                &Shape::List(&METRIC),
+            );
+        }
+        RuntimeClasses => {
+            f.reviewed("Runtime node selector", v, "/scheduling/nodeSelector", &MAP);
+            f.reviewed(
+                "Runtime tolerations",
+                v,
+                "/scheduling/tolerations",
+                &Shape::List(&TOLERATION),
+            );
+            f.reviewed("Runtime overhead resources", v, "/overhead/podFixed", &MAP);
+        }
+        PersistentVolumeClaims => f.reviewed("Claim selector", v, "/spec/selector", &SELECTOR),
+        PersistentVolumes => {
+            f.reviewed(
+                "Volume node affinity",
+                v,
+                "/spec/nodeAffinity/required/nodeSelectorTerms",
+                &Shape::List(&NODE_TERM),
+            );
+            f.reviewed("Mount options", v, "/spec/mountOptions", &STRINGS);
+        }
+        StorageClasses => {
+            f.reviewed("Mount options", v, "/mountOptions", &STRINGS);
+            f.reviewed(
+                "Allowed topology terms",
+                v,
+                "/allowedTopologies",
+                &Shape::List(&Shape::Object(&[(
+                    "matchLabelExpressions",
+                    &Shape::List(&Shape::Object(&[("key", &SCALAR), ("values", &STRINGS)])),
+                )])),
+            );
+        }
+        LimitRanges => {
+            f.reviewed(
+                "Resource constraints",
+                v,
+                "/spec/limits",
+                &Shape::List(&Shape::Object(&[
+                    ("type", &SCALAR),
+                    ("min", &MAP),
+                    ("max", &MAP),
+                    ("default", &MAP),
+                    ("defaultRequest", &MAP),
+                    ("maxLimitRequestRatio", &MAP),
+                ])),
+            );
+        }
+        IngressClasses => f.fields(
+            "Parameter namespace",
+            v,
+            &[("Namespace", "/spec/parameters/namespace")],
+        ),
+        CustomResourceDefinitions => {
+            f.fields(
+                "Resource names",
+                v,
+                &[
+                    ("Singular", "/spec/names/singular"),
+                    ("List kind", "/spec/names/listKind"),
+                ],
+            );
+            f.reviewed("Short names", v, "/spec/names/shortNames", &STRINGS);
+            if let Some(versions) = v.pointer("/spec/versions").and_then(Value::as_array) {
+                f.partial |= versions.len() > MAX_ITEMS;
+                for (i, version) in versions.iter().take(MAX_ITEMS).enumerate() {
+                    f.reviewed(
+                        &format!("Version {} printer columns", i + 1),
+                        version,
+                        "/additionalPrinterColumns",
+                        &Shape::List(&Shape::Object(&[
+                            ("name", &SCALAR),
+                            ("type", &SCALAR),
+                            ("jsonPath", &SCALAR),
+                            ("priority", &SCALAR),
+                            ("format", &SCALAR),
+                            ("description", &SCALAR),
+                        ])),
+                    );
+                    // Schema validation is intentionally not an arbitrary JSON viewer.
+                    f.partial |= version
+                        .get("schema")
+                        .is_some_and(|schema| !schema.is_null());
+                }
+            }
+        }
+        Roles | ClusterRoles => {
+            if let Some(rules) = v.get("rules").and_then(Value::as_array) {
+                for (i, rule) in rules.iter().take(8).enumerate() {
+                    f.reviewed(
+                        &format!("Rule {} non-resource URLs", i + 1),
+                        rule,
+                        "/nonResourceURLs",
+                        &STRINGS,
+                    );
+                }
+            }
+            f.reviewed(
+                "Aggregation selectors",
+                v,
+                "/aggregationRule/clusterRoleSelectors",
+                &Shape::List(&SELECTOR),
+            );
+        }
+        MutatingWebhookConfigurations | ValidatingWebhookConfigurations => {
+            let webhook = Shape::List(&Shape::Object(&[
+                ("name", &SCALAR),
+                ("matchPolicy", &SCALAR),
+                ("namespaceSelector", &SELECTOR),
+                ("objectSelector", &SELECTOR),
+                ("rules", &Shape::List(&ADMISSION_RULE)),
+                ("matchConditions", &Shape::List(&MATCH_CONDITION)),
+                ("admissionReviewVersions", &STRINGS),
+                ("reinvocationPolicy", &SCALAR),
+                ("failurePolicy", &SCALAR),
+                ("sideEffects", &SCALAR),
+                ("timeoutSeconds", &SCALAR),
+            ]));
+            f.reviewed("Webhook matching", v, "/webhooks", &webhook);
+        }
+        ValidatingAdmissionPolicies => {
+            f.reviewed("Match constraints", v, "/spec/matchConstraints", &MATCHING);
+            f.reviewed(
+                "CEL match conditions",
+                v,
+                "/spec/matchConditions",
+                &Shape::List(&MATCH_CONDITION),
+            );
+            f.reviewed(
+                "CEL validations",
+                v,
+                "/spec/validations",
+                &Shape::List(&Shape::Object(&[
+                    ("expression", &SCALAR),
+                    ("message", &SCALAR),
+                    ("messageExpression", &SCALAR),
+                    ("reason", &SCALAR),
+                ])),
+            );
+            f.reviewed(
+                "CEL variables",
+                v,
+                "/spec/variables",
+                &Shape::List(&MATCH_CONDITION),
+            );
+            f.reviewed(
+                "CEL audit annotations",
+                v,
+                "/spec/auditAnnotations",
+                &Shape::List(&Shape::Object(&[
+                    ("key", &SCALAR),
+                    ("valueExpression", &SCALAR),
+                ])),
+            );
+            f.reviewed(
+                "Type checking warnings",
+                v,
+                "/status/typeChecking/expressionWarnings",
+                &Shape::List(&Shape::Object(&[
+                    ("fieldRef", &SCALAR),
+                    ("warning", &SCALAR),
+                ])),
+            );
+        }
+        ValidatingAdmissionPolicyBindings => {
+            f.reviewed("Match resources", v, "/spec/matchResources", &MATCHING);
+            f.reviewed(
+                "Parameter selector",
+                v,
+                "/spec/paramRef/selector",
+                &SELECTOR,
+            );
+        }
+        _ => {}
     }
     f.rows(
         "Conditions",

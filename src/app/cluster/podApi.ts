@@ -5,7 +5,8 @@ export type PodIdentity = { namespace: string; name: string; uid?: string };
 export type PodRequest = SessionRequest & PodIdentity;
 export type PodMode = "details" | "logs" | "shell" | "attach" | "edit" | "forward";
 export type PodContainer = { name: string; image: string; kind: "container" | "init" | "ephemeral"; state: string; ready: boolean; restarts: number; ports: { name: string | null; port: number; protocol: string }[] };
-export type PodDetails = PodRequest & { uid: string; resourceVersion: string; phase: string; node: string | null; podIps: string[]; hostIps: string[]; serviceAccount: string | null; qos: string | null; createdAt: string | null; deletionTimestamp: string | null; containers: PodContainer[]; conditions: { type: string; status: string }[]; yaml: string; events: { type: string; reason: string; count: number; lastSeen: string | null }[] };
+export type PodEventsState = "complete" | "partial" | "denied" | "unavailable";
+export type PodDetails = PodRequest & { uid: string; resourceVersion: string; phase: string; node: string | null; podIps: string[]; hostIps: string[]; serviceAccount: string | null; qos: string | null; createdAt: string | null; deletionTimestamp: string | null; containers: PodContainer[]; conditions: { type: string; status: string }[]; yaml: string; events: { type: string; reason: string; count: number; lastSeen: string | null }[]; eventsState: PodEventsState };
 export type PodMutation = "delete" | "forceDelete" | "finalize" | "replace";
 export type PodStreamRequest = SessionRequest & { streamId: string };
 export type PodStartRequest = PodRequest & { uid: string; container: string; mode: "logs" | "shell" | "attach"; previous: boolean; timestamps: boolean; tailLines: number; shell?: string | null };
@@ -40,8 +41,9 @@ export async function podDetail(r: PodRequest): Promise<PodDetails> {
   if (!record(v) || !scope(v, r) || v.namespace !== r.namespace || v.name !== r.name || !text(v.uid, 256) || (r.uid !== undefined && v.uid !== r.uid) || !text(v.resourceVersion, 256) || !text(v.phase) || ![v.node, v.serviceAccount, v.qos, v.createdAt, v.deletionTimestamp].every(nullable)
     || !array(v.podIps, 64, x => text(x, 128)) || !array(v.hostIps, 64, x => text(x, 128)) || typeof v.yaml !== "string" || bytes(v.yaml) > 1048576
     || !array(v.containers, 256, c => record(c) && text(c.name, 253) && text(c.image) && ["container", "init", "ephemeral"].includes(c.kind as string) && text(c.state) && typeof c.ready === "boolean" && integer(c.restarts) && array(c.ports, 256, p => record(p) && nullable(p.name) && integer(p.port, 1, 65535) && text(p.protocol, 32)))
-    || !array(v.conditions, 256, c => record(c) && text(c.type) && text(c.status)) || !array(v.events, 256, e => record(e) && text(e.type) && text(e.reason) && integer(e.count) && nullable(e.lastSeen))) throw "invalidResponse";
-  return v as PodDetails;
+    || !array(v.conditions, 256, c => record(c) && text(c.type) && text(c.status)) || !array(v.events, 256, e => record(e) && text(e.type) && text(e.reason) && integer(e.count) && nullable(e.lastSeen))
+    || "eventsState" in v && !["complete", "partial", "denied", "unavailable"].includes(v.eventsState as string)) throw "invalidResponse";
+  return { ...v, eventsState: "eventsState" in v ? v.eventsState : "unavailable" } as PodDetails;
 }
 export async function podMutate(r: PodDetails, action: PodMutation, yaml?: string) {
   pod(r, true);

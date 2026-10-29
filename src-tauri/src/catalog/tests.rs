@@ -259,12 +259,13 @@ fn bounds_schema_and_wire_contract() {
     assert_eq!(import(&engine, &input), Err(CatalogError::LimitExceeded));
     fs::write(&input, CONFIG).unwrap();
     let value = serde_json::to_value(import(&engine, &input).unwrap()).unwrap();
-    assert_eq!(value.as_object().unwrap().len(), 4);
+    assert_eq!(value.as_object().unwrap().len(), 5);
     assert!(value.get("autoDiscover").is_none());
     assert!(value["discoveryError"].is_null());
     assert!(value.get("webLinks").is_some());
     let cluster = value["clusters"][0].as_object().unwrap();
-    assert_eq!(cluster.len(), 8);
+    assert_eq!(cluster.len(), 9);
+    assert_eq!(cluster["pinnedSections"], serde_json::json!([]));
     assert!(cluster.contains_key("contextName"));
 }
 
