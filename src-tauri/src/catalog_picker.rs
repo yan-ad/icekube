@@ -1,4 +1,5 @@
 use tauri_plugin_dialog::{DialogExt, FilePath};
+use tokio::sync::oneshot;
 
 #[derive(Debug, serde::Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
@@ -25,14 +26,16 @@ pub async fn catalog_choose_kubeconfig(
     if window.label() != "main" {
         return Err(PickerError::DialogFailed);
     }
-    tauri::async_runtime::spawn_blocking(move || {
-        let dialog = window.dialog().file().set_title("Choose kubeconfig");
-        #[cfg(desktop)]
-        let dialog = dialog.set_parent(&window);
-        selected_path(dialog.blocking_pick_file())
-    })
-    .await
-    .map_err(|_| PickerError::DialogFailed)?
+    let (sender, receiver) = oneshot::channel();
+    let dialog = window.dialog().file().set_title("Choose kubeconfig");
+    #[cfg(desktop)]
+    let dialog = dialog.set_parent(&window);
+    dialog.pick_file(move |selection| {
+        let _ = sender.send(selection);
+    });
+
+    let selection = receiver.await.map_err(|_| PickerError::DialogFailed)?;
+    selected_path(selection)
 }
 
 #[cfg(test)]
