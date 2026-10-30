@@ -11,6 +11,10 @@
   transition: flex-basis 180ms ease, opacity 140ms ease, visibility 0s linear 180ms;
 }
 
+.memory-usage-bar .astryx-progress-bar-fill {
+  background-color: var(--color-text-primary);
+}
+
 .resource-inspector-header {
   flex-shrink: 0;
   min-width: 0;
@@ -140,4 +144,20 @@
   .resource-inspector {
     transition: none;
   }
+}
+
+.workload-status-toggle.astryx-button {
+  border: none;
+  border-radius: var(--radius-element);
+  box-shadow: none;
+  justify-content: flex-start;
+  padding-inline: var(--spacing-1);
+  white-space: normal;
+  height: auto;
+  min-height: var(--size-element-sm);
+  text-align: start;
+}
+
+.workload-status-toggle.astryx-button[aria-pressed="true"] {
+  background-color: transparent;
 }

@@ -2,7 +2,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Grid } from "@astryxdesign/core/Grid";
 import { Heading } from "@astryxdesign/core/Heading";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { UsageBar } from "./UsageBar";
+import { SupportingSection } from "./SupportingSection";
+import { SectionInfo } from "./SectionInfo";
 import { Section } from "@astryxdesign/core/Section";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Table } from "@astryxdesign/core/Table";
@@ -127,12 +129,12 @@ function Utilization({
           {usage ? (
             <>
               <Text hasTabularNumbers>{usage.percent.toFixed(1)}% used</Text>
-              <ProgressBar
+              <UsageBar
                 label={`${label} utilization`}
                 value={Math.min(usage.used, usage.total)}
                 max={usage.total}
                 formatValueLabel={() => `${usage.percent.toFixed(1)}% used`}
-                variant={resource === "cpu" ? "accent" : "neutral"}
+                resource={resource}
               />
               <Text type="supporting">
                 {formatUsage(usage.used, resource)} /{" "}
@@ -304,11 +306,13 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
         overflowWrap: "anywhere",
       }}
     >
-      <Heading level={2}>Cluster overview</Heading>
-      <Text type="supporting">
+      <HStack gap={2} vAlign="center" wrap="wrap"><Heading level={2}>Cluster overview</Heading>
+      <SectionInfo label="About cluster overview">
         Current snapshot from Metrics Server. Reads are limited to one page of
         100 nodes and 100 warning events; updates run while this view is active.
-      </Text>
+        Historical charts unavailable: no Prometheus integration is configured.
+        Metrics Server supplies current utilization, not a time series.
+      </SectionInfo></HStack>
       <ResourceState label="nodes" state={nodes} />
       {nodes.page && (
         <HStack gap={4} wrap="wrap">
@@ -340,17 +344,12 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
         <Utilization resource="cpu" state={nodes} />
         <Utilization resource="memory" state={nodes} />
       </Grid>
-      <Text type="supporting">
-        Historical charts unavailable: no Prometheus integration is configured.
-        Metrics Server supplies current utilization, not a time series.
-      </Text>
-      <VStack gap={3} style={{ minWidth: 0 }}>
-        <Heading level={2}>Node condition warnings</Heading>
-        <Text type="supporting">
-          {nodes.page ? `Active warning conditions in the loaded node snapshot: ${nodeWarnings.length}.` : "Node warning coverage unavailable until nodes load."}
+      <SupportingSection title="Node condition warnings" level={2} info={<SectionInfo label="About node condition warnings">
           Condition messages are not available. Events below are separate observations,
           not grouped or checked for recovery.
-        </Text>
+        </SectionInfo>}>
+        <Text type="supporting">{nodes.page ? `Active warning conditions in the loaded node snapshot: ${nodeWarnings.length}.` : "Node warning coverage unavailable until nodes load."}</Text>
+        <ResourceState label="nodes" state={nodes} />
         {nodeWarnings.length > 0 && <Table
           aria-label="Node condition warnings"
           density="compact"
@@ -366,12 +365,12 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
             { key: "node", header: "Node", renderCell: ({ item }) => item.name },
           ]}
         />}
-        <Heading level={2}>Latest warning events</Heading>
-        <Text type="supporting">
+      </SupportingSection>
+      <SupportingSection title="Latest warning events" level={2} info={<SectionInfo label="About warning event ordering">
           Latest 10 within the loaded warning events, ordered by last occurrence
           with creation time as fallback. This is not a cluster-wide
           latest-events guarantee. Age is since that occurrence.
-        </Text>
+        </SectionInfo>}>
         <ResourceState label="warning events" state={events} />
         {events.page && eventRows.length === 0 && (
           <Text>
@@ -397,6 +396,7 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
                     variant="ghost"
                     size="sm"
                     label={item.columns.message}
+                    style={{ color: "var(--color-text-red)" }}
                     onClick={() => openRelated(
                       {
                         kind: "events",
@@ -473,7 +473,7 @@ export function ClusterOverview({ clusterId, sessionId }: SessionRequest) {
             ]}
           />
         )}
-      </VStack>
+      </SupportingSection>
     </VStack>
   );
 }

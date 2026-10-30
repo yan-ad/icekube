@@ -1,6 +1,6 @@
 import { memo, useMemo } from "react";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
-import { ProgressBar } from "@astryxdesign/core/ProgressBar";
+import { UsageBar } from "./UsageBar";
 import { Table, pixel, type TableColumn, type TablePlugin } from "@astryxdesign/core/Table";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
@@ -32,8 +32,8 @@ function UsageCell({ usage, name, resource }: { usage: Usage | undefined; name: 
   const text = `${used === null ? "N/A" : format(used)} / ${total === null ? "N/A" : format(total)}`;
   const accessible = `${name} ${resource}: ${text}${resource === "CPU" ? " cores" : ""}, used / ${denominator}`;
   return <Tooltip content={accessible}><VStack gap={1} style={{ minWidth: 0 }}>
-    {total !== null && total > 0 && used !== null && <ProgressBar label={`${name} ${resource}`} isLabelHidden
-      value={used} max={total} variant={resource === "CPU" ? "accent" : "neutral"} formatValueLabel={() => accessible} />}
+    {total !== null && total > 0 && used !== null && <UsageBar label={`${name} ${resource}`} isLabelHidden
+      value={used} max={total} resource={resource === "CPU" ? "cpu" : "memory"} formatValueLabel={() => accessible} />}
     <Text type="supporting" hasTabularNumbers maxLines={1}>{text}</Text>
   </VStack></Tooltip>;
 }

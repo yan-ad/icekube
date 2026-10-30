@@ -26,7 +26,7 @@ Browser fixtures run in eight Linux shards with two workers per runner and
 fully parallel test distribution. Each shard retains the 480-second suite bound,
 10-minute test-step bound and 20-minute job bound; dependency installation,
 frontend build and Chromium setup are separate steps. Rust exports the shared
-detail contract once after its tests, and every browser shard consumes that
+detail and related-collection contracts once after its tests, and every browser shard consumes that
 same-commit artifact. These are per-browser-job limits, not a total release-time
 promise; platform packaging jobs retain their separate 90-minute limits.
 
@@ -81,6 +81,26 @@ version. See [automatic updates](automatic-updates.md) for runtime checks.
 Do not retarget a published tag, replace its assets or mark an older version
 latest. Source fixes need a new version and a reviewed workflow allowlist change.
 A failed publication may leave a draft; inspect the failure rather than clobber it.
+
+### Unpublished 0.0.8 retry
+
+On 2026-10-30 the maintainer explicitly approved replacing the failed,
+**unpublished** 0.0.8 tag after validated source fixes. The original annotated tag
+object is `6cc017aa1a821501b56bf75bd3be5600e626b0eb`, peeled commit
+`97b1d95c731bfecdaf25a3c184c286b232e690b9`. Failed release run `41003035257`
+stopped at browser CI; repository release enumeration contained no 0.0.8 release,
+draft or assets. Required fixes include stale fixture IPC/selector expectations,
+source-import harnesses, and a same-commit Rust collection-contract artifact for
+frontend runners without native build libraries.
+
+This approval is limited to the failed unpublished tag. Before updating it,
+recheck its exact remote object and all releases (including drafts). Stop if
+published assets, a release or a different tag object exists. Push the validated
+source commit first and replace the tag with an exact old-object lease, not a
+blind force push or delete/recreate sequence. The replacement must run the full
+same-commit CI and normal signed-artifact publication gates. Never reuse an
+already published version or bypass failed checks.
+
 
 ## First installation
 

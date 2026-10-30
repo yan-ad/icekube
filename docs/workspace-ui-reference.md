@@ -10,6 +10,38 @@ referenced components were read. Paths in the source column are relative to
 this is not full Freelens parity, extension compatibility, or adoption of its
 Electron/Node runtime. No upstream implementation was copied in this documentation pass.
 
+### 0.0.8 overview readability follow-up
+
+Reference HEAD above was rechecked on 2026-10-30. The inspected files were
+`workloads-overview/overview-workload-status.tsx`, the workload injectable owners,
+and the ReplicaSet, Deployment and CronJob stores. Their lifecycle vocabulary
+and chart legend toggles guide Iceon's interactions; no upstream source was ported.
+
+Iceon uses a single Astryx card for workload charts and a separate card for its
+event table. Compact color-key buttons toggle segments, preserve total counts,
+and support keyboard activation. Chart/title links open the corresponding
+inventory. Rust `connection/resources.rs` remains the data owner; React only
+classifies safe projected facts. Controller charts use replica counters rather
+than Freelens's associated child-Pod phases, so they do not establish identical
+health. Missing desired counters remain Unknown, and a Job's failed attempts
+alone do not imply terminal failure. CronJobs with schedules are Scheduled unless
+explicitly suspended; successful Pods/Jobs use Succeeded.
+
+The event table defaults to newest creation first and exposes sortable columns,
+ten-row paging, namespace filtering, backend-resolved object relations, details
+and the existing scoped row menu. Reads are sequential and bounded to 20 pages
+(2,000 events), with exact cancellation and partial/stale/error states retained.
+This is not an unlimited watch or a guarantee that different-time snapshots of
+the same kubeconfig contain identical counts or events. Routine explanations
+are in named information popovers; adverse data states remain inline. Warning
+messages use `--color-text-red` in both themes.
+
+Acceptance: `tests/workloads-overview.spec.ts` covers lifecycle labels, chart
+toggles, sorting before paging, namespace cancellation, event navigation, bounds,
+warning styling, title spacing and both themes. `tests/nodes-table.spec.ts`
+measures memory fill/track contrast. `tests/detail-columns.spec.ts` checks
+card-contained details and panel-width reflow, including 200% text.
+
 | Workflow / upstream source | Expected Iceon interaction and owner | UI states / acceptance mapping |
 | --- | --- | --- |
 | Catalog: `catalog/catalog-add-button.tsx` | Add config and Add web link are separate named icon buttons at bottom right in `CatalogPage.tsx`/`CatalogForms.tsx`, outside table scrolling. Refresh follows Go forward in `AppToolbar.tsx`. Rust `catalog.rs` owns import, persistence and saved links. | Unavailable/loading disables actions; forms retain safe validation errors; Escape returns focus. `tests/catalog.spec.ts` covers bottom actions and toolbar Refresh placement; parameterized `${category}: bottom actions clear the table and viewport at desktop and narrow widths`. |

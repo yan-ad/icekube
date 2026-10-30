@@ -64,7 +64,7 @@ for (const width of [1440, 480]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 
-  test(`toolbar controls stay in one row at ${width}px`, async ({ page }) => {
+  test(`toolbar controls reflow without clipping at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 600 });
     await fixture(page);
     const toolbar = page.getByRole("region", { name: "Resource Quotas filters", exact: true });
@@ -76,18 +76,23 @@ for (const width of [1440, 480]) {
     const searchBox = (await search.boundingBox())!;
     const statusBox = (await status.boundingBox())!;
     expect(Math.abs(titleBox.y + titleBox.height / 2 - countBox.y - countBox.height / 2)).toBeLessThanOrEqual(2);
-    expect(Math.abs(searchBox.y + searchBox.height / 2 - statusBox.y - statusBox.height / 2)).toBeLessThanOrEqual(2);
-    expect(Math.abs(titleBox.y + titleBox.height / 2 - searchBox.y - searchBox.height / 2)).toBeLessThanOrEqual(2);
-    if (width === 1440) expect(searchBox.width).toBeGreaterThan(300);
-    else {
-      expect(await toolbar.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(true);
-      await status.focus();
-      await expect(status).toBeInViewport();
-      await toolbar.evaluate(el => { el.scrollLeft = 0; });
-      await toolbar.hover();
-      await page.mouse.wheel(300, 0);
-      await expect.poll(() => toolbar.evaluate(el => el.scrollLeft)).toBeGreaterThan(0);
+    if (width === 1440) {
+      expect(Math.abs(searchBox.y + searchBox.height / 2 - statusBox.y - statusBox.height / 2)).toBeLessThanOrEqual(2);
+      expect(Math.abs(titleBox.y + titleBox.height / 2 - searchBox.y - searchBox.height / 2)).toBeLessThanOrEqual(2);
+    } else {
+      expect(statusBox.y).toBeGreaterThanOrEqual(searchBox.y + searchBox.height);
     }
+    const toolbarBox = (await toolbar.boundingBox())!;
+    for (const box of [titleBox, countBox, searchBox, statusBox]) {
+      expect(box.x).toBeGreaterThanOrEqual(toolbarBox.x);
+      expect(box.x + box.width).toBeLessThanOrEqual(toolbarBox.x + toolbarBox.width);
+      expect(box.y + box.height).toBeLessThanOrEqual(toolbarBox.y + toolbarBox.height);
+    }
+    expect(await toolbar.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true);
+    await search.focus();
+    await expect(search).toBeInViewport();
+    await status.focus();
+    await expect(status).toBeInViewport();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   });
 }

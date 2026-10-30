@@ -6,6 +6,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+// These fixtures hold both process-global review slots before releasing replies.
+static BATCH_FIXTURE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 struct BatchActivity {
     active: AtomicUsize,
     maximum: AtomicUsize,
@@ -107,6 +110,7 @@ fn batch_request(identity: &SessionRequest) -> ReviewRequest {
 
 #[tokio::test]
 async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
+    let _batch = BATCH_FIXTURE.lock().await;
     let (_root, _catalog, engine, id, _) = fixture();
     let activity = Arc::new(BatchActivity::default());
     let snapshot =
@@ -177,6 +181,7 @@ async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
 
 #[tokio::test]
 async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
+    let _batch = BATCH_FIXTURE.lock().await;
     for invalidate in [false, true] {
         let (_root, _catalog, engine, id, _) = fixture();
         let activity = Arc::new(BatchActivity {
@@ -188,8 +193,17 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
                 .await;
         let identity = identity(&snapshot);
         let request = batch_request(&identity);
+        tokio::time::pause();
         let review = engine.review_permissions(request.clone());
         let cancel = async {
+            let waiting = std::time::Instant::now();
+            while activity.started_permits.available_permits() < 2 {
+                assert!(
+                    waiting.elapsed() < Duration::from_secs(30),
+                    "review transports did not start before cancellation test deadline"
+                );
+                tokio::task::yield_now().await;
+            }
             activity
                 .started_permits
                 .acquire_many(2)
@@ -232,18 +246,24 @@ async fn cancelling_or_invalidating_concurrent_batch_stops_queued_reviews() {
                 .iter()
                 .all(CancellationToken::is_cancelled)
         );
+        tokio::time::resume();
     }
 }
 
 #[tokio::test]
 async fn concurrent_batch_rejects_cached_item_expiring_before_publication() {
+    let _batch = BATCH_FIXTURE.lock().await;
     let (_root, _catalog, engine, id, _) = fixture();
-    let activity = Arc::new(BatchActivity::default());
+    let activity = Arc::new(BatchActivity {
+        release: Some(tokio::sync::Semaphore::new(0)),
+        ..BatchActivity::default()
+    });
     let snapshot =
         crate::connection::tests::connected(&engine, id, delayed_client(activity.clone())).await;
     let mut request = batch_request(&identity(&snapshot));
     request.checks.truncate(3);
     let check = request.checks[0].clone();
+    tokio::time::pause();
     {
         let mut state = engine.session.lock().unwrap();
         let permissions = &mut state.as_mut().unwrap().permissions;
@@ -257,16 +277,32 @@ async fn concurrent_batch_rejects_cached_item_expiring_before_publication() {
                     reason: None,
                 },
                 expires: now() + 30_000,
-                deadline: tokio::time::Instant::now() + Duration::from_millis(1),
+                deadline: tokio::time::Instant::now() + Duration::from_secs(1),
                 used: 1,
             },
         );
     }
-    tokio::time::pause();
-    assert!(matches!(
-        engine.review_permissions(request).await,
-        Err(ConnectionError::StaleSession)
-    ));
+    let expire_during_review = async {
+        let waiting = std::time::Instant::now();
+        // Shared review workers can be owned by a different test runtime.
+        while activity.started_permits.available_permits() < 2 {
+            assert!(
+                waiting.elapsed() < Duration::from_secs(30),
+                "uncached reviews did not start before cached-expiry test deadline"
+            );
+            tokio::task::yield_now().await;
+        }
+        activity
+            .started_permits
+            .acquire_many(2)
+            .await
+            .unwrap()
+            .forget();
+        tokio::time::advance(Duration::from_secs(2)).await;
+        activity.release.as_ref().unwrap().add_permits(2);
+    };
+    let (result, ()) = tokio::join!(engine.review_permissions(request), expire_during_review);
+    assert!(matches!(result, Err(ConnectionError::StaleSession)));
     assert_eq!(activity.started.lock().unwrap().len(), 2);
 }
 

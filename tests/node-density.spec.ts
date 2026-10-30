@@ -65,7 +65,7 @@ const cell = async (page: Page, index: number, label: string) => {
   const labels = await grid(page).getByRole("columnheader").allTextContents();
   return row(page, index).getByRole("cell").nth(labels.findIndex(text => text.trim() === label));
 };
-const conditions = (page: Page, index: number) => row(page, index).getByRole("cell").filter({ has: page.getByRole("button", { name: /\+\d+ conditions/ }) });
+const conditions = (page: Page, index: number) => row(page, index).getByRole("cell").filter({ has: page.locator(".astryx-badge").filter({ hasText: /^Ready/ }) });
 const viewport = (page: Page) => page.locator("[data-iceon-table-viewport]").filter({ has: grid(page) });
 
 test("35 conditions keep single-line compact rows, visible initial names and bounded badges", async ({ page }) => {
@@ -75,19 +75,21 @@ test("35 conditions keep single-line compact rows, visible initial names and bou
   const name = row(page, 0).getByRole("button", { name: "worker-density-a-long-node-name", exact: true });
   await expect(name).toBeInViewport();
   expect((await (await cell(page, 0, "Name")).boundingBox())!.width).toBeGreaterThanOrEqual(250);
-  await expect(conditions(page, 0).locator(".astryx-badge")).toHaveCount(1);
-  await expect(conditions(page, 0)).toHaveText("Ready+34 conditions");
-  await expect(conditions(page, 0)).not.toContainText("CustomCondition");
+  await expect(conditions(page, 0).locator(".astryx-badge")).toHaveText(["Ready", ...Array.from({ length: 15 }, (_, index) => `CustomCondition${index * 2 + 1}: True`)]);
+  await expect(conditions(page, 0).getByRole("button")).toHaveText("+19 conditions");
+  await expect(conditions(page, 0)).not.toContainText("CustomCondition0:");
   await expect(conditions(page, 1).locator(".astryx-badge[data-variant=warning]")).toHaveCount(4);
   await expect(conditions(page, 1).locator(".astryx-badge[data-variant=error]")).toHaveText("Ready: False");
-  await expect(conditions(page, 1).getByRole("button")).toHaveText("+30 conditions");
-  await expect(conditions(page, 2)).toHaveText("Ready: Unknown+1 conditions");
+  await expect(conditions(page, 1).locator(".astryx-badge")).toHaveCount(20);
+  await expect(conditions(page, 1).getByRole("button")).toHaveText("+15 conditions");
+  await expect(conditions(page, 2)).toHaveText("Ready: UnknownCustomHealthy: True");
+  await expect(conditions(page, 2).getByRole("button")).toHaveCount(0);
   await expect(row(page, 0)).toContainText("worker");
   await expect(row(page, 0)).toContainText("1.00 / 4.00");
   const adverseCell = conditions(page, 1);
   await adverseCell.scrollIntoViewIfNeeded();
   const bounds = await adverseCell.boundingBox();
-  const summary = adverseCell.getByRole("button", { name: "+30 conditions", exact: true });
+  const summary = adverseCell.getByRole("button", { name: "+15 conditions", exact: true });
   const summaryBounds = await summary.boundingBox();
   expect(summaryBounds!.x + summaryBounds!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width);
   for (const badge of await adverseCell.locator(".astryx-badge").all()) {
@@ -99,7 +101,7 @@ test("35 conditions keep single-line compact rows, visible initial names and bou
 test("additional conditions button opens the exact node inspector without selecting or expanding rows", async ({ page }) => {
   await fixture(page);
   await page.setViewportSize({ width: 1563, height: 420 });
-  const more = conditions(page, 0).getByRole("button", { name: "+34 conditions", exact: true });
+  const more = conditions(page, 0).getByRole("button", { name: "+19 conditions", exact: true });
   await more.scrollIntoViewIfNeeded();
   await more.click();
   const inspector = page.getByRole("region", { name: "Resource details", exact: true });
@@ -138,7 +140,7 @@ for (const width of [360, 640]) test(`narrow ${width} table scrolls internally a
   await region.focus();
   await page.keyboard.press("ArrowRight");
   await expect.poll(() => region.evaluate(element => element.scrollLeft)).toBeGreaterThan(0);
-  const more = conditions(page, 1).getByRole("button", { name: "+30 conditions", exact: true });
+  const more = conditions(page, 1).getByRole("button", { name: "+15 conditions", exact: true });
   await more.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("region", { name: "Resource details", exact: true }).getByRole("heading", { name: "worker-density-b", exact: true })).toBeVisible();

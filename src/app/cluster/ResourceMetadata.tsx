@@ -3,10 +3,11 @@ import { IconButton } from "@astryxdesign/core/IconButton";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import { MetadataList, MetadataListItem } from "@astryxdesign/core/MetadataList";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import type { DetailMetadata } from "./detailMetadata";
 import { DetailList } from "./DetailList";
+import { SupportingSection } from "./SupportingSection";
 
 function list(title: string, items: { key: string; value: string }[]) {
   if (items.length === 0) return null;
@@ -20,8 +21,7 @@ export function DetailMetadataView({ metadata }: { metadata: DetailMetadata }) {
     {list("Annotations", metadata.annotations)}
     {metadata.finalizers.length > 0 && <DetailList title="Finalizers">{metadata.finalizers.map(value => <MetadataListItem key={value} label="Finalizer"><Text type="code" wordBreak="break-word">{value}</Text></MetadataListItem>)}</DetailList>}
     {metadata.deletionTimestamp && <DetailList title="Deletion"><MetadataListItem label="Timestamp"><Text type="code">{metadata.deletionTimestamp}</Text></MetadataListItem></DetailList>}
-    {metadata.managedFields.length > 0 && <VStack gap={2}>
-      <HStack gap={2} vAlign="center"><Text as="h3" size="sm" weight="semibold">Managed fields</Text><IconButton label={showManaged ? "Hide managed fields" : "Show managed fields"} tooltip={showManaged ? "Hide managed fields" : "Show managed fields"} icon={<Icon icon={showManaged ? IconChevronUp : IconChevronDown} />} variant="ghost" size="sm" aria-expanded={showManaged} aria-controls={managedId} onClick={() => setShowManaged(value => !value)} /></HStack>
+    {metadata.managedFields.length > 0 && <SupportingSection title="Managed fields" actions={<IconButton label={showManaged ? "Hide managed fields" : "Show managed fields"} tooltip={showManaged ? "Hide managed fields" : "Show managed fields"} icon={<Icon icon={showManaged ? IconChevronUp : IconChevronDown} />} variant="ghost" size="sm" aria-expanded={showManaged} aria-controls={managedId} onClick={() => setShowManaged(value => !value)} />}>
       <VStack id={managedId} hidden={!showManaged} style={{ display: showManaged ? undefined : "none" }} gap={0}>{showManaged && <MetadataList aria-label="Managed fields" label={{ position: "top" }}>{metadata.managedFields.map((field, index) => <MetadataListItem key={`${field.manager}-${index}`} label={`${field.manager} (${field.operation})`}>
         <VStack gap={1}>
           {field.apiVersion && <Text type="supporting">API version: {field.apiVersion}</Text>}
@@ -30,7 +30,7 @@ export function DetailMetadataView({ metadata }: { metadata: DetailMetadata }) {
           <Text type="code" wordBreak="break-word">{field.fields}</Text>
         </VStack>
       </MetadataListItem>)}</MetadataList>}</VStack>
-    </VStack>}
+    </SupportingSection>}
     {metadata.partial && <Text type="supporting">Some metadata is unavailable or redacted.</Text>}
     {!metadata.partial && !metadata.labels.length && !metadata.annotations.length && !metadata.finalizers.length && !metadata.managedFields.length && !metadata.deletionTimestamp && <Text type="supporting">No additional metadata.</Text>}
   </VStack>;

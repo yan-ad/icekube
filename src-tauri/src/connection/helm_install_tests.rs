@@ -168,7 +168,7 @@ async fn synthetic_install_cancel_timeout_and_output_limit() {
         let script = match mode {
             0 => format!("touch '{}'", marker.display()),
             1 => "exec /bin/sleep 30".into(),
-            2 => "while :; do printf 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; done".into(),
+            2 => "exec /usr/bin/yes aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
             _ => "echo private >&2; exit 1".into(),
         };
         let result = supervise_owned(
@@ -176,7 +176,11 @@ async fn synthetic_install_cancel_timeout_and_output_limit() {
             vec!["-c".into(), script.into()],
             file,
             cancel,
-            Duration::from_millis(if mode == 2 { 2000 } else { 100 }),
+            if mode == 1 {
+                Duration::from_millis(100)
+            } else {
+                Duration::from_secs(10)
+            },
             Some(directory),
         )
         .await;

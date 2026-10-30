@@ -50,24 +50,13 @@ async function fixture(page: Page, phase = "ready", error: string | null = null,
 
 async function blockerFixture(page: Page) {
   await fixture(page);
-  const main = await (await page.request.get("/src/main.tsx")).text();
-  const reactPath = main.match(/import React from "([^"]+)"/)?.[1];
-  const domPath = main.match(/import ReactDOM from "([^"]+)"/)?.[1];
-  const preferences = await (await page.request.get("/src/app/preferences/PreferencesProvider.tsx")).text();
-  const themePath = preferences.match(/import \{ Theme \} from "([^"]+)"/)?.[1];
-  expect(reactPath).toBeTruthy();
-  expect(domPath).toBeTruthy();
-  expect(themePath).toBeTruthy();
   await page.route("**/update-blocker-fixture", route => route.fulfill({ contentType: "text/html; charset=utf-8", body: `<!doctype html>
     <html><body><main id="fixture"></main><script type="module">
       import RefreshRuntime from '/@react-refresh';
       RefreshRuntime.injectIntoGlobalHook(window);
       window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type;
       window.__vite_plugin_react_preamble_installed__ = true;
-      const { default: React } = await import(${JSON.stringify(reactPath)});
-      const { default: ReactDOM } = await import(${JSON.stringify(domPath)});
-      const { createRoot } = ReactDOM;
-      const { Theme } = await import(${JSON.stringify(themePath)});
+      const { React, createRoot, Theme } = await import('/tests/helpers/updateFixtureModules.ts');
       const { brandTheme } = await import('/src/themes/brand.ts');
       const { UpdateProvider, useUpdateBlocker } = await import('/src/app/updates/UpdateProvider.tsx');
       function Work({ active }) {
@@ -153,9 +142,10 @@ for (const theme of ["light", "dark"] as const) {
       await page.setViewportSize({ width, height: 800 });
       await expect(restart).toBeVisible();
       expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
-      const box = await restart.boundingBox();
-      expect(box!.x).toBeGreaterThanOrEqual(80);
-      expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      await expect.poll(async () => {
+        const box = await restart.boundingBox();
+        return box !== null && box.x >= 80 && box.x + box.width <= width;
+      }).toBe(true);
     }
     await page.keyboard.press("Tab");
     for (let i = 0; i < 20 && !await restart.evaluate(element => element === document.activeElement); i++) await page.keyboard.press("Tab");

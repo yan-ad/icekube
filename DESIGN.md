@@ -1052,8 +1052,19 @@ closing removes content and cancels reads immediately, leaving an inert collapsi
 shell rather than an active hidden panel.
 
 Workloads overview has seven donuts for bounded loaded inventories, not live
-totals: at most five pages/500 resources per kind, read sequentially. Actual
-readiness/terminal conditions determine status; unknown facts remain unknown.
+totals: at most five pages/500 workloads per kind, read sequentially. Lifecycle
+labels use Running, Pending, Succeeded, Failed, Terminating, Scheduled and Suspended;
+they do not claim readiness. Controllers use observed desired/ready counters,
+with an omitted ready counter treated as zero only when desired is known.
+Unlike Freelens's child-Pod association model, these are controller-counter
+summaries. Unknown desired counts stay Unknown; failed Job attempts alone do not
+establish terminal failure. Charts link to their inventory and keyboard-operable
+color-key legends toggle segments without changing loaded totals.
+Events load at most 20 pages/2,000 records. The sortable, ten-row paged table
+defaults to newest creation first (Age), not last occurrence. Sorting applies
+before paging across all loaded events; Last seen remains a separate timestamp.
+Partial inventory remains visible and never claims cluster-wide latest events.
+Warning messages use Astryx's semantic red text token, not arbitrary colors.
 Events show message/source/count/times from Rust projection (text capped at 256
 UTF-8 bytes with control/bidi filtering), not raw objects or universally
 secret-free text. CRD inventory uses limit 10, same-token limit-1 retry on an
@@ -1073,6 +1084,15 @@ Rust. Loading, missing metrics, partial, stale and independent
 failures remain visible. No Prometheus integration is configured: there are no
 historical charts or fabricated time series. Final validation is pending; native
 file-picker and actual-cluster smoke tests have not been performed.
+
+Inspector fact groups and secondary tables use flat Astryx cards with headings
+inside their boundary. Primary resource inventories remain compact unwrapped
+tables. Routine scope explanations use named information popovers; errors,
+stale results, redaction warnings and partial data stay visible. Memory usage
+shares a theme-aware fill across Nodes and Cluster overview, distinct from its
+track in both themes. This is used/allocatable, not a fabricated requested-resource
+overlay. The workload heading and refresh indicator share a group so an inactive
+indicator does not introduce a second section gap.
 
 [Release dry run](docs/release-dry-run.md) documents the manual, CI-gated ARM64
 ad-hoc packaging check without a version bump, tag, Release or updater artifacts.

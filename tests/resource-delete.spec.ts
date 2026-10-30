@@ -20,7 +20,7 @@ async function clusterAction(page: Page, name: string) {
 }
 async function namespace(page: Page, name: string) {
   await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: /^Namespace(?:\s|$)/ }).click();
+  await page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ }).click();
   await page.getByRole("option", { name, exact: true }).click();
 }
 async function fixture(page: Page, section = "config-maps", options: Controls = {}) {
@@ -45,6 +45,8 @@ async function fixture(page: Page, section = "config-maps", options: Controls = 
       __releaseDelete: () => { control.hold = false; pending.splice(0).forEach(resolve => resolve()); },
       __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Request }) => {
         const r = { ...args?.request }; calls.push({ command, request: r });
+        if (command === "cluster_namespace_cache_get") return null;
+        if (command === "cluster_namespace_cache_refresh") return { clusterId: r.clusterId, sessionId: r.sessionId, names: ["team-a", "team-b"], fetchedAt: Date.now(), expiresAt: Date.now() + 60_000, partial: false };
         if (command === "cluster_permissions_cancel") return null;
         if (command === "cluster_permissions_review") {
           const request = args!.request as unknown as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
@@ -224,7 +226,10 @@ for (const width of [1440, 390]) for (const dock of [false, true]) test(`${width
   if (dock) {
     await page.getByRole("button", { name: "alpha", exact: true }).click();
     const details = page.getByRole("region", { name: "Resource details", exact: true });
-    await details.getByRole("button", { name: "Logs", exact: true }).click();
+    if (width === 390) {
+      await details.getByRole("button", { name: "More actions", exact: true }).click();
+      await page.getByRole("menuitem", { name: "Logs", exact: true }).click();
+    } else await details.getByRole("button", { name: "Logs", exact: true }).click();
     await expect(details).toHaveCount(0);
     await expect.poll(() => page.locator(".resource-inspector").evaluate(element => element.getBoundingClientRect().width)).toBeLessThanOrEqual(1);
     await expect(page.getByRole("complementary", { name: "Pod dock", exact: true })).toBeVisible();
@@ -296,7 +301,7 @@ for (const disposal of ["stop", "route", "namespace", "session"]) test(`${dispos
   }
   else {
     // Exercise namespace owner disposal while the modal correctly makes pointer controls inert.
-    await page.getByRole("button", { name: /^Namespace(?:\s|$)/, includeHidden: true }).evaluate(node => (node as HTMLButtonElement).click());
+    await page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/, includeHidden: true }).evaluate(node => (node as HTMLButtonElement).click());
     await page.getByRole("option", { name: "team-b", exact: true, includeHidden: true }).dispatchEvent("click");
   }
   await expect(dialog(page)).toHaveCount(0);

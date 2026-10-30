@@ -79,6 +79,11 @@ async function fixture(page: Page, section: string) {
         unregisterCallback: (id: number) => callbacks.delete(id),
         invoke: async (command: string, args?: Request) => {
           const r = { ...args?.request }; calls.push({ command, request: r }); order.push(command);
+          if (command === "cluster_namespace_cache_get") return null;
+          if (command === "cluster_namespace_cache_refresh") return { clusterId: r.clusterId, sessionId: r.sessionId, names: ["team-a", "team-b"], fetchedAt: Date.now(), expiresAt: Date.now() + 60_000, partial: false };
+          if (command === "cluster_resource_collection") return { ...r, state: "complete", items: [] };
+          if (command === "cluster_resource_collection_cancel" || command === "helm_detail_cancel") return null;
+          if (command === "helm_detail") return { ...r, facts: r.view === "charts" ? [{ label: "Version", value: r.version }] : [], history: r.view === "releases" ? [{ revision: 3, updated: "2026-10-26", status: "deployed", chart: "alpha-1.2.3", appVersion: "4" }] : [], truncated: false };
           if (command === "cluster_permissions_cancel") return null;
           if (command === "cluster_permissions_review") {
             const request = args!.request as import("../src/app/cluster/permissionsApi").PermissionReviewRequest;
@@ -254,14 +259,14 @@ for (const view of ["charts", "releases"] as const) test(`Helm ${view}: both ges
     await expect(dialog(page).getByRole("textbox", { name: "Chart version (optional)", exact: true })).toHaveValue("1.2.3");
     expect(await calls(page, "helm_install")).toEqual([]);
     await dialog(page).getByRole("button", { name: /^Namespace/ }).click();
-    await page.getByRole("option", { name: "alpha", exact: true }).click();
+    await page.getByRole("option", { name: "team-a", exact: true }).click();
     await dialog(page).getByRole("textbox", { name: "Release name", exact: true }).fill("chosen-release");
     await dialog(page).getByRole("button", { name: "Run server dry-run", exact: true }).click();
     await expect(dialog(page)).toContainText("Server dry-run passed");
     expect((await calls(page, "helm_install")).map(call => call.request.dryRun)).toEqual([true]);
     await dialog(page).getByRole("button", { name: "Install release", exact: true }).click();
     await expect(dialog(page)).toHaveCount(0);
-    expect((await calls(page, "helm_install")).map(call => call.request)).toEqual([true, false].map(dryRun => ({ clusterId: "one", sessionId: menu.sessionId, namespace: "alpha", releaseName: "chosen-release", chart: name, version: "1.2.3", valuesYaml: "{}\n", dryRun, readId: expect.any(Number) })));
+    expect((await calls(page, "helm_install")).map(call => call.request)).toEqual([true, false].map(dryRun => ({ clusterId: "one", sessionId: menu.sessionId, namespace: "team-a", releaseName: "chosen-release", chart: name, version: "1.2.3", valuesYaml: "{}\n", dryRun, readId: expect.any(Number) })));
   }
   expect(await calls(page, "cluster_resource_detail")).toEqual([]);
   await noListener(page);

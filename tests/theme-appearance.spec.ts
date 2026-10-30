@@ -112,6 +112,8 @@ test("draft stays unapplied until Save, then Light and Dark apply without reload
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");
   const light = await appearance(page);
   expect(light.background).not.toBe(dark.background);
+  await expect(page.getByRole("dialog")).toContainText("Preferences saved.");
+  await page.getByRole("button", { name: "Done", exact: true }).click();
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await page.reload();
   await expect(page.locator("html")).toHaveAttribute("data-theme", "light");

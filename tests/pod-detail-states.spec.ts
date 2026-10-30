@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-type Options = { eventsState?: string | null; populated?: boolean; patchOnly?: boolean; updateOnly?: boolean };
+type Options = { eventsState?: string | null; populated?: boolean; patchOnly?: boolean; updateOnly?: boolean; permissionTtl?: number };
 type Call = { command: string; request: Record<string, unknown> };
 type FixtureWindow = Window & { __detailCalls: Call[]; __patchOnly: boolean };
 const inspector = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
@@ -27,7 +27,7 @@ async function fixture(page: Page, options: Options = { eventsState: "complete" 
             case "cluster_permissions_review": {
               const checks = r.checks as { action: string }[];
               return { ...scope, readId: r.readId, authorizationEpoch: `fixture-${r.sessionId}`, revision: r.readId,
-                checkedAt: Date.now(), expiresAt: Date.now() + 1500,
+                checkedAt: Date.now(), expiresAt: Date.now() + (options.permissionTtl ?? 1500),
                 items: checks.map(check => ({ check, decision: (window as FixtureWindow).__patchOnly && check.action === "update" || options.updateOnly && check.action === "patch" ? "denied" : "allowed", reason: null })) };
             }
             case "catalog_list": return { revision: 1, discoveryError: null, webLinks: [], clusters: [
@@ -107,7 +107,8 @@ test("patch-only access cannot edit a PUT-based Pod replacement", async ({ page 
 });
 
 test("update access allows review, then patch-only revocation disables Save and editing", async ({ page }) => {
-  await fixture(page, { eventsState: "complete", updateOnly: true });
+  await page.clock.install();
+  await fixture(page, { eventsState: "complete", updateOnly: true, permissionTtl: 60_000 });
   await inspector(page).getByRole("button", { name: "Edit YAML", exact: true }).click();
   const editor = inspector(page).getByRole("textbox", { name: "YAML", exact: true });
   const save = inspector(page).getByRole("button", { name: "Save YAML", exact: true });
@@ -119,6 +120,7 @@ test("update access allows review, then patch-only revocation disables Save and 
   await expect(dialog.getByRole("button", { name: "Confirm mutation", exact: true })).toBeEnabled();
   await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await page.evaluate(() => { (window as FixtureWindow).__patchOnly = true; });
+  await page.clock.runFor(61_000);
   await expect(save).toBeDisabled();
   await expect(editor).toHaveAttribute("aria-readonly", "true");
   await noMutations(page);

@@ -71,6 +71,15 @@ for (const theme of ["light", "dark"] as const) for (const section of ["nodes", 
     page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await fixture(page, section);
+    if (section === "nodes") {
+      const info = panel(page).getByRole("button", { name: "About resource metadata", exact: true });
+      await info.focus(); await info.press("Enter");
+      await expect(page.getByRole("dialog", { name: "About resource metadata", exact: true })).toContainText("Only reviewed inventory metadata");
+      await page.keyboard.press("Escape");
+      await expect(info).toBeFocused();
+      await expect(page.getByRole("dialog", { name: "About resource metadata", exact: true })).toHaveCount(0);
+      await expect(panel(page).getByRole("region", { name: "Resource facts", exact: true }).locator("..")).toHaveClass(/astryx-card/);
+    }
     const lists = panel(page).locator(".detail-list");
     await geometry(lists, 2);
     const handle = page.getByRole("separator", { name: "Resize resource details" });

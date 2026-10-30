@@ -71,7 +71,7 @@ async function refreshForwards(page: Page) {
   await page.mouse.move(0, 0);
 }
 async function selectNamespace(page: Page, namespace: string) {
-  const selector = page.getByRole("button", { name: /^(?:Pod namespace|Namespace)(?:\s|$)/ });
+  const selector = page.getByRole("button", { name: /^(?:Pod namespace|Namespace)(?! options)(?:\s|$)/ });
   await expect(selector).toBeVisible();
   await expect(page.getByRole("status", { name: "Loading namespaces…", exact: true })).toHaveCount(0);
   await selector.click();
@@ -229,11 +229,11 @@ test("Helm releases combine local search and status with validated namespace rea
   await expect(table).toContainText("No releases match your filters.");
   expect(await calls(page, "helm_table")).toEqual(before);
   await selectNamespace(page, "production");
-  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("production");
+  await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toContainText("production");
   const productionRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(productionRead).toEqual({ clusterId: "one", sessionId: expect.stringMatching(/^lease-/), view: "releases", namespace: "production", readId: expect.any(Number) });
   await selectNamespace(page, "All namespaces");
-  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("All namespaces");
+  await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toContainText("All namespaces");
   const allNamespacesRead = (await calls(page, "helm_table")).at(-1)!.request;
   expect(allNamespacesRead).toEqual({ clusterId: "one", sessionId: productionRead.sessionId, view: "releases", namespace: null, readId: expect.any(Number) });
 });
@@ -284,7 +284,7 @@ test("late Helm results cannot cross namespace scopes", async ({ page }) => {
   await expect.poll(async () => (await calls(page, "helm_cancel")).at(-1)?.request).toEqual(helmCancelScope(canceled));
   await page.evaluate(() => (window as MockWindow).__releaseServices());
   await expect(grid(page, "Helm Releases")).not.toContainText("team-a");
-  await expect(page.getByRole("button", { name: /^Namespace/ })).toContainText("production");
+  await expect(page.getByRole("button", { name: /^Namespace(?! options)(?:\s|$)/ })).toContainText("production");
 });
 
 test("port table resolves Pod UID before loopback auto-port start, survives navigation, and stops through IPC", async ({ page }) => {

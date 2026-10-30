@@ -7,6 +7,8 @@ import { IconX, IconArrowsMaximize, IconArrowsMinimize, IconRefresh, IconList, I
 import { MetadataListItem } from "@astryxdesign/core/MetadataList";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
+import { SupportingSection } from "./SupportingSection";
+import { SectionInfo } from "./SectionInfo";
 import { ContentLoading } from "../components/ContentLoading";
 import { ContentError } from "../components/ContentError";
 import { connectionMessage, errorCode, nextReadId, type SessionRequest, type ResourceKind } from "./api";
@@ -204,7 +206,7 @@ function InspectorContent({ clusterId, sessionId }: SessionRequest) {
     <VStack gap={0} className="resource-inspector-body">
       {selection && isOpen && (selection.type === "summary" ? <VStack padding={4} gap={3}>
         {selection.summary.status && <StatusBadge status={selection.summary.status} />}
-        <DetailList>{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</DetailList>
+        <DetailList title="Captured summary">{selection.summary.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}>{fact.value}</MetadataListItem>)}</DetailList>
       </VStack> : selection.type === "helm" ? <HelmDetails key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} revision={revision} onLoadingChange={onLoadingChange} /> : selection.reference.kind === "pods" && !selection.relatedColumn && selection.reference.namespace ?
         <InspectedPod key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} reference={selection.reference} edit={selection.edit} revision={revision} onLoadingChange={onLoadingChange} /> :
         <PermissionGate check={{ kind: selection.reference.kind, namespace: selection.reference.namespace, name: selection.reference.name, action: "get" }}><ResourceDetails key={JSON.stringify([clusterId, sessionId, selection.serial])} clusterId={clusterId} sessionId={sessionId} selection={selection} revision={revision} onLoadingChange={onLoadingChange} /></PermissionGate>)}
@@ -259,7 +261,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
       {!loading && !error && <NodeActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       {!loading && !error && <NodeDrain clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       <ResourcePaneDelete clusterId={clusterId} sessionId={sessionId} detail={detail} disabled={loading || !!error} onChanged={() => setActionRevision(value => value + 1)} />
-      <DetailList>
+      <SupportingSection title="Resource facts" info={<SectionInfo label="About resource metadata">Only reviewed inventory metadata is shown. Raw objects, credentials, and configuration contents are not exposed.</SectionInfo>}><DetailList>
         <MetadataListItem label="Name">{detail.item.name}</MetadataListItem>
         {detail.item.namespace && <MetadataListItem label="Namespace"><ResourceRelationLink reference={{ kind: "namespaces", namespace: null, name: detail.item.namespace }}>{detail.item.namespace}</ResourceRelationLink></MetadataListItem>}
         <MetadataListItem label="Created">{detail.item.createdAt ?? "Unknown"}</MetadataListItem>
@@ -268,15 +270,14 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
         {Object.entries(detail.item.columns).map(([key, value]) => <MetadataListItem key={key} label={labels.get(key) ?? key}>
           {detail.related[key] ? <ResourceRelationLink reference={detail.related[key]}>{value}</ResourceRelationLink> : <Text>{value || "Unknown"}</Text>}
         </MetadataListItem>)}
-      </DetailList>
+      </DetailList></SupportingSection>
       {detail.metadata && <DetailMetadataView metadata={detail.metadata} />}
       {detail.eventDiagnostic && <EventDiagnosticView diagnostic={detail.eventDiagnostic} />}
-      {detail.item.node && <VStack gap={2}><Text as="h3">Conditions</Text><HStack gap={2} wrap="wrap">{detail.item.node.conditions.map(condition => <NodeConditionBadge key={condition.type} condition={condition} />)}</HStack></VStack>}
+      {detail.item.node && <SupportingSection title="Conditions"><HStack gap={2} wrap="wrap">{detail.item.node.conditions.map(condition => <NodeConditionBadge key={condition.type} condition={condition} />)}</HStack></SupportingSection>}
       {detail.sections?.map((section, index) => <DetailList key={`${section.title}-${index}`} title={section.title}>
         {section.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}><Text wordBreak="break-all">{fact.value}</Text></MetadataListItem>)}
       </DetailList>)}
       <DetailCollections clusterId={clusterId} sessionId={sessionId} reference={detail.reference} revision={revision + actionRevision} />
-      <Text type="supporting">Only reviewed inventory metadata is shown. Raw objects, credentials, and configuration contents are not exposed.</Text>
     </>}
   </VStack>;
 }

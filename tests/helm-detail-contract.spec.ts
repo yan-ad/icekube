@@ -75,7 +75,7 @@ test("runtime requests fail closed before invoking and errors are not rewritten"
 });
 
 test("refresh retains only validated same-scope details and cancels obsolete reads without clearing the new loading owner", async ({ page }) => {
-  await page.route("**/__helm_detail_contract", route => route.fulfill({ contentType: "text/html", body: `<html><body><main id="root"></main><script type="module">
+  await page.route("**/__helm_detail_contract", route => route.fulfill({ contentType: "text/html", body: `<html><body><button id="refresh">Refresh fixture details</button><main id="root"></main><script type="module">
     import RefreshRuntime from '/@react-refresh';
     RefreshRuntime.injectIntoGlobalHook(window);
     window.$RefreshReg$ = () => {}; window.$RefreshSig$ = () => type => type;
@@ -93,6 +93,7 @@ test("refresh retains only validated same-scope details and cancels obsolete rea
       clusterId: 'cluster', sessionId, reference: {view: 'charts', name, namespace: null, version: '1.0.0'}, revision, onLoadingChange
     }));
     window.closeDetail = () => root.render(null);
+    document.getElementById('refresh').onclick = () => window.renderDetail(2);
     window.renderDetail();
   </script></body></html>` }));
   await page.addInitScript(() => {
@@ -114,16 +115,16 @@ test("refresh retains only validated same-scope details and cancels obsolete rea
   await page.evaluate(() => { const w = window as any; w.control = { hold: true, fail: true }; w.renderDetail(1); });
   await expect(page.getByRole("progressbar")).toBeVisible();
   await expect(page.getByText("Validated snapshot", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status")).toContainText("may be stale");
+  await expect(page.getByRole("status").filter({ hasText: "may be stale" })).toHaveCount(1);
   await page.evaluate(() => (window as any).pending.shift()());
   await expect(page.getByRole("alert")).toContainText("last successful snapshot");
   await expect(page.getByRole("alert")).not.toContainText("PRIVATE");
   await expect(page.getByText("Validated snapshot", { exact: true })).toBeVisible();
   await page.evaluate(() => { const w = window as any; w.control = { malformed: true }; });
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByRole("button", { name: "Refresh fixture details", exact: true }).click();
   await expect(page.getByRole("alert")).toBeVisible();
   await expect(page.getByText("Validated snapshot", { exact: true })).toBeVisible();
-  await page.evaluate(() => { const w = window as any; w.control = { hold: true, text: "obsolete" }; w.renderDetail(2); });
+  await page.evaluate(() => { const w = window as any; w.control = { hold: true, text: "obsolete" }; w.renderDetail(3); });
   await expect.poll(() => page.evaluate(() => (window as any).pending.length)).toBe(1);
   await page.evaluate(() => { const w = window as any; w.loading = []; w.control = { hold: true, text: "replacement" }; w.renderDetail(3, "stable/other", "replacement-session"); });
   await expect(page.getByText("Validated snapshot", { exact: true })).toHaveCount(0);

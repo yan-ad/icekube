@@ -48,7 +48,9 @@ test("overview uses actual utilization and bounded, sorted warning events", asyn
   const events = page.getByRole("table", { name: "Latest warning events" });
   await expect(events.getByRole("row").nth(1)).toContainText("Latest warning");
   await expect(events).not.toContainText("Not a warning");
-  await expect(page.getByText(/Historical charts unavailable/)).toBeVisible();
+  await page.getByRole("button", { name: "About cluster overview", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "About cluster overview" })).toContainText("Historical charts unavailable");
+  await page.keyboard.press("Escape");
   const reads = await page.evaluate(() => (window as Fixture).__clusterReads.filter(call => call.command === "cluster_resources"));
   expect(reads.filter(read => read.kind === "events").every(read => read.status === "Warning")).toBe(true);
   expect(reads.every(read => !read.continueToken)).toBe(true);
@@ -71,13 +73,13 @@ test("empty results and isolated read failures remain explicit", async ({ page }
   await expect(page.getByText("No warning events returned.", { exact: true })).toBeVisible();
   await page.evaluate(() => { (window as Fixture).__clusterOverview.empty = false; (window as Fixture).__clusterOverview.failure = true; });
   await page.keyboard.press("ControlOrMeta+r");
-  await expect(page.getByRole("alert").filter({ hasText: "Kubernetes permissions" })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Node condition warnings", exact: true }).getByRole("alert")).toBeVisible();
   await expect(page.getByRole("table", { name: "Latest warning events" })).toBeVisible();
 });
 
 test("pending reads are cancelled on navigation and late responses are ignored", async ({ page }) => {
   await fixture(page, { hold: true });
-  await expect(page.getByText("Loading nodes…", { exact: true })).toBeVisible();
+  await expect(page.getByRole("region", { name: "Node condition warnings", exact: true }).getByText("Loading nodes…", { exact: true })).toBeVisible();
   await page.goto("/#/cluster/one?section=storage");
   await expect.poll(() => page.evaluate(() => (window as Fixture).__clusterReads.filter(call => call.command === "cluster_resources_cancel" && call.kind === "nodes").length)).toBeGreaterThan(0);
   await page.evaluate(() => (window as Fixture).__releaseCluster());

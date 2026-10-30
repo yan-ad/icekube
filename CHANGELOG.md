@@ -38,8 +38,23 @@
 
 ### Verification and distribution
 
-Playwright was skipped locally at the user's request for this import/release
-preparation. Native file drops and Windows runtime behavior still need smoke
+- Group inspector facts and supporting overview/related tables in Astryx cards.
+  Keep primary inventory tables compact. Repair invisible memory usage in dark
+  mode and move routine overview explanations into information popovers.
+- Use lifecycle terminology for workload charts, compact interactive color-key
+  legends and tighter heading spacing. Add paged/sortable loaded events, default
+  newest-creation ordering and semantic warning message colors. Controller
+  summaries use replica counters, not Freelens's child-Pod health model.
+- Repair strict IPC fixtures, responsive toolbar selectors and permission-expiry
+  timing. Export same-commit Rust collection contracts alongside detail contracts
+  for browser CI instead of compiling Rust on frontend-only runners.
+
+Local validation for the 0.0.8 retry passed: 1,176 Chromium fixture tests
+(four production-only skips), six synthetic dev-engine tests, 473 Rust backend
+tests, 16 release-tool tests, 18 publisher tests and five Bun tool tests, plus
+formatting, production build and strict Clippy. GitHub CI/package validation
+remains the publication gate.
+Native file drops and Windows runtime behavior still need smoke
 validation; no live-provider, real-credential or live-cluster success is claimed.
 Full CI and both platform packages, verified signed updater packaging and
 uploaded-byte checks gate publication. macOS remains ad-hoc signed and not

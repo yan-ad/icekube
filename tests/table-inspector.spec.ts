@@ -123,15 +123,17 @@ for (const view of ["charts", "releases"] as const) test(`Helm ${view} inspect s
   const inspector = page.getByRole("region", { name: "Resource details", exact: true });
   await expect(inspector).toContainText(view === "charts" ? "Version-specific chart details" : "Revision history");
   await expect(inspector.getByRole("alert")).toHaveCount(0);
-  await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText(view === "charts" ? "stable/chart" : "release-a");
+  await expect(inspector.getByRole("region", { name: "Helm identity", exact: true })).toContainText(view === "charts" ? "stable/chart" : "release-a");
   if (view === "charts") {
-    await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText("Requested version1.2.3");
+    await expect(inspector.getByRole("region", { name: "Helm identity", exact: true })).toContainText("Requested version1.2.3");
     await expect(inspector.getByText("Chart metadata", { exact: true })).toHaveCount(0);
   } else {
-    await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText("team-a");
+    await expect(inspector.getByRole("region", { name: "Helm identity", exact: true })).toContainText("team-a");
     await expect(inspector.getByLabel("Revision 3", { exact: true })).toContainText("chart-1.2.3");
     await expect(inspector.getByLabel("Revision 2", { exact: true })).toContainText("chart-1.2.2");
-    await expect(inspector).toContainText("Values, manifests, notes and revision descriptions are withheld");
+    await inspector.getByRole("button", { name: "About revision history", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "About revision history", exact: true })).toContainText("Values, manifests, notes and revision descriptions are withheld");
+    await page.keyboard.press("Escape");
   }
   const requests = await page.evaluate(() => (window as unknown as { __inspectorCalls: Call[] }).__inspectorCalls);
   const details = requests.filter(call => call.command === "helm_detail");

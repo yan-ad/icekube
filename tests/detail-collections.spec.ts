@@ -66,10 +66,10 @@ test("partial, denied and unavailable sections stay independent", async ({ page 
   await expect(page.getByRole("button", { name: "pods-one", exact: true })).toBeVisible();
   await expect(page.getByRole("table")).toHaveCount(1);
   await expect(page.getByText("Pods Status (returned subset, partial): Running: 1", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Retry", exact: true })).toHaveCount(2);
+  await expect(page.getByRole("button", { name: /^Retry / })).toHaveCount(2);
   await page.evaluate(() => { (window as any).controls.replicaSets = {}; });
   const section = page.locator('[aria-label="Replica Sets related resources"]');
-  await section.getByRole("button", { name: "Retry", exact: true }).click();
+  await section.getByRole("button", { name: "Retry Replica Sets", exact: true }).click();
   await expect(section.getByRole("table")).toBeVisible();
   expect(await page.evaluate(() => (window as any).calls.filter((call: any) => call.command === "cluster_resource_collection").slice(-1).map((call: any) => call.request.collection))).toEqual(["replicaSets"]);
 });
@@ -85,7 +85,7 @@ test("refresh retains stale results on failure, retry is collection-local, and o
   await expect(page.getByRole("button", { name: "worker-1.example.test", exact: true })).toBeDisabled();
   await expect(page.getByRole("button", { name: "Failed to schedule pod", exact: true })).toBeDisabled();
   await page.evaluate(() => { (window as any).controls = {}; });
-  await page.getByRole("button", { name: "Retry", exact: true }).click();
+  await page.getByRole("button", { name: "Retry Pods", exact: true }).click();
   await expect(page.getByRole("button", { name: "pods-one", exact: true })).toBeEnabled();
   await rerender(page, 2, "session-b");
   await expect(page.getByRole("table")).toHaveCount(3);

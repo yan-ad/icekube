@@ -3,7 +3,8 @@ import { Table, proportional, type TableColumn } from "@astryxdesign/core/Table"
 import { IconButton } from "@astryxdesign/core/IconButton";
 import { Icon } from "@astryxdesign/core/Icon";
 import { IconRefresh } from "@tabler/icons-react";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
+import { VStack } from "@astryxdesign/core/Stack";
+import { SupportingSection } from "./SupportingSection";
 import { Text } from "@astryxdesign/core/Text";
 import { Button } from "@astryxdesign/core/Button";
 import { ContentError } from "../components/ContentError";
@@ -44,10 +45,8 @@ function CollectionSection({ collection, items, state, error, loading, onRetry }
     for (const item of items) counts.set(item.status, (counts.get(item.status) ?? 0) + 1);
     return Array.from(counts).sort(([left], [right]) => left.localeCompare(right)).map(([status, count]) => `${status}: ${count}`).join(", ");
   }, [items]);
-  return <VStack gap={2} aria-label={`${title(collection)} related resources`}>
-    <HStack gap={2} vAlign="center"><Text as="h3" size="sm" weight="semibold">{title(collection)}</Text>
-      {!loading && (error || unavailable) && <IconButton label={`Retry ${title(collection)}`} tooltip={`Retry ${title(collection)}`} icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" onClick={onRetry} />}
-    </HStack>
+  return <SupportingSection title={title(collection)} label={`${title(collection)} related resources`} actions={
+      !loading && (error || unavailable) ? <IconButton label={`Retry ${title(collection)}`} tooltip={`Retry ${title(collection)}`} icon={<Icon icon={IconRefresh} />} size="sm" variant="ghost" onClick={onRetry} /> : undefined}>
     {loading && <ContentLoading label={`Loading ${title(collection).toLowerCase()}…`} refreshing={items.length > 0} />}
     {error && <ContentError title={`${title(collection)} unavailable`} message={`${items.length ? "Retained results may be stale. " : ""}${error}`} retained={items.length > 0} />}
     {!loading && !error && state === "partial" && <ContentError title={`${title(collection)} incomplete`} message="Some related resources could not be read." retained />}
@@ -56,7 +55,7 @@ function CollectionSection({ collection, items, state, error, loading, onRetry }
     {!loading && !error && state === "complete" && items.length === 0 && <Text>No related resources.</Text>}
     {collection === "pods" && !disabled && (state === "complete" || state === "partial") && <Text size="sm">{`Pods Status (returned subset, ${state}): ${statusCounts || "No pods returned"}`}</Text>}
     {items.length > 0 && <Table aria-label={title(collection)} data={items} columns={tableColumns} idKey={item => `${item.reference.kind}:${item.reference.namespace ?? ""}:${item.reference.name}:${item.reference.uid}`} density="compact" textOverflow="truncate" hasHover />}
-  </VStack>;
+  </SupportingSection>;
 }
 export function DetailCollections({ clusterId, sessionId, reference, revision }: SessionRequest & { reference: ResourceReference; revision: number }) {
   const collections = collectionsFor(reference.kind);

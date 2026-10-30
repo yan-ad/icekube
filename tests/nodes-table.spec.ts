@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-type Options = { metrics?: string; malformed?: "negative" | "conditions" | "timestamp"; failedRefresh?: boolean; empty?: boolean; paginated?: boolean; ageMinutes?: number };
+type Options = { metrics?: string; malformed?: "negative" | "conditions" | "timestamp"; failedRefresh?: boolean; empty?: boolean; paginated?: boolean; ageMinutes?: number; usedFraction?: number };
 async function fixture(page: Page, options: Options = {}) {
   page.on("pageerror", (error) => { throw error; });
   await page.addInitScript((options) => {
@@ -15,6 +15,7 @@ async function fixture(page: Page, options: Options = {}) {
       memory: { used: 8.8 * 1024 ** 3, allocatable: 73.2 * 1024 ** 3, capacity: 80 * 1024 ** 3 },
       conditions: [{ type: "Ready", status: "True" }, { type: "MemoryPressure", status: "False" }, { type: "CustomCondition", status: "Unknown" }],
     };
+    if (options.usedFraction !== undefined) node.memory.used = node.memory.allocatable * options.usedFraction;
     if (options.metrics && options.metrics !== "available") {
       node.cpu.used = null as unknown as number; node.memory.used = null as unknown as number;
     }
@@ -268,4 +269,32 @@ async function clusterAction(page: Page, name: string) {
   }
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();
   await page.getByRole("menuitem", { name, exact: true }).click();
+}
+
+for (const colorScheme of ["light", "dark"] as const) for (const fraction of [0, 0.25, 1, 1.5]) {
+  test(`memory usage retains values and contrasting fill at ${fraction} (${colorScheme})`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme, reducedMotion: "reduce" });
+    await fixture(page, { usedFraction: fraction });
+    const bar = table(page).getByRole("row").nth(1).getByRole("progressbar", { name: /memory$/ });
+    await expect(bar).toBeVisible();
+    const measured = await bar.evaluate(element => {
+      const fill = element.querySelector('.astryx-progress-bar-fill')!;
+      const luminance = (color: string) => {
+        const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(value => {
+          const channel = value / 255;
+          return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+        });
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+      };
+      const trackColor = getComputedStyle(element).backgroundColor;
+      const fillColor = getComputedStyle(fill).backgroundColor;
+      const values = [luminance(trackColor), luminance(fillColor)];
+      return { ratio: (Math.max(...values) + 0.05) / (Math.min(...values) + 0.05),
+        width: fill.getBoundingClientRect().width / element.getBoundingClientRect().width,
+        trackColor, fillColor };
+    });
+    expect(measured.ratio, JSON.stringify(measured)).toBeGreaterThanOrEqual(3);
+    expect(measured.width).toBeCloseTo(Math.min(fraction, 1), 2);
+    await expect(bar).toHaveAttribute("aria-valuetext", /used \/ allocatable/);
+  });
 }

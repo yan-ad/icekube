@@ -8,6 +8,8 @@ import { nextReadId, type SessionRequest } from "./api";
 import { helmMessage } from "./helmApi";
 import { cancelHelmDetail, loadHelmDetail, type HelmDetail, type HelmReference } from "./helmDetailsApi";
 import { DetailList } from "./DetailList";
+import { SupportingSection } from "./SupportingSection";
+import { SectionInfo } from "./SectionInfo";
 
 export function HelmDetails({ clusterId, sessionId, reference, revision, onLoadingChange }: SessionRequest & {
   reference: HelmReference; revision: number; onLoadingChange: (loading: boolean) => void;
@@ -40,15 +42,13 @@ export function HelmDetails({ clusterId, sessionId, reference, revision, onLoadi
     {current?.error && <ContentError title="Could not load Helm details" message={current.error} retained={!!detail} />}
     {detail && <>
       {detail.truncated && <Text role="status">These details are partial. Metadata is limited to 64 KiB and history to 100 revisions.</Text>}
-      <DetailList aria-label="Helm identity">
+      <SupportingSection title="Helm identity" info={view === "charts" ? <SectionInfo label="About chart metadata">Chart metadata is read from the configured Helm repository for this version. README, templates and values are not loaded. Repository links are shown as text.</SectionInfo> : undefined}><DetailList aria-label="Helm identity">
         <MetadataListItem label="Name">{name}</MetadataListItem>
         {namespace && <MetadataListItem label="Namespace">{namespace}</MetadataListItem>}
         {version && <MetadataListItem label="Requested version">{version}</MetadataListItem>}
         {detail.facts.map((fact, index) => <MetadataListItem key={`${fact.label}-${index}`} label={fact.label}><Text style={{ overflowWrap: "anywhere", whiteSpace: "pre-wrap" }}>{fact.value}</Text></MetadataListItem>)}
-      </DetailList>
-      {view === "charts" && <Text color="secondary">Chart metadata is read from the configured Helm repository for this version. README, templates and values are not loaded. Repository links are shown as text.</Text>}
-      {view === "releases" && <>
-        <Text>Revision history</Text>
+      </DetailList></SupportingSection>
+      {view === "releases" && <SupportingSection title="Revision history" info={<SectionInfo label="About revision history">History metadata only. Values, manifests, notes and revision descriptions are withheld. Rollback and uninstall are not available here.</SectionInfo>}>
         {detail.history.length === 0 && <Text>No revisions were returned.</Text>}
         {detail.history.map(item => <DetailList key={item.revision} aria-label={`Revision ${item.revision}`}>
           <MetadataListItem label="Revision">{String(item.revision)}</MetadataListItem>
@@ -57,8 +57,7 @@ export function HelmDetails({ clusterId, sessionId, reference, revision, onLoadi
           <MetadataListItem label="Chart">{item.chart}</MetadataListItem>
           <MetadataListItem label="App version">{item.appVersion || "Not provided"}</MetadataListItem>
         </DetailList>)}
-        <Text color="secondary">History metadata only. Values, manifests, notes and revision descriptions are withheld. Rollback and uninstall are not available here.</Text>
-      </>}
+      </SupportingSection>}
     </>}
   </VStack>;
 }

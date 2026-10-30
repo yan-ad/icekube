@@ -1,15 +1,25 @@
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { expect, test } from "@playwright/test";
 import type { CollectionRequest } from "../src/app/cluster/detailCollectionsApi";
 
 test("all seven Rust collection projections satisfy the closed renderer contract", async ({ page }) => {
-  test.setTimeout(180_000);
-  const output = execFileSync("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "export_frontend_collection_contract", "--", "--nocapture"], {
-    encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 150_000,
-  });
-  const line = output.split("\n").find(line => line.startsWith("COLLECTION_CONTRACT_JSON:"));
-  expect(line, "fixture must use Rust project_item and serde serialization").toBeTruthy();
-  const cases: { request: CollectionRequest; response: unknown }[] = JSON.parse(line!.slice("COLLECTION_CONTRACT_JSON:".length));
+  const artifactPath = process.env.ICEON_COLLECTION_CONTRACT;
+  let cases: { request: CollectionRequest; response: unknown }[];
+  if (artifactPath) {
+    const artifact = JSON.parse(readFileSync(artifactPath, "utf8"));
+    expect(artifact.commit, "Rust fixture and renderer must come from the same commit").toBe(process.env.GITHUB_SHA);
+    cases = artifact.cases;
+  } else {
+    expect(process.env.CI, "CI must consume the Rust job artifact, not compile Rust in a browser shard").toBeFalsy();
+    test.setTimeout(180_000);
+    const output = execFileSync("cargo", ["test", "--manifest-path", "src-tauri/Cargo.toml", "--locked", "export_frontend_collection_contract", "--", "--nocapture"], {
+      encoding: "utf8", maxBuffer: 4 * 1024 * 1024, timeout: 150_000,
+    });
+    const records = output.split("\n").filter(line => line.startsWith("COLLECTION_CONTRACT_JSON:"));
+    expect(records).toHaveLength(1);
+    cases = JSON.parse(records[0].slice("COLLECTION_CONTRACT_JSON:".length));
+  }
   expect(cases.map(value => value.request.collection)).toEqual(["pods", "replicaSets", "jobs", "endpointSlices", "events", "resourceQuotas", "limitRanges"]);
   expect(cases[0].request.reference).toMatchObject({ kind: "nodes", namespace: null });
   await page.goto("/");

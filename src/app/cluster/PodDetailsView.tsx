@@ -14,6 +14,8 @@ import { usePermissionChecks } from "./PermissionProvider";
 import { useUpdateBlocker } from "../updates/UpdateProvider";
 import { ResourceAge } from "./ResourceAge";
 import { DetailList } from "./DetailList";
+import { SupportingSection } from "./SupportingSection";
+import { SectionInfo } from "./SectionInfo";
 
 type Props = {
   details: PodDetails;
@@ -74,18 +76,16 @@ export function PodDetailsView({ details, edit, embedded = false, disabled = fal
       <MetadataListItem label="Host IPs"><Text type="code" wordBreak="break-all">{details.hostIps.join(", ") || "Not assigned"}</Text></MetadataListItem>
     </DetailList>
 
-    <VStack gap={3}>
-      <Heading level={3}>Conditions</Heading>
+    <SupportingSection title="Conditions">
       {details.conditions.length === 0 ? <Text type="supporting">No conditions reported.</Text>
         : <DetailList>
           {details.conditions.map(condition => <MetadataListItem key={condition.type} label={condition.type}>
             <StatusBadge status={condition.status} />
           </MetadataListItem>)}
         </DetailList>}
-    </VStack>
+    </SupportingSection>
 
-    <VStack gap={4}>
-      <Heading level={3}>Containers</Heading>
+    <SupportingSection title="Containers">
       {details.containers.length === 0 && <Text type="supporting">No containers reported.</Text>}
       {details.containers.map(container => <VStack gap={2} key={`${container.kind}-${container.name}`}>
         <Heading level={4} wordBreak="break-all">{container.name}</Heading>
@@ -101,11 +101,9 @@ export function PodDetailsView({ details, edit, embedded = false, disabled = fal
             </Text>)}</VStack>}</MetadataListItem>
         </DetailList>
       </VStack>)}
-    </VStack>
+    </SupportingSection>
 
-    <VStack gap={3}>
-      <Heading level={3}>Events</Heading>
-      <Text type="supporting">Bounded event snapshot; not a live event stream.</Text>
+    <SupportingSection title="Events" info={<SectionInfo label="About Pod events">Bounded event snapshot; not a live event stream.</SectionInfo>}>
       {details.eventsState === "denied" && <Text role="status">Events access denied. Pod facts are still available.</Text>}
       {details.eventsState === "unavailable" && <Text role="status">Events unavailable. Refresh details to try again.</Text>}
       {details.eventsState === "partial" && <Text role="status">Event snapshot is incomplete. More events may be available.</Text>}
@@ -116,10 +114,9 @@ export function PodDetailsView({ details, edit, embedded = false, disabled = fal
         <MetadataListItem label="Count">{event.count}</MetadataListItem>
         <MetadataListItem label="Last seen"><Text wordBreak="break-all">{event.lastSeen ?? "Unknown"}</Text></MetadataListItem>
       </DetailList>)}
-    </VStack>
+    </SupportingSection>
 
-    <VStack gap={3}>
-      <Heading level={3}>YAML</Heading>
+    <SupportingSection title="YAML">
       <YamlEditor label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit || !canReplace} rows={14} />
       {!edit && <InspectorAction label="Edit YAML" icon={IconEdit} disabled={!canReplace} pending={pending || edit} onClick={onEdit} />}
       <HStack gap={2} wrap="wrap">
@@ -129,6 +126,6 @@ export function PodDetailsView({ details, edit, embedded = false, disabled = fal
         {details.deletionTimestamp && <InspectorAction label="Finalize" icon={IconLockOff} destructive pending={pending || edit} disabled={disabled || permissions.loading || !allowed("get") || !allowed("patch")} onClick={() => onAction("finalize")} />}
         {!permissions.loading && !allowed("get") && <Text role="status">Access denied for this Pod.</Text>}
       </HStack>
-    </VStack>
+    </SupportingSection>
   </VStack>;
 }
