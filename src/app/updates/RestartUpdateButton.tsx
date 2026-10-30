@@ -66,7 +66,7 @@ function CompactUpdateError({ message }: { message: string }) {
 export function RestartUpdateButton() {
   const { snapshot, error, busy, restart } = useUpdates();
   if (snapshot?.phase === "ready") return <HStack gap={1} vAlign="center" style={{ minWidth: 0 }}>
-    <Button label="Restart to Update" size="sm" variant="secondary"
+    <Button label="Restart to Update" size="sm" variant="secondary" className="toolbar-restart-update"
       tooltip={updateStatus(snapshot)} isLoading={busy} onClick={() => void restart()} />
     {error && <CompactUpdateError message={error} />}
   </HStack>;

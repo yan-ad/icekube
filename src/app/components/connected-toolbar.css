@@ -37,6 +37,9 @@
     gap: 0;
     padding-inline: 0;
   }
+  .toolbar-restart-update {
+    padding-inline: var(--spacing-1);
+  }
   .toolbar-history button,
   .toolbar-cluster-switcher,
   nav[aria-label="App toolbar"] > button,
