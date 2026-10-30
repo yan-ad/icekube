@@ -67,10 +67,8 @@ function ForwardActions({ clusterId, sessionId, detail }: Props) {
     }
   };
   if (reference.kind !== "services") return null;
-  return <VStack gap={2}>
-    <HStack gap={2} wrap="wrap" aria-label="Service forwarding">
+  return <>
       <InspectorAction label="Forward Service port" icon={IconPlug} pending={port !== null || busy} disabled={!ready || !ports.some(p => validServiceForwardRequest({ ...requestFor(p, 1), localPort: 0 }))} onClick={() => { setLocal(""); setPort(ports[0] ?? null); setMessage(null); }} />
-    </HStack>
     {!ports.length && <Text size="sm" type="supporting">No reviewed TCP Service ports are available. Refresh details.</Text>}
     {!allowed && <Text size="sm" type="supporting">Forwarding requires verified Service get and Pod list access. Rust checks get and port-forward access for the selected Pod.</Text>}
     {!identity && <Text role="alert">Refresh details to obtain a matching Service UID and resource version.</Text>}
@@ -87,5 +85,5 @@ function ForwardActions({ clusterId, sessionId, detail }: Props) {
         </VStack></LayoutContent>}
         footer={<LayoutFooter><HStack gap={2}><Button label={stopping ? "Cancelling…" : "Cancel"} variant="ghost" isDisabled={stopping} onClick={() => { if (busy) void stop(); else setPort(null); }} /><Button label="Start forward" isDisabled={port === null || !ready || !validServiceForwardRequest(requestFor(port ?? 0, 1))} onClick={() => void submit()} /></HStack></LayoutFooter>} />
     </Dialog>
-  </VStack>;
+  </>;
 }

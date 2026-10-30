@@ -1,10 +1,80 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 import { writeFile } from "node:fs/promises";
 import { resourceViews } from "../src/app/cluster/resourceViews";
 
 type Call = { command: string; request: any };
 type Control = { failDetail?: boolean; replaced?: boolean; deniedEvents?: boolean; version: number };
 const pane = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
+const actions = (page: Page) => pane(page).getByRole("group", { name: "Resource actions", exact: true });
+
+async function openAction(page: Page, name: string): Promise<Locator> {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const direct = actions(page).getByRole("button", { name, exact: true });
+  const trigger = await direct.isVisible() ? direct : actions(page).getByRole("button", { name: "More actions", exact: true });
+  await expect(trigger).toBeEnabled();
+  await trigger.focus();
+  await page.keyboard.press("Enter");
+  if (trigger !== direct) {
+    const item = page.getByRole("menuitem", { name, exact: true });
+    await expect(item).toBeEnabled();
+    await expect(page.getByRole("menuitem").first()).toBeFocused();
+    await page.keyboard.press("Home");
+    for (let steps = 0; !await item.evaluate(element => element === document.activeElement) && steps < 10; steps++) await page.keyboard.press("ArrowDown");
+    await expect(item).toBeFocused();
+    await page.keyboard.press("Enter");
+  }
+  return trigger;
+}
+
+async function toolbarMeasurements(page: Page, width: number) {
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
+  const more = actions(page).getByRole("button", { name: "More actions", exact: true });
+  const compact = await more.isVisible();
+  const labels = ["Scale", "Restart", "Edit YAML", "Delete resource"];
+  const measurements = [];
+  for (const label of compact ? ["More actions"] : labels) {
+    const button = actions(page).getByRole("button", { name: label, exact: true });
+    await expect(button).toHaveAccessibleName(label);
+    await expect(button).toBeEnabled();
+    await button.hover();
+    await expect(page.getByRole("tooltip", { name: label, exact: true })).toBeVisible();
+    const control = await button.boundingBox();
+    const icon = await button.locator("svg").first().boundingBox();
+    expect(control).not.toBeNull(); expect(icon).not.toBeNull();
+    expect(control!.x).toBeGreaterThanOrEqual(0);
+    expect(control!.x + control!.width).toBeLessThanOrEqual(width + 1);
+    expect(control!.width).toBeGreaterThan(0); expect(control!.height).toBeGreaterThan(0);
+    expect.soft(icon!.x, `${label}: icon left bound`).toBeGreaterThanOrEqual(control!.x - 1);
+    expect.soft(icon!.y, `${label}: icon top bound`).toBeGreaterThanOrEqual(control!.y - 1);
+    expect.soft(icon!.x + icon!.width, `${label}: icon right bound`).toBeLessThanOrEqual(control!.x + control!.width + 1);
+    expect.soft(icon!.y + icon!.height, `${label}: icon bottom bound`).toBeLessThanOrEqual(control!.y + control!.height + 1);
+    measurements.push({ label, control, icon });
+  }
+  const menuLabels = [];
+  if (compact) {
+    for (const label of labels) await expect(actions(page).getByRole("button", { name: label, exact: true })).toHaveCount(0);
+    await more.focus(); await page.keyboard.press("Enter");
+    for (const label of labels) {
+      const item = page.getByRole("menuitem", { name: label, exact: true });
+      await expect(item).toHaveAccessibleName(label);
+      await expect(item).toBeEnabled();
+      const measurement = await textBounds(item);
+      expect(measurement.scrollWidth).toBeLessThanOrEqual(measurement.clientWidth + 1);
+      expect(measurement.textBounds.x).toBeGreaterThanOrEqual(measurement.control.x - 1);
+      expect(measurement.textBounds.right).toBeLessThanOrEqual(measurement.control.right + 1);
+      expect(measurement.textBounds.bottom).toBeLessThanOrEqual(measurement.control.bottom + 1);
+      expect(measurement.control.x).toBeGreaterThanOrEqual(0);
+      expect(measurement.control.right).toBeLessThanOrEqual(width + 1);
+      menuLabels.push({ label, ...measurement });
+    }
+    await noPageOverflow(page);
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    await expect(more).toBeFocused();
+  }
+  await page.mouse.move(0, 0);
+  return { compact, controls: measurements, menuLabels };
+}
 
 test("touch pane Close target is at least 44 CSS pixels at 390", async ({ browser }, info) => {
   const context = await browser.newContext({ baseURL: info.project.use.baseURL, viewport: { width: 390, height: 800 }, hasTouch: true });
@@ -81,7 +151,10 @@ async function fixture(page: Page, width = 1440) {
   await page.setViewportSize({ width, height: 800 });
   await page.goto("/#/cluster/one?section=deployments");
   await page.getByRole("table", { name: "Deployments", exact: true }).getByRole("button", { name: "sample-a", exact: true }).click();
-  await expect(pane(page).getByRole("button", { name: "Scale", exact: true })).toBeEnabled();
+  await expect(pane(page).getByRole("button", { name: "Show managed fields", exact: true })).toBeVisible();
+  await expect(actions(page).getByRole("button", { name: "Scale", exact: true })
+    .or(actions(page).getByRole("button", { name: "More actions", exact: true }))).toBeEnabled();
+  await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 }
 
 async function noPageOverflow(page: Page) {
@@ -131,9 +204,15 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     expect(await body.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
     const disclosure = pane(page).getByRole("button", { name: "Show managed fields", exact: true });
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    const managedId = await disclosure.getAttribute("aria-controls");
+    expect(managedId).toBeTruthy();
+    const managed = page.locator(`[id=${JSON.stringify(managedId)}]`);
+    await expect.soft(managed).toBeHidden();
     await disclosure.focus(); await page.keyboard.press("Enter");
     const hide = pane(page).getByRole("button", { name: "Hide managed fields", exact: true });
     await expect(hide).toHaveAttribute("aria-expanded", "true");
+    await expect(hide).toHaveAttribute("aria-controls", managedId!);
+    await expect(managed).toBeVisible();
     await expect(pane(page)).toContainText("fixture-controller (Update)");
     const samples = [];
     for (const text of ["Some metadata is unavailable or redacted.", "Pods Status (returned subset, complete): Running: 1"]) {
@@ -141,8 +220,8 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
       samples.push({ text, ...sample });
       expect(sample.ratio).toBeGreaterThanOrEqual(4.5);
     }
-    const scale = pane(page).getByRole("button", { name: "Scale", exact: true });
-    await scale.focus(); await page.keyboard.press("Enter");
+    const initialActions = await toolbarMeasurements(page, width);
+    const scale = await openAction(page, "Scale");
     const dialog = page.getByRole("dialog");
     await expect(dialog).toContainText("Cluster: one. Namespace: team-a. Resource: deployments/sample-a. UID: deployments-sample-a-uid. Resource version: 1.");
     await dialog.getByRole("textbox", { name: "Replicas", exact: true }).fill("invalid");
@@ -151,8 +230,8 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     await page.keyboard.press("Escape");
     await expect(dialog).toHaveCount(0);
     await expect(scale).toBeFocused();
-    const deletion = pane(page).getByRole("button", { name: "Delete resource", exact: true });
-    await deletion.focus(); await page.keyboard.press("Enter");
+    expect(await calls(page, "cluster_workload_action")).toEqual([]);
+    const deletion = await openAction(page, "Delete resource");
     await expect(dialog.getByLabel("Deletion target")).toContainText("Cluster: Fixture cluster");
     await expect(dialog.getByRole("listitem")).toHaveText("team-a/sample-a");
     await expect(dialog.getByRole("button", { name: "Delete 1 resource", exact: true })).toBeEnabled();
@@ -164,22 +243,20 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     const target = await close.boundingBox();
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
     await noPageOverflow(page);
-    const enlargedActions = [];
-    for (const label of ["Scale", "Restart", "Edit YAML", "Delete resource"]) {
-      enlargedActions.push({ label, ...await textBounds(pane(page).getByRole("button", { name: label, exact: true })) });
-    }
+    const enlargedActions = await toolbarMeasurements(page, width);
+    const enlargedScale = await openAction(page, "Scale");
+    await expect(dialog).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toHaveCount(0);
+    await expect(enlargedScale).toBeFocused();
+    expect(await calls(page, "cluster_workload_action")).toEqual([]);
+    expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+    await noPageOverflow(page);
     const enlargedStatus = await textBounds(pane(page).getByText("Ready", { exact: true }).first());
     const enlargedNamespace = await textBounds(pane(page).getByText("Namespace", { exact: true }).first());
-    const measurements = JSON.stringify({ width, theme, samples, closeTarget: target, rootFontSize: await page.locator("html").evaluate(element => getComputedStyle(element).fontSize), enlargedActions, enlargedStatus, enlargedNamespace }, null, 2);
+    const measurements = JSON.stringify({ width, theme, samples, closeTarget: target, rootFontSize: await page.locator("html").evaluate(element => getComputedStyle(element).fontSize), initialActions, enlargedActions, enlargedStatus, enlargedNamespace }, null, 2);
     await writeFile(info.outputPath("measurements.json"), measurements);
     await info.attach("audit-measurements", { body: measurements, contentType: "application/json" });
-    for (const action of enlargedActions) {
-      expect.soft(action.scrollWidth, `${action.label}: leaf horizontal overflow`).toBeLessThanOrEqual(action.clientWidth + 1);
-      expect.soft(action.textBounds.x, `${action.label}: text left bound`).toBeGreaterThanOrEqual(action.leaf.x - 1);
-      expect.soft(action.textBounds.right, `${action.label}: text right bound`).toBeLessThanOrEqual(action.leaf.right + 1);
-      expect.soft(action.textBounds.bottom, `${action.label}: text bottom bound`).toBeLessThanOrEqual(action.control.bottom + 1);
-      expect.soft(action.control.right, `${action.label}: viewport right bound`).toBeLessThanOrEqual(width + 1);
-    }
     expect(enlargedNamespace.scrollWidth).toBeLessThanOrEqual(enlargedNamespace.clientWidth + 1);
     expect(enlargedNamespace.textBounds.right).toBeLessThanOrEqual(enlargedNamespace.leaf.right + 1);
     expect(enlargedStatus.scrollWidth).toBeLessThanOrEqual(enlargedStatus.clientWidth + 1);
@@ -189,6 +266,7 @@ for (const width of [390, 800, 1440]) for (const theme of ["light", "dark"] as c
     await expect(close).toBeInViewport();
     await hide.focus(); await page.keyboard.press("Space");
     await expect(disclosure).toHaveAttribute("aria-expanded", "false");
+    await expect.soft(managed).toBeHidden();
     await body.evaluate(element => { element.scrollTop = element.scrollHeight; });
     expect(await body.evaluate(element => element.scrollTop)).toBeGreaterThan(0);
     await expect(close).toBeInViewport();
@@ -217,10 +295,11 @@ test("related event message activates by keyboard and closes without a stale tri
 
 test("delete confirmation restores keyboard focus to its pane trigger", async ({ page }) => {
   await fixture(page);
-  const trigger = pane(page).getByRole("button", { name: "Delete resource", exact: true });
-  await trigger.focus(); await page.keyboard.press("Enter");
+  const trigger = await openAction(page, "Delete resource");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(trigger).toBeFocused();
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+  expect(await calls(page, "cluster_workload_action")).toEqual([]);
 });

@@ -22,7 +22,7 @@ async function fixture(page: Page, theme: "light" | "dark" = "light", saved?: st
       const request = args?.request ?? {};
       if (command === "preferences_get") return { revision: 1, preferences: { ...defaults, app: { ...defaults.app, theme } } };
       if (command === "route_history_get" || command === "route_history_save") return null;
-      if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: ["one", "two"].map(id => ({
+      if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: ["one", "two"].map(id => ({
         id, name: `Development ${id}`, contextName: `dev-${id}`, source: "kubeconfig", labels: [], color: "#476BA1", status: "disconnected", pinned: true,
       })) };
       if (command === "cluster_permissions_review") return { ...request, authorizationEpoch: "fixture", revision: request.readId,
@@ -71,7 +71,7 @@ for (const theme of ["light", "dark"] as const) {
     expect(await sidebar(page).evaluate(element => getComputedStyle(element).transitionProperty)).not.toContain("width");
     await noOverflow(page);
     await expect.poll(() => page.evaluate(key => JSON.parse(localStorage.getItem(key)!).size, storageKey)).toBeCloseTo(resized, 0);
-    await rail.getByRole("link", { name: "All Categories", exact: true }).click();
+    await rail.getByRole("link", { name: "Clusters", exact: true }).click();
     await expect(handle(page)).toHaveCount(0);
     await expect(sidebar(page)).toHaveCount(0);
     await rail.getByRole("link", { name: "Development two", exact: true }).click();
@@ -144,7 +144,7 @@ test("enlarged text, fullscreen-sized layout and disposal during drag stay bound
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await expect(handle(page)).toHaveAttribute("data-resizing", "true");
-  await page.evaluate(() => { location.hash = "/catalog/all"; });
+  await page.evaluate(() => { location.hash = "/catalog/clusters"; });
   await expect(handle(page)).toHaveCount(0);
   await page.mouse.up();
   await expect(sidebar(page)).toHaveCount(0);

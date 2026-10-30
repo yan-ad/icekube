@@ -4,9 +4,9 @@ import { disabledUpdateSnapshot, hasUpdateEngine, parseUpdateSnapshot, type Upda
 import { getWindowLayout } from "./window-layout";
 
 export const NATIVE_NAVIGATION_EVENT = "iceon://native-navigation";
-export type NativeAction = "allCategories" | "openSearch" | "openPreferences" | "checkUpdates";
+export type NativeAction = "clusters" | "openSearch" | "openPreferences" | "checkUpdates";
 export function isNativeAction(value: unknown): value is NativeAction {
-  return value === "allCategories" || value === "openSearch" || value === "openPreferences" || value === "checkUpdates";
+  return value === "clusters" || value === "openSearch" || value === "openPreferences" || value === "checkUpdates";
 }
 
 export async function subscribeNativeNavigation(onAction: (action: NativeAction) => void): Promise<() => void> {

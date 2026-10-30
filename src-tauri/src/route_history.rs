@@ -93,7 +93,7 @@ fn valid_definition(value: &str) -> bool {
 pub fn validate(route: &SavedRoute) -> Result<()> {
     let catalog = matches!(
         route.path.as_str(),
-        "/catalog" | "/catalog/all" | "/catalog/clusters" | "/catalog/web-links"
+        "/catalog" | "/catalog/all" | "/catalog/clusters"
     );
     let cluster = route.path.strip_prefix("/cluster/").is_some_and(valid_id);
     if !catalog && !cluster || catalog && (route.section.is_some() || route.definition.is_some()) {
@@ -145,7 +145,11 @@ pub fn get(connection: &Mutex<Connection>) -> Result<Option<SavedRoute>> {
         .map_err(|_| PreferencesError::StoreUnavailable)?;
     value
         .map(|v| {
-            let route = serde_json::from_str(&v).map_err(|_| PreferencesError::StoreCorrupt)?;
+            let mut route: SavedRoute =
+                serde_json::from_str(&v).map_err(|_| PreferencesError::StoreCorrupt)?;
+            if route.path == "/catalog/web-links" {
+                route.path = "/catalog".into();
+            }
             validate(&route).map_err(|_| PreferencesError::StoreCorrupt)?;
             Ok(route)
         })
@@ -214,6 +218,59 @@ mod tests {
             .query_row("SELECT count(*) FROM route_history", [], |r| r.get(0))
             .unwrap();
         assert_eq!(count, 0);
+    }
+
+    #[test]
+    fn retired_catalog_route_restores_catalog_without_changing_preferences() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine = PreferencesEngine::new(dir.path().to_path_buf()).unwrap();
+        let mut settings = engine.snapshot().unwrap();
+        settings.preferences.app.restore_last_page = true;
+        let saved = engine
+            .save(SavePreferencesRequest {
+                revision: settings.revision,
+                preferences: settings.preferences,
+            })
+            .unwrap();
+        engine
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO route_history(singleton,payload) VALUES(1,?1)",
+                [r#"{"path":"/catalog/web-links"}"#],
+            )
+            .unwrap();
+        assert_eq!(
+            engine.route_history_get().unwrap(),
+            Some(SavedRoute {
+                path: "/catalog".into(),
+                section: None,
+                definition: None,
+            })
+        );
+        assert_eq!(engine.snapshot().unwrap(), saved);
+        assert_eq!(
+            engine.route_history_save(SavedRoute {
+                path: "/catalog/web-links".into(),
+                section: None,
+                definition: None,
+            }),
+            Err(PreferencesError::InvalidInput)
+        );
+        engine
+            .connection
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE route_history SET payload=?1",
+                [r#"{"path":"/catalog/web-links","section":"pods"}"#],
+            )
+            .unwrap();
+        assert_eq!(
+            engine.route_history_get(),
+            Err(PreferencesError::StoreCorrupt)
+        );
     }
 
     #[test]

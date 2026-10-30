@@ -21,7 +21,7 @@ for Apple Silicon macOS and Windows 32-bit x86.
 
 ## What you can do today
 
-- Keep cluster contexts and saved web links in a searchable Catalog, with pins
+- Keep cluster contexts in a searchable Catalog, with pins
   for the entries you use most. Importing a kubeconfig does not connect a cluster.
 - Navigate Kubernetes resources by category and namespace, filter dense tables,
   and inspect supported resource details in a resizable side panel.

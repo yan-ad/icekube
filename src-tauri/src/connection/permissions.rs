@@ -115,6 +115,7 @@ pub enum PermissionAction {
     Exec,
     Attach,
     PortForward,
+    Evict,
 }
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -234,6 +235,7 @@ pub(crate) fn requirements(check: &PermissionCheck) -> Result<Vec<Value>> {
         Exec => Some("exec"),
         Attach => Some("attach"),
         PortForward => Some("portforward"),
+        Evict => Some("eviction"),
         _ => None,
     };
     if subresource.is_some() && (check.kind != ResourceKind::Pods || check.name.is_none())
@@ -249,7 +251,7 @@ pub(crate) fn requirements(check: &PermissionCheck) -> Result<Vec<Value>> {
         .unwrap_or(("", "v1"));
     let verb = match check.action {
         List => "list",
-        Get | Logs | Exec | Attach | PortForward => "get",
+        Get | Logs | Exec | Attach | PortForward | Evict => "get",
         Create => "create",
         Update => "update",
         Patch => "patch",
@@ -266,6 +268,9 @@ pub(crate) fn requirements(check: &PermissionCheck) -> Result<Vec<Value>> {
     if let Some(subresource) = subresource {
         let prerequisite = attributes.clone();
         attributes["subresource"] = json!(subresource);
+        if check.action == Evict {
+            attributes["verb"] = json!("create");
+        }
         Ok(vec![prerequisite, attributes])
     } else {
         Ok(vec![attributes])

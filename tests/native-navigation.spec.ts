@@ -29,14 +29,14 @@ test("native navigation is window scoped, subscribes before readiness, validates
     const actions: string[] = [];
     const dispose = await api.subscribeNativeNavigation((action: string) => actions.push(action));
     const targets = [...listeners.values()].map((listener) => listener.target);
-    for (const payload of ["allCategories", "openSearch", "openPreferences", "checkUpdates", "https://evil.test", { to: "/cluster/arbitrary" }]) {
+    for (const payload of ["clusters", "openSearch", "openPreferences", "checkUpdates", "allCategories", "https://evil.test", { to: "/cluster/arbitrary" }]) {
       for (const [id, listener] of listeners) handlers.get(listener.handler)?.({ event: api.NATIVE_NAVIGATION_EVENT, id, payload });
     }
     const update = await api.checkForUpdates();
     dispose();
     return { actions, calls, targets, update, remaining: listeners.size };
   });
-  expect(result.actions).toEqual(["allCategories", "openSearch", "openPreferences", "checkUpdates"]);
+  expect(result.actions).toEqual(["clusters", "openSearch", "openPreferences", "checkUpdates"]);
   expect(result.targets).toEqual([{ kind: "WebviewWindow", label: "iceon-2" }]);
   expect(result.calls.indexOf("plugin:event|listen")).toBeLessThan(result.calls.indexOf("native_navigation_ready"));
   expect(result.update.error).toBe("trustNotConfigured");
@@ -66,6 +66,10 @@ test("native contracts keep fixed destinations, shared chrome, bounded window la
   expect(menu).toContain("default_window_icon()");
   expect(menu).toContain("CmdOrCtrl+N");
   expect(menu).toContain("CmdOrCtrl+K");
+  expect(menu).toContain('"Clusters"');
+  expect(menu).not.toContain("All Categories");
+  expect(navigation).toContain('"Clusters"');
+  expect(navigation).not.toContain("All Categories");
   expect(navigation).toContain("snapshot.preferences.app.show_tray_icon");
   expect(navigation).toContain("EventTarget::webview_window(window.label())");
   expect(navigation).not.toContain(".eval(");

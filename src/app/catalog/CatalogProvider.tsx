@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { catalogError, catalogRequest, hasCatalogEngine, loadCatalogConnectionStates, openSavedWebLink, type CatalogCommand, type CatalogSnapshot, type ClusterConnectionStatus } from "./api";
+import { catalogError, catalogRequest, hasCatalogEngine, loadCatalogConnectionStates, type CatalogCommand, type CatalogSnapshot, type ClusterConnectionStatus } from "./api";
 import type { ConnectionSnapshot, SessionRequest } from "../cluster/api";
 
 export type RuntimeConnectionStatus = ClusterConnectionStatus | "disconnecting" | "unknown";
@@ -11,7 +11,6 @@ type CatalogState = {
   error: string | null;
   available: boolean;
   run: (command: CatalogCommand, request?: Record<string, unknown>) => Promise<boolean>;
-  openWebLink: (id: string) => Promise<boolean>;
   connectionStates: Record<string, RuntimeConnectionStatus>;
   observeConnection: (snapshot: ConnectionSnapshot) => void;
   releaseConnection: (request: SessionRequest, release: () => Promise<void>) => Promise<void>;
@@ -123,7 +122,6 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     }
   }, []);
   const run = useCallback((command: CatalogCommand, request?: Record<string, unknown>) => perform(() => catalogRequest(command, request)), [perform]);
-  const openWebLink = useCallback((id: string) => perform(() => openSavedWebLink(id)), [perform]);
 
   useEffect(() => {
     mounted.current = true;
@@ -135,7 +133,7 @@ export function CatalogProvider({ children }: { children: ReactNode }) {
     };
   }, [run]);
 
-  return <CatalogContext value={{ snapshot, loading, busy, error, available, run, openWebLink, connectionStates, observeConnection, releaseConnection, refreshConnectionStates }}>{children}</CatalogContext>;
+  return <CatalogContext value={{ snapshot, loading, busy, error, available, run, connectionStates, observeConnection, releaseConnection, refreshConnectionStates }}>{children}</CatalogContext>;
 }
 export function useCatalog() {
   const state = useContext(CatalogContext);

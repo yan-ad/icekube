@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@astryxdesign/core/Button";
 import { Icon } from "@astryxdesign/core/Icon";
-import { IconPlus, IconRefresh, IconLink, IconFolder } from "@tabler/icons-react";
+import { IconPlus, IconRefresh, IconFolder } from "@tabler/icons-react";
 import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
 import { Layout, LayoutContent, LayoutFooter } from "@astryxdesign/core/Layout";
 import { HStack, VStack } from "@astryxdesign/core/Stack";
@@ -27,10 +27,8 @@ export function CatalogRefreshButton() {
 
 export function CatalogForms() {
   const { run, busy, available, error, snapshot } = useCatalog();
-  const [mode, setMode] = useState<"import" | "link" | null>(null);
+  const [isOpen, setOpen] = useState(false);
   const [path, setPath] = useState("");
-  const [name, setName] = useState("");
-  const [url, setUrl] = useState("");
   const [picking, setPicking] = useState(false);
   const [pickerError, setPickerError] = useState<string | null>(null);
   const pickerSession = useRef(0);
@@ -42,12 +40,12 @@ export function CatalogForms() {
     setPicking(false);
     setPickerError(null);
   }
-  function open(mode: "import" | "link") {
+  function open() {
     invalidatePicker();
-    setMode(mode);
+    setOpen(true);
   }
   async function chooseFile() {
-    if (pickerPending.current || busy || !available || mode !== "import") return;
+    if (pickerPending.current || busy || !available || !isOpen) return;
     pickerPending.current = true;
     setPicking(true);
     setPickerError(null);
@@ -67,23 +65,16 @@ export function CatalogForms() {
   function close() {
     if (!busy) {
       invalidatePicker();
-      setMode(null);
+      setOpen(false);
       setPath("");
-      setName("");
-      setUrl("");
     }
   }
   async function submit() {
     if (pickerPending.current) return;
-    const saved =
-      mode === "import"
-        ? await run("catalog_import_kubeconfig", { path })
-        : await run("catalog_add_web_link", { name, url });
+    const saved = await run("catalog_import_kubeconfig", { path });
     if (saved) {
-      setMode(null);
+      setOpen(false);
       setPath("");
-      setName("");
-      setUrl("");
     }
   }
   const disabled = busy || !available || !snapshot;
@@ -99,22 +90,11 @@ export function CatalogForms() {
             elevation="med"
             style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
             isDisabled={disabled}
-            onClick={() => open("import")}
-          />
-          <IconButton
-            label="Add web link"
-            tooltip="Add web link"
-            icon={<Icon icon={IconLink} />}
-            variant="primary"
-            size="lg"
-            elevation="med"
-            style={{ borderRadius: "var(--radius-container)", minWidth: "calc(var(--spacing-10) + var(--spacing-1))", minHeight: "calc(var(--spacing-10) + var(--spacing-1))" }}
-            isDisabled={disabled}
-            onClick={() => open("link")}
+            onClick={open}
           />
       </HStack>
       <Dialog
-        isOpen={mode !== null}
+        isOpen={isOpen}
         onOpenChange={(open) => {
           if (!open) close();
         }}
@@ -123,58 +103,35 @@ export function CatalogForms() {
         <Layout
           header={
             <DialogHeader
-              title={mode === "import" ? "Import kubeconfig" : "Add web link"}
+              title="Import kubeconfig"
               onOpenChange={busy ? undefined : () => close()}
             />
           }
           content={
             <LayoutContent>
               <VStack gap={4}>
-                {mode === "import" ? (
-                  <>
-                    <Text as="p">
-                      Import context metadata.
-                      Credentials stay out of the catalog. No connections or
-                      authentication commands will run.
-                    </Text>
-                    <TextInput
-                      label="Kubeconfig path"
-                      value={path}
-                      onChange={setPath}
-                      isRequired
-                      isDisabled={busy || picking}
-                      autoComplete="off"
-                    />
-                    <Button
-                      label="Choose File"
-                      icon={<Icon icon={IconFolder} />}
-                      isDisabled={busy || picking || !available}
-                      isLoading={picking}
-                      onClick={() => void chooseFile()}
-                    />
-                    {pickerError && <Text role="alert">{pickerError}</Text>}
-                  </>
-                ) : (
-                  <>
-                    <TextInput
-                      label="Name"
-                      value={name}
-                      onChange={setName}
-                      isRequired
-                      isDisabled={busy}
-                      autoComplete="off"
-                    />
-                    <TextInput
-                      label="URL"
-                      value={url}
-                      onChange={setUrl}
-                      isRequired
-                      isDisabled={busy}
-                      autoComplete="off"
-                      description="HTTP(S) only. No credentials, query parameters, or fragments. Links are stored without contacting the website."
-                    />
-                  </>
-                )}
+                <Text as="p">
+                  Import context metadata.
+                  Credentials stay out of the catalog. No connections or
+                  authentication commands will run.
+                </Text>
+                <TextInput
+                  label="Kubeconfig path"
+                  value={path}
+                  onChange={setPath}
+                  isRequired
+                  isDisabled={busy || picking}
+                  autoComplete="off"
+                />
+                <Button
+                  label="Choose File"
+                  icon={<Icon icon={IconFolder} />}
+                  isDisabled={busy || picking || !available}
+                  isLoading={picking}
+                  onClick={() => void chooseFile()}
+                />
+                {pickerError && <Text role="alert">{pickerError}</Text>}
+
                 {error && <Text role="alert">{error}</Text>}
               </VStack>
             </LayoutContent>
@@ -189,20 +146,8 @@ export function CatalogForms() {
                   onClick={close}
                 />
                 <Button
-                  label={
-                    busy
-                      ? "Saving…"
-                      : mode === "import"
-                        ? "Import contexts"
-                        : "Save web link"
-                  }
-                  isDisabled={
-                    busy ||
-                    picking ||
-                    (mode === "import"
-                      ? !path.trim()
-                      : !name.trim() || !url.trim())
-                  }
+                  label={busy ? "Saving…" : "Import contexts"}
+                  isDisabled={busy || picking || !path.trim()}
                   onClick={() => void submit()}
                 />
               </HStack>

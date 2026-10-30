@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { InspectorAction } from "./InspectorActions";
 import { IconTrash } from "@tabler/icons-react";
-import { HStack, VStack } from "@astryxdesign/core/Stack";
 import { Text } from "@astryxdesign/core/Text";
 import type { ResourceItem, SessionRequest } from "./api";
 import type { ResourceDetail } from "./detailApi";
@@ -22,7 +21,6 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   const [acceptedRead, setAcceptedRead] = useState<number | null>(null);
   const refreshNeeded = useRef(false);
   const trigger = useRef<HTMLButtonElement>(null);
-  const restoreFocus = useRef(false);
   const matching = detail.clusterId === clusterId && detail.sessionId === sessionId
     && reference.name === item.name && reference.namespace === item.namespace && reference.uid === item.uid
     && hasDeleteIdentity(item);
@@ -30,39 +28,28 @@ export function ResourcePaneDelete({ clusterId, sessionId, detail, disabled, onC
   const allowed = !permissions.loading && checks.every(check => permissions.decision(check) === "allowed");
   const blocked = unavailable || !allowed || acceptedRead === detail.readId || target !== null;
   useEffect(() => {
-    if (!restoreFocus.current || blocked || !trigger.current?.isConnected) return;
-    const frame = requestAnimationFrame(() => {
-      if (trigger.current?.isConnected && !trigger.current.disabled) trigger.current.focus();
-      restoreFocus.current = false;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [blocked]);
-  useEffect(() => {
     if (disabled && target) {
       setNotice("Inventory changed or became unavailable. Refresh and review the resource before deleting.");
       setTarget(null);
     }
   }, [disabled, target]);
-  return <VStack gap={2}>
-    <HStack gap={2} wrap="wrap">
+  return <>
       <InspectorAction triggerRef={trigger} label="Delete resource" icon={IconTrash} destructive pending={target !== null} disabled={blocked} onClick={() => {
         if (blocked) return;
         setNotice(null);
         refreshNeeded.current = false;
         setTarget(item);
       }} />
-    </HStack>
     {notice && <Text role="status" size="sm">{notice}</Text>}
     <ResourceDelete clusterId={clusterId} sessionId={sessionId} kind={reference.kind} selected={[]}
       disabled={unavailable} contextTarget={target} onNotice={setNotice}
       onAccepted={() => setAcceptedRead(detail.readId)} onRefresh={() => { refreshNeeded.current = true; }}
       onContextClose={() => {
-        restoreFocus.current = true;
         setTarget(null);
         if (!refreshNeeded.current) return;
         refreshNeeded.current = false;
         onChanged();
         if (action?.clusterId === clusterId) action.refresh();
       }} />
-  </VStack>;
+  </>;
 }

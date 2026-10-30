@@ -12,11 +12,167 @@ struct Api {
     eviction_status: u16,
     controller_missing: bool,
     inject_after_eviction: bool,
+    replace_after_eviction: bool,
     deny: bool,
+    denied_attributes: Vec<Value>,
+    reviewed_attributes: Vec<Value>,
+    reads: Vec<String>,
     permission_checks: usize,
     gate: Option<Arc<tokio::sync::Barrier>>,
+    cordon_gate: Option<Arc<tokio::sync::Barrier>>,
     read_gate: Option<Arc<tokio::sync::Barrier>>,
     delete_terminating_on_get: bool,
+    omit_list_types: bool,
+    contradictory_list_type: bool,
+}
+
+#[tokio::test]
+async fn list_items_without_typemeta_and_shared_controller_drain_normally() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("one"), pod("two")],
+        omit_list_types: true,
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    let review = engine
+        .node_drain_review(request(s.cluster_id.clone(), s.session_id.clone(), 1))
+        .await
+        .unwrap();
+    assert!(review.can_drain);
+    let controller_get = json!({"group":"apps", "version":"v1", "resource":"replicasets", "verb":"get", "namespace":"team-a", "name":"replicas"});
+    assert_eq!(
+        api.lock()
+            .unwrap()
+            .reviewed_attributes
+            .iter()
+            .filter(|a| **a == controller_get)
+            .count(),
+        1
+    );
+    let result = engine
+        .node_drain_execute(DrainExecuteRequest {
+            cluster_id: s.cluster_id,
+            session_id: s.session_id,
+            operation_id: 2,
+            plan_id: review.plan_id.unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.state, DrainState::Complete);
+    assert!(
+        result
+            .pods
+            .iter()
+            .all(|p| p.state == DrainOutcomeState::Evicted)
+    );
+    assert_eq!(api.lock().unwrap().writes.len(), 3);
+}
+
+#[tokio::test]
+async fn contradictory_list_item_type_is_rejected_before_writes() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("one")],
+        contradictory_list_type: true,
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    assert_eq!(
+        engine
+            .node_drain_review(request(s.cluster_id, s.session_id, 1))
+            .await
+            .unwrap_err(),
+        ConnectionError::InvalidResponse
+    );
+    assert!(api.lock().unwrap().writes.is_empty());
+}
+#[tokio::test]
+async fn same_name_replacement_at_final_inventory_is_a_new_uid() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("one")],
+        replace_after_eviction: true,
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    let review = engine
+        .node_drain_review(request(s.cluster_id.clone(), s.session_id.clone(), 1))
+        .await
+        .unwrap();
+    let result = engine
+        .node_drain_execute(DrainExecuteRequest {
+            cluster_id: s.cluster_id,
+            session_id: s.session_id,
+            operation_id: 2,
+            plan_id: review.plan_id.unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.state, DrainState::Partial);
+    assert_eq!(result.pods.len(), 2);
+    assert_eq!(result.pods[0].uid, "uid-one");
+    assert_eq!(result.pods[0].state, DrainOutcomeState::Gone);
+    assert_eq!(result.pods[1].name, "one");
+    assert_eq!(result.pods[1].uid, "replacement-uid");
+    assert_eq!(result.pods[1].reason, Some(DrainOutcomeReason::NewPods));
+    assert_eq!(api.lock().unwrap().writes.len(), 2);
+}
+#[tokio::test]
+async fn cancellation_while_cordon_response_is_withheld_is_uncertain() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let gate = Arc::new(tokio::sync::Barrier::new(2));
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("one")],
+        cordon_gate: Some(gate.clone()),
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    let review = engine
+        .node_drain_review(request(s.cluster_id.clone(), s.session_id.clone(), 1))
+        .await
+        .unwrap();
+    let execute = engine.node_drain_execute(DrainExecuteRequest {
+        cluster_id: s.cluster_id.clone(),
+        session_id: s.session_id.clone(),
+        operation_id: 2,
+        plan_id: review.plan_id.unwrap(),
+    });
+    let cancel = async {
+        gate.wait().await;
+        engine
+            .node_drain_cancel(DrainCancel {
+                cluster_id: s.cluster_id.clone(),
+                session_id: s.session_id.clone(),
+                operation_id: 2,
+            })
+            .unwrap();
+        assert!(
+            engine
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .node_drain
+                .active()
+        );
+        assert!(matches!(
+            engine.drain_start(identity(&s.cluster_id, &s.session_id, 3).unwrap(), 3),
+            Err(ConnectionError::Busy)
+        ));
+    };
+    let (result, ()) = tokio::join!(execute, cancel);
+    let result = result.unwrap();
+    assert_eq!(result.state, DrainState::Uncertain);
+    assert!(!result.cordoned);
+    assert_eq!(result.pods[0].state, DrainOutcomeState::NotSubmitted);
+    assert_eq!(result.pods[0].reason, Some(DrainOutcomeReason::Cancelled));
+    let state = engine.session.lock().unwrap();
+    let slot = &state.as_ref().unwrap().node_drain;
+    assert!(!slot.active());
+    assert!(slot.plan.is_none());
+    assert_eq!(api.lock().unwrap().writes.len(), 1);
 }
 fn node_value(api: &Api) -> Value {
     json!({"apiVersion":"v1","kind":"Node", "metadata":{"name":"worker","uid":"node-uid","resourceVersion":if api.node_rv.is_empty() { "7" } else { &api.node_rv }},
@@ -59,9 +215,19 @@ fn fake(api: Arc<Mutex<Api>>) -> Client {
                     let mut api = api.lock().unwrap();
                     if path.ends_with("selfsubjectaccessreviews") {
                         api.permission_checks += 1;
+                        let attributes = body["spec"]["resourceAttributes"].clone();
+                        let denied = api.deny
+                            || api.denied_attributes.iter().any(|denied| {
+                                denied
+                                    .as_object()
+                                    .unwrap()
+                                    .iter()
+                                    .all(|(key, value)| attributes.get(key) == Some(value))
+                            });
+                        api.reviewed_attributes.push(attributes);
                         (
                             201,
-                            json!({"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":body["spec"],"status":{"allowed":!api.deny}}),
+                            json!({"apiVersion":"authorization.k8s.io/v1","kind":"SelfSubjectAccessReview","spec":body["spec"],"status":{"allowed":!denied}}),
                             None,
                         )
                     } else if method == Method::PATCH {
@@ -73,7 +239,7 @@ fn fake(api: Arc<Mutex<Api>>) -> Client {
                         api.writes.push((path, body));
                         api.cordoned = true;
                         api.node_rv = "8".into();
-                        (200, node_value(&api), None)
+                        (200, node_value(&api), api.cordon_gate.clone())
                     } else if path.ends_with("/eviction") {
                         assert_eq!(method, Method::POST);
                         assert!(api.cordoned);
@@ -94,6 +260,11 @@ fn fake(api: Arc<Mutex<Api>>) -> Client {
                             if api.inject_after_eviction {
                                 api.pods.push(pod("replacement"));
                             }
+                            if api.replace_after_eviction {
+                                let mut replacement = pod(name);
+                                replacement["metadata"]["uid"] = json!("replacement-uid");
+                                api.pods.push(replacement);
+                            }
                         }
                         api.writes.push((path, body));
                         (
@@ -103,6 +274,7 @@ fn fake(api: Arc<Mutex<Api>>) -> Client {
                         )
                     } else {
                         assert_eq!(method, Method::GET);
+                        api.reads.push(path.clone());
                         if path == "/version" {
                             (200, json!({"gitVersion":"v1.35.0"}), None)
                         } else if path == "/api/v1/nodes/worker" {
@@ -116,33 +288,44 @@ fn fake(api: Arc<Mutex<Api>>) -> Client {
                                     .any(|(k, v)| k == "fieldSelector"
                                         && v == "spec.nodeName=worker")
                             );
+                            let mut items = api.pods.clone();
+                            if api.omit_list_types {
+                                for pod in &mut items {
+                                    pod.as_object_mut().unwrap().remove("apiVersion");
+                                    pod.as_object_mut().unwrap().remove("kind");
+                                }
+                            }
+                            if api.contradictory_list_type && !items.is_empty() {
+                                items[0]["kind"] = json!("Secret");
+                            }
                             (
                                 200,
-                                json!({"apiVersion":"v1","kind":"PodList","metadata":{"continue":if api.continue_token {"next"} else {""}},"items":api.pods}),
+                                json!({"apiVersion":"v1","kind":"PodList","metadata":{"continue":if api.continue_token {"next"} else {""}},"items":items}),
                                 api.read_gate.clone(),
                             )
                         } else if path.contains("/replicasets/") || path.contains("/daemonsets/") {
                             if api.controller_missing {
                                 (404, Value::Null, None)
                             } else {
+                                let namespace = path.split('/').nth(5).unwrap();
                                 (
                                     200,
                                     json!({"apiVersion":"apps/v1","kind":if path.contains("daemonsets") {"DaemonSet"} else {"ReplicaSet"},
-                                "metadata":{"name":"replicas","namespace":"team-a","uid":"controller-uid"}}),
+                                "metadata":{"name":"replicas","namespace":namespace,"uid":"controller-uid"}}),
                                     None,
                                 )
                             }
-                        } else if path.starts_with("/api/v1/namespaces/team-a/pods/") {
+                        } else if path.starts_with("/api/v1/namespaces/") && path.contains("/pods/")
+                        {
                             if api.cordoned && api.delete_terminating_on_get {
                                 api.pods.retain(|p| {
                                     p["metadata"]["name"] != path.rsplit('/').next().unwrap()
                                 });
                             }
-                            match api
-                                .pods
-                                .iter()
-                                .find(|p| p["metadata"]["name"] == path.rsplit('/').next().unwrap())
-                            {
+                            match api.pods.iter().find(|p| {
+                                p["metadata"]["name"] == path.rsplit('/').next().unwrap()
+                                    && p["metadata"]["namespace"] == path.split('/').nth(4).unwrap()
+                            }) {
                                 Some(pod) => (200, pod.clone(), None),
                                 None => (404, Value::Null, None),
                             }
@@ -510,6 +693,198 @@ async fn permission_denial_never_writes() {
     assert!(api.lock().unwrap().writes.is_empty());
 }
 #[tokio::test]
+async fn eviction_permissions_only_cover_eligible_pods_and_are_rechecked() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let mut daemon = pod("daemon");
+    daemon["metadata"]["namespace"] = json!("team-b");
+    daemon["metadata"]["ownerReferences"][0]["kind"] = json!("DaemonSet");
+    let mut mirror = pod("mirror");
+    mirror["metadata"]["namespace"] = json!("team-b");
+    mirror["metadata"]["annotations"] = json!({"kubernetes.io/config.mirror":"hash"});
+    let mut terminating = pod("terminating");
+    terminating["metadata"]["namespace"] = json!("team-b");
+    terminating["metadata"]["deletionTimestamp"] = json!("2026-01-01T00:00:00Z");
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("eligible"), daemon, mirror, terminating],
+        denied_attributes: vec![json!({"subresource":"eviction","namespace":"team-b"})],
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    let review = engine
+        .node_drain_review(request(s.cluster_id.clone(), s.session_id.clone(), 1))
+        .await
+        .unwrap();
+    assert!(review.can_drain);
+    assert_eq!(review.pods[0].disposition, DrainDisposition::Evict);
+    assert_eq!(review.pods[1].disposition, DrainDisposition::Skip);
+    assert_eq!(review.pods[2].disposition, DrainDisposition::Skip);
+    assert_eq!(review.pods[3].disposition, DrainDisposition::Wait);
+    let review_attributes = api.lock().unwrap().reviewed_attributes.clone();
+    for name in ["daemon", "mirror", "terminating"] {
+        assert!(review_attributes.iter().any(|a| a["resource"] == "pods"
+            && a["verb"] == "get"
+            && a["namespace"] == "team-b"
+            && a["name"] == name));
+    }
+    for resource in ["replicasets", "daemonsets"] {
+        assert!(review_attributes.iter().any(|a| a["resource"] == resource
+            && a["verb"] == "get"
+            && a["namespace"] == "team-b"
+            && a["name"] == "replicas"));
+    }
+    assert!(
+        !review_attributes
+            .iter()
+            .any(|a| a["subresource"] == "eviction" && a["namespace"] == "team-b")
+    );
+    assert_eq!(
+        review_attributes
+            .iter()
+            .filter(|a| a["subresource"] == "eviction")
+            .count(),
+        1
+    );
+    {
+        let mut api = api.lock().unwrap();
+        api.reviewed_attributes.clear();
+        api.denied_attributes
+            .push(json!({"subresource":"eviction","namespace":"team-a","name":"eligible"}));
+    }
+    let result = engine
+        .node_drain_execute(DrainExecuteRequest {
+            cluster_id: s.cluster_id,
+            session_id: s.session_id,
+            operation_id: 2,
+            plan_id: review.plan_id.unwrap(),
+        })
+        .await
+        .unwrap();
+    assert_eq!(result.state, DrainState::Blocked);
+    assert_eq!(
+        result.pods[0].reason,
+        Some(DrainOutcomeReason::PermissionDenied)
+    );
+    let api = api.lock().unwrap();
+    assert_eq!(api.reviewed_attributes, review_attributes[3..]);
+    assert!(api.writes.is_empty());
+}
+#[tokio::test]
+async fn eligible_eviction_denial_rejects_review_before_writes() {
+    let (_root, _catalog, engine, id, _) = fixture();
+    let api = Arc::new(Mutex::new(Api {
+        pods: vec![pod("eligible")],
+        denied_attributes: vec![json!({"subresource":"eviction","name":"eligible"})],
+        ..Api::default()
+    }));
+    let s = connected(&engine, id, fake(api.clone())).await;
+    assert_eq!(
+        engine
+            .node_drain_review(request(s.cluster_id, s.session_id, 1))
+            .await
+            .unwrap_err(),
+        ConnectionError::PermissionDenied
+    );
+    let api = api.lock().unwrap();
+    assert!(
+        api.reads
+            .iter()
+            .any(|path| path.ends_with("/replicasets/replicas"))
+    );
+    assert!(api.writes.is_empty());
+    assert!(
+        engine
+            .session
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .node_drain
+            .plan
+            .is_none()
+    );
+}
+#[tokio::test]
+async fn blocked_and_partial_reviews_keep_inventory_without_eviction_permissions() {
+    for partial in [false, true] {
+        let (_root, _catalog, engine, id, _) = fixture();
+        let mut pods = vec![pod("eligible")];
+        if !partial {
+            let mut blocked = pod("unmanaged");
+            blocked["metadata"]
+                .as_object_mut()
+                .unwrap()
+                .remove("ownerReferences");
+            pods.push(blocked);
+        }
+        let api = Arc::new(Mutex::new(Api {
+            pods,
+            continue_token: partial,
+            denied_attributes: vec![json!({"subresource":"eviction"})],
+            ..Api::default()
+        }));
+        let s = connected(&engine, id, fake(api.clone())).await;
+        let review = engine
+            .node_drain_review(request(s.cluster_id.clone(), s.session_id.clone(), 1))
+            .await
+            .unwrap();
+        assert!(!review.can_drain);
+        assert_eq!(review.partial, partial);
+        assert!(review.plan_id.is_none());
+        assert_eq!(review.pods.len(), if partial { 1 } else { 2 });
+        engine
+            .node_drain_cancel(DrainCancel {
+                cluster_id: s.cluster_id,
+                session_id: s.session_id,
+                operation_id: 1,
+            })
+            .unwrap();
+        assert!(
+            !engine
+                .session
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .node_drain
+                .active()
+        );
+        let api = api.lock().unwrap();
+        assert!(
+            !api.reviewed_attributes
+                .iter()
+                .any(|a| a["subresource"] == "eviction")
+        );
+        assert!(api.writes.is_empty());
+    }
+}
+#[tokio::test]
+async fn pod_and_controller_read_denials_precede_classification() {
+    for resource in ["pods", "replicasets"] {
+        let (_root, _catalog, engine, id, _) = fixture();
+        let api = Arc::new(Mutex::new(Api {
+            pods: vec![pod("one")],
+            denied_attributes: vec![json!({"resource":resource,"verb":"get","namespace":"team-a"})],
+            ..Api::default()
+        }));
+        let s = connected(&engine, id, fake(api.clone())).await;
+        assert_eq!(
+            engine
+                .node_drain_review(request(s.cluster_id, s.session_id, 1))
+                .await
+                .unwrap_err(),
+            ConnectionError::PermissionDenied
+        );
+        let api = api.lock().unwrap();
+        assert!(!api.reads.iter().any(|path| path.contains("/replicasets/")));
+        assert!(
+            !api.reviewed_attributes
+                .iter()
+                .any(|a| a["subresource"] == "eviction")
+        );
+        assert!(api.writes.is_empty());
+    }
+}
+#[tokio::test]
 async fn cancellation_tombstone_prevents_send() {
     let (_root, _catalog, engine, id, _) = fixture();
     let api = Arc::new(Mutex::new(Api::default()));
@@ -659,6 +1034,7 @@ async fn terminating_managed_pod_is_waited_without_eviction() {
     let api = Arc::new(Mutex::new(Api {
         pods: vec![value],
         delete_terminating_on_get: true,
+        denied_attributes: vec![json!({"subresource":"eviction"})],
         ..Api::default()
     }));
     let s = connected(&engine, id, fake(api.clone())).await;
@@ -679,6 +1055,13 @@ async fn terminating_managed_pod_is_waited_without_eviction() {
     assert_eq!(result.state, DrainState::Complete);
     assert_eq!(result.pods[0].state, DrainOutcomeState::Gone);
     assert_eq!(api.lock().unwrap().writes.len(), 1);
+    assert!(
+        !api.lock()
+            .unwrap()
+            .reviewed_attributes
+            .iter()
+            .any(|a| a["subresource"] == "eviction")
+    );
 }
 #[tokio::test]
 async fn list_count_and_bytes_are_bounded() {

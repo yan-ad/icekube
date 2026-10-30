@@ -70,18 +70,13 @@ test("browser catalog persists through the real Rust engine without Tauri global
     contextName: "Discovered fixture", status: "disconnected", labels: expect.arrayContaining(["file=~/.kube/config"]),
   })]);
   expect(await page.evaluate(() => "__TAURI_INTERNALS__" in window)).toBe(false);
-  await page.getByRole("button", { name: "Add web link", exact: true }).click();
-  const dialog = page.getByRole("dialog");
-  await dialog.getByRole("textbox", { name: "Name Required", exact: true }).fill("Bridge fixture");
-  await dialog.getByRole("textbox", { name: "URL Required", exact: true }).fill("https://example.test/docs");
-  await dialog.getByRole("button", { name: "Save web link", exact: true }).click();
-  await expect(dialog).toHaveCount(0);
-  await page.getByRole("button", { name: "Pin Bridge fixture", exact: true }).click();
+  expect(discovered.body.value).not.toHaveProperty("webLinks");
+  await expect(page.getByRole("button", { name: "Add web link", exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "Pin Discovered fixture", exact: true }).click();
   await page.reload();
-  await expect(page.getByRole("button", { name: "Unpin Bridge fixture", exact: true })).toBeVisible();
-  await page.getByRole("button", { name: "Remove Bridge fixture", exact: true }).click();
-  await dialog.getByRole("button", { name: "Remove from catalog", exact: true }).click();
-  await expect(page.getByRole("row").filter({ hasText: "Discovered fixture" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unpin Discovered fixture", exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Unpin Discovered fixture", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Pin Discovered fixture", exact: true })).toBeVisible();
   const preferences = await call(page, "preferences_get");
   expect(preferences.body.ok).toBe(true);
   expect(preferences.cache).toBe("no-store");

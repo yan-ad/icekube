@@ -1,6 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
-async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolean; slow?: boolean } = {}) {
+async function fixture(page: Page, options: { empty?: boolean; slow?: boolean } = {}) {
   await page.addInitScript((options) => {
     const calls: { command: string; request?: Record<string, unknown> }[] = [];
     const state = {
@@ -9,7 +9,6 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
         { id: "cluster-one", name: "Development", contextName: "dev-context", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: true },
         { id: "cluster-two", name: "Staging", contextName: "stage-context", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#659040", status: "disconnected", pinned: true },
       ],
-      webLinks: [{ id: "link-one", name: "Documentation", url: "https://docs.example.test/", source: "local", labels: [], color: "#EAA40B", pinned: true }],
     };
     Object.assign(window, {
       isTauri: true, __activationCalls: calls,
@@ -28,12 +27,8 @@ async function fixture(page: Page, options: { failOpen?: boolean; empty?: boolea
         if (command === "cluster_connect") return { clusterId: args?.request.clusterId, sessionId: args?.request.sessionId, contextName: "dev-context", status: "connected", apiVersion: "v1.34.1", error: null };
         if (command === "cluster_resources") return { ...args?.request, namespace: args?.request.namespace ?? null, continueToken: null, metrics: null, items: [], truncated: false, fetchedAt: Date.now() };
         if (command === "cluster_disconnect" || command === "cluster_resources_cancel") return;
-        if (command === "catalog_open_web_link") {
-          if (options.failOpen) throw "openFailed";
-          return;
-        }
         if (command === "catalog_set_pin") {
-          const item = [...state.clusters, ...state.webLinks].find((item) => item.id === args?.request.id);
+          const item = state.clusters.find((item) => item.id === args?.request.id);
           if (item) item.pinned = !!args?.request.pinned;
           state.revision++;
         }
@@ -52,7 +47,7 @@ async function expectCollapsedCatalog(page: Page) {
   const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
   await expect(sidebar).toBeVisible();
   await expect(sidebar).toHaveAttribute("data-collapsed", "true");
-  await expect(sidebar.getByRole("link", { name: "All Categories", exact: true })).toHaveAttribute("aria-label", "All Categories");
+  await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toHaveAttribute("aria-label", "Clusters");
   await expect(page.getByRole("button", { name: /^(Collapse|Expand) sidebar$/ })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "App toolbar", exact: true }).getByRole("button", { name: "Open sidebar", exact: true })).toHaveCount(0);
 }
@@ -81,9 +76,9 @@ test("cluster row opens inset workspace while Catalog stays collapsed", async ({
     await expect(page.getByRole("main")).toContainText("No nodes were returned");
     await expect(page.getByRole("navigation", { name: `${name} destinations`, exact: true })).toHaveCount(0);
   }
-  expect((await calls(page)).every((call) => ["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "cluster_permissions_review", "cluster_permissions_cancel", "cluster_permissions_refresh"].includes(call.command))).toBe(true);
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
-  await expect(page.getByRole("table", { name: "All Categories", exact: true })).toBeVisible();
+  expect((await calls(page)).filter((call) => !["catalog_list", "cluster_session_open", "cluster_connect", "cluster_disconnect", "cluster_resources", "cluster_resources_cancel", "cluster_permissions_review", "cluster_permissions_cancel", "cluster_permissions_refresh", "catalog_connection_states", "cluster_namespace_cache_get"].includes(call.command))).toEqual([]);
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Clusters", exact: true }).click();
+  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Cluster navigation", exact: true })).toHaveCount(0);
   await expectCollapsedCatalog(page);
 });
@@ -100,39 +95,13 @@ test("row Enter/Space and pinned cluster activation work; pin/remove buttons do 
   const row = page.getByRole("row", { name: "Open cluster Development", exact: true });
   await row.focus(); await page.keyboard.press("Enter");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Clusters", exact: true }).click();
   await row.focus(); await page.keyboard.press("Space");
   await expect(page).toHaveURL(/cluster\/cluster-one$/);
   await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
   await expect(page).toHaveURL(/cluster\/cluster-two$/);
   await expect(page.getByRole("heading", { level: 1, name: /^Staging · / })).toBeAttached();
   await expect(page.getByRole("button", { name: "Switch cluster", exact: true })).toContainText("Staging");
-});
-
-test("web-link rows and pinned links delegate saved ID to Rust without navigation", async ({ page }) => {
-  await fixture(page);
-  await page.goto("/");
-  const row = page.getByRole("row", { name: "Open web link Documentation", exact: true });
-  await row.getByRole("cell", { name: "local", exact: true }).click();
-  await expect(page).toHaveURL(/#\/catalog$/);
-  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(1);
-  await row.focus(); await page.keyboard.press("Enter");
-  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(2);
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("button", { name: "Documentation", exact: true }).click();
-  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(3);
-  expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").every((call) => JSON.stringify(call.request) === JSON.stringify({ id: "link-one" }))).toBe(true);
-  await page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true }).click();
-  expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(3);
-});
-
-test("OS browser opening failure is visible and leaves catalog usable", async ({ page }) => {
-  await fixture(page, { failOpen: true });
-  await page.goto("/");
-  await page.getByRole("row", { name: "Open web link Documentation", exact: true }).focus();
-  await page.keyboard.press("Space");
-  await expect(page.getByRole("alert")).toContainText("default browser");
-  await expect(page).toHaveURL(/#\/catalog$/);
-  await expect(page.getByRole("row", { name: "Open cluster Development", exact: true })).toBeVisible();
 });
 
 test("direct missing cluster route does not select another cluster", async ({ page }) => {
@@ -184,7 +153,7 @@ for (const preference of ["false", "true"]) {
     await expectCollapsedCatalog(page);
     await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Staging", exact: true }).click();
     await expectCollapsedCatalog(page);
-    await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
+    await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Clusters", exact: true }).click();
     await expectCollapsedCatalog(page);
     await page.reload();
     await expectCollapsedCatalog(page);
@@ -192,17 +161,12 @@ for (const preference of ["false", "true"]) {
   });
 }
 
-test("pending web-link opens are serialized and never launch from Pin/Remove", async ({ page }) => {
-  await fixture(page, { slow: true });
+test("cluster-only catalog exposes no link activation or creation actions", async ({ page }) => {
+  await fixture(page);
   await page.goto("/");
-  const row = page.getByRole("row", { name: "Open web link Documentation", exact: true });
-  await expect(page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
-  await row.focus();
-  await page.keyboard.press("Enter");
-  await page.keyboard.press("Space");
-  await expect.poll(async () => (await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(1);
-  await expect(page.getByRole("row", { name: "Open web link Documentation", exact: true }).getByRole("button", { name: "Unpin Documentation", exact: true })).toBeEnabled();
-  await page.getByRole("button", { name: "Remove Documentation", exact: true }).click();
-  await expect(page.getByRole("dialog")).toBeVisible();
-  expect((await calls(page)).filter((call) => call.command === "catalog_open_web_link").length).toBe(1);
+  await expect(page.getByRole("row", { name: "Open cluster Development", exact: true })).toBeVisible();
+  await expect(page.getByRole("row", { name: /^Open web link / })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Add web link", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link")).toHaveCount(3);
+  expect((await calls(page)).some(call => /web_link/.test(call.command))).toBe(false);
 });

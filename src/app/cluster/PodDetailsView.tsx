@@ -22,11 +22,12 @@ type Props = {
   disabled?: boolean;
   pending?: boolean;
   onEdit: () => void;
+  onCancelEdit: () => void;
   onOpen: (mode: PodMode) => void;
   onAction: (action: PodMutation, yaml?: string) => void;
 };
 
-export function PodDetailsView({ details, edit, embedded = false, disabled = false, pending = false, onEdit, onOpen, onAction }: Props) {
+export function PodDetailsView({ details, edit, embedded = false, disabled = false, pending = false, onEdit, onCancelEdit, onOpen, onAction }: Props) {
   useUpdateBlocker(edit, "Pod YAML editing is open.");
   const [yaml, setYaml] = useState(details.yaml);
   const permissions = usePermissionChecks([
@@ -120,12 +121,12 @@ export function PodDetailsView({ details, edit, embedded = false, disabled = fal
     <VStack gap={3}>
       <Heading level={3}>YAML</Heading>
       <YamlEditor label="YAML" value={yaml} onChange={setYaml} isReadOnly={!edit || !canReplace} rows={14} />
-      {!edit && <InspectorAction label="Edit YAML" icon={IconEdit} disabled={!canReplace} pending={pending} onClick={onEdit} />}
+      {!edit && <InspectorAction label="Edit YAML" icon={IconEdit} disabled={!canReplace} pending={pending || edit} onClick={onEdit} />}
       <HStack gap={2} wrap="wrap">
-        {edit && <Button label="Save YAML" isDisabled={!canReplace} onClick={() => onAction("replace", yaml)} />}
-        <InspectorAction label="Delete" icon={IconTrash} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("delete")} />
-        <InspectorAction label="Force delete" icon={IconTrashX} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("forceDelete")} />
-        {details.deletionTimestamp && <InspectorAction label="Finalize" icon={IconLockOff} destructive pending={pending} disabled={disabled || permissions.loading || !allowed("get") || !allowed("patch")} onClick={() => onAction("finalize")} />}
+        {edit && <><Button label="Cancel editing" variant="ghost" isDisabled={pending} onClick={onCancelEdit} /><Button label="Save YAML" isDisabled={!canReplace} onClick={() => onAction("replace", yaml)} /></>}
+        <InspectorAction label="Delete" icon={IconTrash} destructive pending={pending || edit} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("delete")} />
+        <InspectorAction label="Force delete" icon={IconTrashX} destructive pending={pending || edit} disabled={disabled || permissions.loading || !allowed("get") || !allowed("delete")} onClick={() => onAction("forceDelete")} />
+        {details.deletionTimestamp && <InspectorAction label="Finalize" icon={IconLockOff} destructive pending={pending || edit} disabled={disabled || permissions.loading || !allowed("get") || !allowed("patch")} onClick={() => onAction("finalize")} />}
         {!permissions.loading && !allowed("get") && <Text role="status">Access denied for this Pod.</Text>}
       </HStack>
     </VStack>

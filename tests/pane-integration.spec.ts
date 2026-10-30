@@ -110,3 +110,21 @@ test("failed or UID-replaced refresh retains honest stale detail without enablin
   await expect(pane(page).getByRole("button", { name: "Scale", exact: true })).toHaveCount(0);
   expect(await calls(page, "cluster_workload_action")).toEqual([]);
 });
+
+
+test("collection Retry icon reloads only its own collection", async ({ page }) => {
+  await fixture(page);
+  await control(page, { deniedEvents: true });
+  await pane(page).getByRole("button", { name: "Refresh details", exact: true }).click();
+  const retry = pane(page).getByRole("button", { name: "Retry Events", exact: true });
+  await expect(retry).toBeEnabled();
+  await retry.hover(); await expect(page.getByRole("tooltip", { name: "Retry Events", exact: true })).toBeVisible();
+  const before = (await calls(page, "cluster_resource_collection")).length;
+  const detailReads = (await calls(page, "cluster_resource_detail")).length;
+  await control(page, { deniedEvents: false });
+  await retry.click();
+  await expect(pane(page).getByRole("table", { name: "Events", exact: true })).toBeVisible();
+  const after = (await calls(page, "cluster_resource_collection")).slice(before);
+  expect(after).toHaveLength(1); expect(after[0].request.collection).toBe("events");
+  expect((await calls(page, "cluster_resource_detail")).length).toBe(detailReads);
+});

@@ -47,7 +47,18 @@ async function fixture(page: Page, section: string) {
           const reference = request.reference as { name: string };
           return { ...request, item: { ...inventory.find(item => item.name === reference.name), resourceVersion: "1" }, related: {} };
         }
-        if (command === "cluster_resource_detail_cancel") return;
+        if (command === "cluster_resource_detail_cancel" || command === "cluster_resource_collection_cancel" || command === "helm_detail_cancel") return;
+        if (command === "cluster_resource_collection") return { ...request, state: "complete", items: [] };
+        if (command === "helm_detail") return { ...request, truncated: false,
+          facts: request.view === "charts" ? [
+            { label: "Description", value: "Version-specific chart details" },
+            { label: "Version", value: "1.2.3" },
+          ] : [],
+          history: request.view === "releases" ? [
+            { revision: 3, updated: "2026-10-26", status: "failed", chart: "chart-1.2.3", appVersion: "4.5.6" },
+            { revision: 2, updated: "2026-10-25", status: "superseded", chart: "chart-1.2.2", appVersion: "4.5.5" },
+          ] : [],
+        };
         if (command === "cluster_pod_detail") return { ...request, uid: "pod-uid", resourceVersion: "1",
           phase: "Running", node: "node-a", podIps: [], hostIps: [], serviceAccount: "default", qos: "Burstable",
           createdAt: null, deletionTimestamp: null, containers: [], conditions: [], events: [], yaml: "apiVersion: v1\nkind: Pod\n" };
@@ -94,16 +105,48 @@ test("namespace names inspect the namespace and unknown state stays neutral", as
   await expect(badge(page, "Namespaces", "Active")).toHaveAttribute("data-variant", "success");
   await expect(badge(page, "Namespaces", "Unknown")).toHaveAttribute("data-variant", "neutral");
   await table(page, "Namespaces").getByRole("button", { name: "team-a", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText("team-a");
+  const inspector = page.getByRole("region", { name: "Resource details", exact: true });
+  await expect(inspector).toContainText("team-a");
+  await expect(inspector.getByRole("alert")).toHaveCount(0);
+  await expect.poll(async () => page.evaluate(() => [...new Set((window as unknown as { __inspectorCalls: Call[] }).__inspectorCalls
+    .filter(call => call.command === "cluster_resource_collection").map(call => call.request.collection))].sort())).toEqual(["events", "limitRanges", "resourceQuotas"]);
+  const collections = await page.evaluate(() => (window as unknown as { __inspectorCalls: Call[] }).__inspectorCalls.filter(call => call.command === "cluster_resource_collection"));
+  for (const call of collections) expect(call.request).toMatchObject({ clusterId: "one", sessionId: "lease-one",
+    reference: { kind: "namespaces", namespace: null, name: "team-a", uid: "namespace-uid" }, readId: expect.any(Number) });
 });
 
-for (const view of ["charts", "releases"] as const) test(`Helm ${view} inspect actual inventory metadata without requesting a guessed Kubernetes resource`, async ({ page }) => {
+for (const view of ["charts", "releases"] as const) test(`Helm ${view} inspect scoped details without requesting a guessed Kubernetes resource`, async ({ page }) => {
   await fixture(page, `helm-${view}`);
   const grid = table(page, view === "charts" ? "Helm Charts" : "Helm Releases");
   if (view === "releases") await expect(badge(page, "Helm Releases", "failed")).toHaveAttribute("data-variant", "error");
   await grid.getByRole("button", { name: view === "charts" ? "stable/chart" : "release-a", exact: true }).click();
-  await expect(page.getByRole("region", { name: "Resource details", exact: true })).toContainText(view === "charts" ? "Chart metadata" : "chart-1.2.3");
+  const inspector = page.getByRole("region", { name: "Resource details", exact: true });
+  await expect(inspector).toContainText(view === "charts" ? "Version-specific chart details" : "Revision history");
+  await expect(inspector.getByRole("alert")).toHaveCount(0);
+  await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText(view === "charts" ? "stable/chart" : "release-a");
+  if (view === "charts") {
+    await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText("Requested version1.2.3");
+    await expect(inspector.getByText("Chart metadata", { exact: true })).toHaveCount(0);
+  } else {
+    await expect(inspector.getByLabel("Helm identity", { exact: true })).toContainText("team-a");
+    await expect(inspector.getByLabel("Revision 3", { exact: true })).toContainText("chart-1.2.3");
+    await expect(inspector.getByLabel("Revision 2", { exact: true })).toContainText("chart-1.2.2");
+    await expect(inspector).toContainText("Values, manifests, notes and revision descriptions are withheld");
+  }
   const requests = await page.evaluate(() => (window as unknown as { __inspectorCalls: Call[] }).__inspectorCalls);
+  const details = requests.filter(call => call.command === "helm_detail");
+  expect(details.length).toBeGreaterThan(0);
+  for (const detail of details) {
+    expect(detail).toEqual({ command: "helm_detail", request: {
+      clusterId: "one", sessionId: "lease-one", readId: expect.any(Number), view,
+      name: view === "charts" ? "stable/chart" : "release-a", namespace: view === "charts" ? null : "team-a",
+      version: view === "charts" ? "1.2.3" : null,
+    } });
+    expect(Number.isSafeInteger(detail.request.readId)).toBe(true);
+    expect(detail.request.readId).toBeGreaterThan(0);
+  }
+  expect(new Set(details.map(call => call.request.readId)).size).toBe(details.length);
+  expect(requests.filter(call => call.command === "cluster_resource_detail" || call.command === "cluster_resource_collection")).toHaveLength(0);
   expect(requests.filter(call => call.command === "cluster_resources" && call.request.kind !== "namespaces")).toHaveLength(0);
 });
 

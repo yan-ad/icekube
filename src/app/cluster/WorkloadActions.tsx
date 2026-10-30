@@ -91,12 +91,10 @@ function GuardedActions({ clusterId, sessionId, detail, onChanged }: Props) {
     catch { if (active.current === request) setMessage("Stop could not be confirmed. The write may have reached the API server; refresh after this operation settles."); }
   };
   if (!actions.length) return null;
-  return <VStack gap={2}>
-    <HStack gap={2} wrap="wrap" aria-label="Workload actions">
+  return <>
       {actions.map(action => <InspectorAction key={action} label={labels[action]} icon={icons[action]} pending={confirm !== null || busy}
         disabled={busy || refreshRequired || !hasIdentity || !allowed(action) || !validWorkloadRequest({ ...requestFor(action, 1), replicas: action === "scale" ? 0 : null })}
         onClick={() => { setReplicas(/^\d+$/.test(item.columns.replicas ?? "") ? item.columns.replicas : ""); setMessage(null); setConfirm(action); }} />)}
-    </HStack>
     {actions.some(action => !allowed(action)) && <Text size="sm" type="supporting">Actions require verified get and patch access to this resource; Trigger requires get access and create access to Jobs in this namespace.</Text>}
     {!validIdentity && <Text role="alert">Refresh details to obtain a valid matching UID and resource version.</Text>}
     {message && <Text role="status" size="sm">{message}</Text>}
@@ -116,5 +114,5 @@ function GuardedActions({ clusterId, sessionId, detail, onChanged }: Props) {
           <Button label="Confirm action" isDisabled={!canSubmit} onClick={() => void submit()} />
         </HStack></LayoutFooter>} />
     </Dialog>
-  </VStack>;
+  </>;
 }

@@ -10,7 +10,7 @@ const TRAY_ID: &str = "iceon-navigation";
 #[derive(Clone, Copy, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum Action {
-    AllCategories,
+    Clusters,
     #[cfg(target_os = "macos")]
     OpenSearch,
     #[cfg(target_os = "macos")]
@@ -85,18 +85,12 @@ pub fn native_navigation_ready(
 }
 
 pub fn install(app: &App) -> tauri::Result<()> {
-    let all = MenuItem::with_id(
-        app,
-        "tray-all-categories",
-        "All Categories",
-        true,
-        None::<&str>,
-    )?;
+    let clusters = MenuItem::with_id(app, "tray-clusters", "Clusters", true, None::<&str>)?;
     let new = MenuItem::with_id(app, "tray-new-window", "New Window", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
         &[
-            &all,
+            &clusters,
             &new,
             &PredefinedMenuItem::separator(app)?,
             &PredefinedMenuItem::quit(app, None)?,
@@ -112,7 +106,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(|app, event| {
             let result = match event.id().as_ref() {
-                "tray-all-categories" => dispatch(app, Action::AllCategories),
+                "tray-clusters" => dispatch(app, Action::Clusters),
                 "tray-new-window" => crate::window::new_window(app).map(|_| ()),
                 _ => Ok(()),
             };
@@ -142,10 +136,7 @@ mod tests {
 
     #[test]
     fn tray_navigation_preserves_its_cross_platform_event_value() {
-        assert_eq!(
-            serde_json::to_value(Action::AllCategories).unwrap(),
-            "allCategories"
-        );
+        assert_eq!(serde_json::to_value(Action::Clusters).unwrap(), "clusters");
     }
 
     #[cfg(target_os = "macos")]

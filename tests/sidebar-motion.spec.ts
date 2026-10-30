@@ -4,7 +4,7 @@ async function fixture(page: Page) {
   page.on("pageerror", error => { throw error; });
   await page.addInitScript(() => {
     Object.assign(window, { isTauri: true, __TAURI_INTERNALS__: { invoke: async (command: string, args?: { request: Record<string, unknown> }) => {
-      if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev-context", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: true }] };
+      if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: [{ id: "one", name: "Development", contextName: "dev-context", source: "kubeconfig", labels: ["file=/fixtures/config"], color: "#476BA1", status: "disconnected", pinned: true }] };
       if (command === "cluster_permissions_review") {
         const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
         const checkedAt = Date.now();
@@ -37,7 +37,7 @@ test("Catalog rail keeps constant width without a toggle across workspace entry 
   await expect(page.locator(".cluster-sidebar-motion")).toHaveAttribute("data-open", "true");
   await expect(page.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveCount(1);
   expect((await catalog.boundingBox())!.width).toBeCloseTo(width, 1);
-  await catalog.getByRole("link", { name: "All Categories", exact: true }).click();
+  await catalog.getByRole("link", { name: "Clusters", exact: true }).click();
   await expect(catalog).toHaveAttribute("data-collapsed", "true");
   await expect(page.locator(".cluster-sidebar-motion")).toHaveCount(0);
   expect((await catalog.boundingBox())!.width).toBeCloseTo(width, 1);
@@ -65,7 +65,7 @@ test("leaving a cluster retains only an inert exit panel, then removes it", asyn
   await page.locator("#catalog-sidebar").getByRole("link", { name: "Development", exact: true }).click();
   await expect(page.locator(".cluster-sidebar-motion")).toHaveAttribute("data-open", "true");
   const exit = await page.evaluate(async () => {
-    const link = document.querySelector<HTMLAnchorElement>('#catalog-sidebar a[aria-label="All Categories"]');
+    const link = document.querySelector<HTMLAnchorElement>('#catalog-sidebar a[aria-label="Clusters"]');
     if (!link) throw new Error("Catalog destination missing");
     link.click();
     await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));

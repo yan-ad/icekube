@@ -40,7 +40,7 @@ export function NativeNavigation({ onSearch }: { onSearch: () => void }) {
       if (disposed) return;
       if (action === "openSearch") onSearch();
       if (action === "openPreferences") preferencesAction.current();
-      if (action === "allCategories") void navigate({ to: "/catalog/all" });
+      if (action === "clusters") void navigate({ to: "/catalog/clusters" });
       if (action === "checkUpdates") {
         setOpen(true); setError(null);
         void checkAction.current();

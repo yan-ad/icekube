@@ -15,7 +15,7 @@ async function searchFixture(page: Page, options: { holdCatalog?: boolean; failC
         if (command === "catalog_list") {
           if (state.holdCatalog) await new Promise<void>(resolve => state.catalogWaiters.push(resolve));
           if (state.failCatalog) throw "storeCorrupt";
-          return { revision: 1, discoveryError: null, webLinks: [], clusters: state.empty ? [] : clusters };
+          return { revision: 1, discoveryError: null, clusters: state.empty ? [] : clusters };
         }
         if (command === "cluster_session_open") return { clusterId: request.clusterId, sessionId: `${request.clusterId}-session`, contextName: request.clusterId === "one" ? "team-sandbox" : "team-prod", status: "disconnected", apiVersion: null, error: null };
         if (command === "cluster_connect") return { ...request, contextName: request.clusterId === "one" ? "team-sandbox" : "team-prod", status: "connected", apiVersion: "v1.35.8", error: null };
@@ -151,9 +151,13 @@ for (const state of ["empty", "failed", "preview"] as const) {
     await page.goto("/#/catalog");
     const dialog = await openSearch(page);
     await expect(dialog.getByText(state === "empty" ? "No saved clusters. Add a kubeconfig in Catalog." : state === "failed" ? /saved catalog is invalid/ : "Open the desktop app to search saved clusters.")).toBeVisible();
-    await dialog.getByRole("combobox").fill("Web Links");
-    await dialog.getByRole("option", { name: /Web Links/ }).click();
-    await expect(page).toHaveURL(/#\/catalog\/web-links$/);
+    for (const removed of ["Web Links", "All Categories", "Add web link"]) {
+      await dialog.getByRole("combobox").fill(removed);
+      await expect(dialog.getByRole("option")).toHaveCount(0);
+    }
+    await dialog.getByRole("combobox").fill("Clusters");
+    await dialog.getByRole("option", { name: /Clusters/ }).click();
+    await expect(page).toHaveURL(/#\/catalog\/clusters$/);
   });
 }
 
@@ -210,4 +214,17 @@ test("local index handles 1,000 clusters with bounded results, exact resolution 
   expect(result.deniedGroupSelection).toBeNull();
   expect(result.p95Ms).toBeLessThan(50);
   console.log(`1,000-cluster local search: mean ${result.averageMs.toFixed(2)}ms, p95 ${result.p95Ms.toFixed(2)}ms`);
+});
+
+test("populated catalog search excludes removed category and creation destinations", async ({ page }) => {
+  await searchFixture(page);
+  await page.goto("/#/catalog");
+  const dialog = await openSearch(page);
+  for (const query of ["Web Links", "All Categories", "Add web link"]) {
+    await dialog.getByRole("combobox").fill(query);
+    await expect(dialog.getByRole("option")).toHaveCount(0);
+  }
+  await dialog.getByRole("combobox").fill("Clusters");
+  await dialog.getByRole("option", { name: /Clusters/ }).click();
+  await expect(page).toHaveURL(/#\/catalog\/clusters$/);
 });

@@ -72,12 +72,14 @@ for (const theme of ["light", "dark"] as const) for (const section of ["nodes", 
     await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
     await fixture(page, section);
     const lists = panel(page).locator(".detail-list");
+    await geometry(lists, 2);
     const handle = page.getByRole("separator", { name: "Resize resource details" });
     await handle.focus(); await handle.press("Home");
     await geometry(lists, 1);
     await panel(page).getByRole("button", { name: "Expand inspector", exact: true }).click();
     await geometry(lists, 2);
     const wide = await lists.first().boundingBox();
+    if (section === "nodes") await info.attach("expanded-node-inspector", { body: await panel(page).screenshot(), contentType: "image/png" });
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
     await geometry(lists, 1);
     await page.evaluate(() => { document.documentElement.style.fontSize = ""; });
@@ -90,7 +92,7 @@ for (const theme of ["light", "dark"] as const) for (const section of ["nodes", 
       await panel(page).getByRole("button", { name: "Hide managed fields", exact: true }).click();
     }
     await panel(page).getByRole("button", { name: "Restore inspector width", exact: true }).click();
-    await geometry(lists, 1);
+    await geometry(lists, 2);
     await page.setViewportSize({ width: 390, height: 800 });
     await geometry(lists, 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

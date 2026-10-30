@@ -1,9 +1,9 @@
 import { Icon, type IconType } from "@astryxdesign/core/Icon";
 import { HStack } from "@astryxdesign/core/Stack";
-import { IconHexagons, IconWorldWww } from "@tabler/icons-react";
+import { IconHexagons } from "@tabler/icons-react";
 
-export type CatalogKind = "Clusters" | "Web Links";
-export const kindIcons = { Clusters: IconHexagons, "Web Links": IconWorldWww };
+export type CatalogKind = "Clusters";
+export const kindIcons = { Clusters: IconHexagons };
 
 function displayColor(color: string) {
   const channels = [1, 3, 5].map((offset) => parseInt(color.slice(offset, offset + 2), 16));

@@ -21,12 +21,22 @@ fn schema_four_discards_retired_links_and_pins_preserving_cluster_order_and_meta
         target(&cluster, None),
     ];
     let before = reorder(&engine, desired.clone()).unwrap();
+    let preferences = crate::preferences::PreferencesEngine::new(engine.directory.clone()).unwrap();
+    let mut settings = preferences.snapshot().unwrap();
+    settings.preferences.app.persistent_search = true;
+    let saved_preferences = preferences
+        .save(crate::preferences::SavePreferencesRequest {
+            revision: settings.revision,
+            preferences: settings.preferences,
+        })
+        .unwrap();
+    drop(preferences);
     let database = engine.directory.join("catalog.sqlite3");
     let connection = rusqlite::Connection::open(&database).unwrap();
     connection.execute_batch("
         ALTER TABLE metadata RENAME TO metadata_old;
         CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL CHECK(schema_version=4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
-        INSERT INTO metadata SELECT singleton,4,revision,auto_discover FROM metadata_old;
+        INSERT INTO metadata SELECT singleton,4,revision,1 FROM metadata_old;
         DROP TABLE metadata_old;
         CREATE TABLE web_links (id TEXT PRIMARY KEY, name TEXT, url TEXT, pinned INTEGER, color TEXT);
         INSERT INTO web_links VALUES ('retired-link',NULL,'not a URL',99,'not a color');
@@ -39,7 +49,16 @@ fn schema_four_discards_retired_links_and_pins_preserving_cluster_order_and_meta
     assert_eq!(migrated, before);
     assert_eq!(migrated.pinned_items, desired);
     let connection = storage::open(&engine.directory).unwrap();
-    assert_eq!(storage::load(&connection).unwrap().schema_version, 5);
+    let stored = storage::load(&connection).unwrap();
+    assert_eq!(stored.schema_version, 5);
+    assert!(stored.auto_discover);
+    assert_eq!(
+        crate::preferences::PreferencesEngine::new(engine.directory.clone())
+            .unwrap()
+            .snapshot()
+            .unwrap(),
+        saved_preferences
+    );
     assert_eq!(
         connection
             .query_row(
@@ -108,13 +127,13 @@ fn reorder(engine: &CatalogEngine, items: Vec<PinTarget>) -> Result<CatalogSnaps
 fn mixed_order_restart_unpin_readd_and_noop_without_discovery() {
     let (dir, engine, input) = fixture();
     let cluster = import(&engine, &input).unwrap().clusters[0].id.clone();
-    let link = add(&engine, "additional").unwrap().clusters[0].id.clone();
+    let additional = add(&engine, "additional").unwrap().clusters[0].id.clone();
     section(&engine, &cluster, "pods", true);
-    entry(&engine, &link, true);
+    entry(&engine, &additional, true);
     let pinned = entry(&engine, &cluster, true);
     let initial = vec![
         target(&cluster, Some("pods")),
-        target(&link, None),
+        target(&additional, None),
         target(&cluster, None),
     ];
     assert_eq!(pinned.pinned_items, initial);
@@ -146,12 +165,12 @@ fn mixed_order_restart_unpin_readd_and_noop_without_discovery() {
     );
     let restarted = CatalogEngine::new(engine.directory.clone());
     assert_eq!(restarted.list().unwrap(), ordered);
-    entry(&restarted, &link, false);
+    entry(&restarted, &additional, false);
     assert_eq!(
-        engine.validate_pin_target(&target(&link, None)),
+        engine.validate_pin_target(&target(&additional, None)),
         Err(CatalogError::NotFound)
     );
-    let repinned = entry(&restarted, &link, true);
+    let repinned = entry(&restarted, &additional, true);
     assert_eq!(
         repinned.pinned_items,
         vec![desired[1].clone(), desired[2].clone(), desired[0].clone()]
@@ -206,21 +225,21 @@ fn malformed_stale_permutations_are_atomic() {
 fn deletion_and_reimport_remove_only_obsolete_pins() {
     let (_dir, engine, input) = fixture();
     let cluster = import(&engine, &input).unwrap().clusters[0].id.clone();
-    let link = add(&engine, "additional").unwrap().clusters[0].id.clone();
+    let additional = add(&engine, "additional").unwrap().clusters[0].id.clone();
     entry(&engine, &cluster, true);
-    entry(&engine, &link, true);
+    entry(&engine, &additional, true);
     let pinned = section(&engine, &cluster, "pods", true);
     assert_eq!(import(&engine, &input).unwrap(), pinned);
     fs::write(&input, CONFIG.replace("development", "production")).unwrap();
     let replaced = import(&engine, &input).unwrap();
-    assert_eq!(replaced.pinned_items, vec![target(&link, None)]);
+    assert_eq!(replaced.pinned_items, vec![target(&additional, None)]);
     fs::write(&input, CONFIG).unwrap();
     assert_eq!(
         import(&engine, &input).unwrap().pinned_items,
         replaced.pinned_items
     );
     entry(&engine, &cluster, true);
-    engine.remove(RemoveRequest { id: link }).unwrap();
+    engine.remove(RemoveRequest { id: additional }).unwrap();
     assert_eq!(
         engine.list().unwrap().pinned_items,
         vec![target(&cluster, None)]
@@ -252,13 +271,13 @@ fn schema_three_upgrade_restores_old_sidebar_order_and_normalizes_overview() {
     )
     .unwrap();
     let clusters = import(&engine, &input).unwrap().clusters;
-    let link = add(&engine, "zzzz").unwrap().clusters[2].id.clone();
+    let additional = add(&engine, "zzzz").unwrap().clusters[2].id.clone();
     for cluster in clusters.iter().rev() {
         section(&engine, &cluster.id, "nodes", true);
         section(&engine, &cluster.id, "pods", true);
         section(&engine, &cluster.id, "config", true);
     }
-    entry(&engine, &link, true);
+    entry(&engine, &additional, true);
     let before = entry(&engine, &clusters[1].id, true);
     downgrade_to_three(&engine);
     let connection = rusqlite::Connection::open(engine.directory.join("catalog.sqlite3")).unwrap();
@@ -268,7 +287,7 @@ fn schema_three_upgrade_restores_old_sidebar_order_and_normalizes_overview() {
     let mut expected = vec![
         target(&clusters[0].id, None),
         target(&clusters[1].id, None),
-        target(&link, None),
+        target(&additional, None),
     ];
     for cluster in &clusters {
         for section in ["nodes", "pods", "config"] {
@@ -297,4 +316,39 @@ fn invalid_schema_three_rows_roll_back_before_ddl() {
     let before = fs::read(&database).unwrap();
     assert_eq!(engine.list(), Err(CatalogError::StoreCorrupt));
     assert_eq!(fs::read(database).unwrap(), before);
+}
+
+#[test]
+fn schema_four_failed_save_rolls_back_link_deletion_and_schema_changes() {
+    let (_dir, engine, input) = fixture();
+    import(&engine, &input).unwrap();
+    let database = engine.directory.join("catalog.sqlite3");
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    connection.execute_batch("
+        ALTER TABLE metadata RENAME TO metadata_old;
+        CREATE TABLE metadata (singleton INTEGER PRIMARY KEY CHECK(singleton=1), schema_version INTEGER NOT NULL CHECK(schema_version=4), revision TEXT NOT NULL, auto_discover INTEGER NOT NULL CHECK(auto_discover IN (0,1))) STRICT;
+        INSERT INTO metadata SELECT singleton,4,revision,auto_discover FROM metadata_old;
+        DROP TABLE metadata_old;
+        CREATE TABLE web_links (id TEXT PRIMARY KEY);
+        INSERT INTO web_links VALUES ('retired-link');
+        CREATE TRIGGER reject_cluster_save BEFORE DELETE ON clusters BEGIN SELECT RAISE(ABORT,'fixture'); END;
+    ").unwrap();
+    drop(connection);
+    let before = fs::read(&database).unwrap();
+    assert!(engine.list().is_err());
+    assert_eq!(fs::read(&database).unwrap(), before);
+    let connection = rusqlite::Connection::open(&database).unwrap();
+    assert_eq!(
+        connection
+            .query_row("SELECT schema_version FROM metadata", [], |r| r
+                .get::<_, u32>(0))
+            .unwrap(),
+        4
+    );
+    assert_eq!(
+        connection
+            .query_row("SELECT id FROM web_links", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "retired-link"
+    );
 }

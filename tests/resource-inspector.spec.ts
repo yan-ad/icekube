@@ -140,6 +140,8 @@ async function fixture(page: Page, section = "deployments", options: Controls = 
           return { clusterId: request.clusterId, sessionId: request.sessionId, kind, readId: request.readId,
             namespace: request.namespace ?? null, items, continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
         }
+        if (command === "cluster_resource_collection") return { ...request, state: "complete", items: [] };
+        if (command === "cluster_resource_collection_cancel") return null;
         if (command === "cluster_resource_detail") {
           const reference = request.reference!;
           const result = item(reference.kind, reference.name, reference.namespace);
@@ -251,10 +253,11 @@ for (const [section, label, name, kind, targetSection, namespace, column] of rel
 
 test("namespace links navigate to the named namespace, not a guessed row", async ({ page }) => {
   await fixture(page);
-  await grid(page, "Deployments").getByRole("button", { name: "team-a", exact: true }).first().click();
+  await grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "team-a", exact: true }).click();
   await expect(page).toHaveURL(/section=namespaces$/);
   await expect(inspector(page)).toContainText("uid-namespaces-team-a");
-  expect((await calls(page, "cluster_resource_detail"))[0].request.reference).toEqual({ kind: "namespaces", namespace: null, name: "team-a" });
+  expect((await calls(page, "cluster_resource_detail")).at(-1)!.request.reference).toEqual({ kind: "namespaces", namespace: null, name: "team-a" });
 });
 
 test("missing relationship fails honestly without navigating", async ({ page }) => {
@@ -399,4 +402,22 @@ for (const [section, label, title, fact, value] of [
   await expect(inspector(page).getByText(fact, { exact: true })).toBeVisible();
   await expect(inspector(page).getByText(value, { exact: true })).toBeVisible();
   await expect(inspector(page).getByRole("alert")).toHaveCount(0);
+});
+
+
+test("toolbar registration follows resource selection and removes previous workload actions", async ({ page }) => {
+  await fixture(page);
+  await grid(page, "Deployments").getByRole("button", { name: "sample-a", exact: true }).click();
+  const header = inspector(page).locator(".resource-inspector-header");
+  await expect(header.getByRole("button", { name: "Scale", exact: true })).toBeEnabled();
+  await grid(page, "Deployments").getByRole("button", { name: "sample-b", exact: true }).click();
+  await expect(header.getByRole("heading", { name: "sample-b", exact: true })).toBeVisible();
+  await header.getByRole("button", { name: "Scale", exact: true }).click();
+  await expect(page.getByRole("dialog")).toContainText("deployments/sample-b");
+  await page.keyboard.press("Escape");
+  await inspector(page).getByRole("button", { name: "team-a", exact: true }).click();
+  await expect(header.getByRole("heading", { name: "team-a", exact: true })).toBeVisible();
+  await expect(header.getByRole("button", { name: /^(Scale|Restart)$/ })).toHaveCount(0);
+  await expect(inspector(page).locator(".resource-inspector-body").getByRole("button", { name: "Delete resource", exact: true })).toHaveCount(0);
+  expect(await calls(page, "cluster_workload_action")).toHaveLength(0);
 });

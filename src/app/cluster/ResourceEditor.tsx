@@ -64,7 +64,7 @@ function ScopedEditor({ clusterId, sessionId, detail, onChanged }: Props) {
     setBusy(false); setOpen(false); setYaml(""); setVersion(""); setReviewed(null);
   };
   if (!resourceEditable(reference.kind)) return null;
-  return <VStack gap={2}>
+  return <>
     <InspectorAction label="Edit YAML" icon={IconEdit} pending={open || busy} disabled={!allowed || !identity || busy} onClick={() => { setOpen(true); void submit("read"); }} />
     {!allowed && <Text size="sm" type="supporting">Editing requires verified get and patch access to this resource. Unknown access does not permit editing.</Text>}
     {!open && message && <Text role="status">{message}</Text>}
@@ -87,5 +87,5 @@ function ScopedEditor({ clusterId, sessionId, detail, onChanged }: Props) {
         </HStack>
       </VStack>
     </Dialog>
-  </VStack>;
+  </>;
 }

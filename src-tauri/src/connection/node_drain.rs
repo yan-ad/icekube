@@ -380,25 +380,47 @@ impl ConnectionEngine {
                     Some(pod.namespace.clone()),
                     Some(pod.name.clone()),
                 ));
-                checks.push(check(
-                    ResourceKind::Pods,
-                    PermissionAction::Evict,
-                    Some(pod.namespace),
-                    Some(pod.name),
-                ));
             }
+            let mut unique_checks = Vec::with_capacity(checks.len());
+            for check in checks {
+                if !unique_checks.contains(&check) {
+                    unique_checks.push(check);
+                }
+            }
+            let mut checks = unique_checks;
             self.drain_permissions(&identity, &checks, &epoch).await?;
-            let _worker = self
-                .workers
-                .try_acquire()
-                .map_err(|_| ConnectionError::Busy)?;
-            let pods = classify_all(&client, &guard.cancel, &request.reference.name, &raw).await?;
-            node(&client, &guard.cancel, &request, true, false).await?;
+            let pods = {
+                let _worker = self
+                    .workers
+                    .try_acquire()
+                    .map_err(|_| ConnectionError::Busy)?;
+                let pods =
+                    classify_all(&client, &guard.cancel, &request.reference.name, &raw).await?;
+                node(&client, &guard.cancel, &request, true, false).await?;
+                pods
+            };
             epoch.validate()?;
             let can_drain = !partial
                 && pods
                     .iter()
                     .all(|p| p.disposition != DrainDisposition::Block);
+            if can_drain {
+                let eviction_checks: Vec<_> = pods
+                    .iter()
+                    .filter(|pod| pod.disposition == DrainDisposition::Evict)
+                    .map(|pod| {
+                        check(
+                            ResourceKind::Pods,
+                            PermissionAction::Evict,
+                            Some(pod.namespace.clone()),
+                            Some(pod.name.clone()),
+                        )
+                    })
+                    .collect();
+                self.drain_permissions(&identity, &eviction_checks, &epoch)
+                    .await?;
+                checks.extend(eviction_checks);
+            }
             let mut response = DrainReview {
                 cluster_id: request.cluster_id.clone(),
                 session_id: request.session_id.clone(),
@@ -640,15 +662,30 @@ async fn inventory(
         Some(Value::String(v)) => !v.is_empty(),
         _ => return Err(ConnectionError::InvalidResponse),
     };
+    let mut items = items.clone();
     let mut names = BTreeSet::new();
-    for value in items {
+    for value in &mut items {
+        let object = value
+            .as_object_mut()
+            .ok_or(ConnectionError::InvalidResponse)?;
+        if object
+            .get("apiVersion")
+            .is_some_and(|v| v.as_str() != Some("v1"))
+            || object
+                .get("kind")
+                .is_some_and(|v| v.as_str() != Some("Pod"))
+        {
+            return Err(ConnectionError::InvalidResponse);
+        }
+        object.entry("apiVersion").or_insert_with(|| json!("v1"));
+        object.entry("kind").or_insert_with(|| json!("Pod"));
         let pod = pod_identity(value, node)?;
         if !names.insert((pod.namespace, pod.name)) {
             return Err(ConnectionError::InvalidResponse);
         }
     }
     // Never follow a continuation: a truncated bound-node view cannot authorize writes.
-    Ok((items.clone(), continuation))
+    Ok((items, continuation))
 }
 fn pod_identity(value: &Value, node: &str) -> Result<DrainPod> {
     if value["apiVersion"] != "v1"

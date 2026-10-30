@@ -18,8 +18,7 @@ async function fixture(page: Page, status = "connected") {
         const request = args?.request ?? {};
         if (command.startsWith("catalog_") && command !== "catalog_connection_states") {
           const snapshot = { revision: 1, discoveryError: null,
-          clusters: [cluster("one", "Development", control.status), cluster("two", "Staging", "disconnected")],
-          webLinks: [{ id: "docs", name: "Documentation", url: "https://example.test", source: "local", labels: [], color: "#476BA1", pinned: false }] };
+          clusters: [cluster("one", "Development", control.status), cluster("two", "Staging", "disconnected")] };
           if (control.holdCatalog) await new Promise<void>(resolve => catalogs.push(resolve));
           return snapshot;
         }
@@ -41,7 +40,7 @@ async function fixture(page: Page, status = "connected") {
     });
   }, status);
   await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto("/#/catalog/all");
+  await page.goto("/#/catalog/clusters");
 }
 const row = (page: Page, name = "Development") => page.getByRole("row", { name: `Open cluster ${name}`, exact: true });
 const control = (page: Page, next: Partial<Control>) => page.evaluate(next => Object.assign((window as Fixture).__connectionControl, next), next);
@@ -50,7 +49,6 @@ test("Catalog uses observed runtime status, not imported metadata or hardcoded D
   await fixture(page);
   await expect(row(page).locator("[data-variant=success]", { hasText: "Connected" })).toHaveAttribute("data-variant", "success");
   await expect(row(page, "Staging")).toContainText("Disconnected");
-  await expect(page.getByRole("row", { name: "Open web link Documentation", exact: true })).toContainText("Not checked");
   await expect.poll(() => page.evaluate(() => (window as Fixture).__connectionCalls.includes("catalog_connection_states"))).toBe(true);
   await control(page, { status: "connecting" });
   await page.evaluate(() => window.dispatchEvent(new Event("focus")));
@@ -82,7 +80,7 @@ test("late status reply cannot resurrect a released workspace connection", async
   await row(page).getByRole("cell", { name: "kubeconfig", exact: true }).click();
   await expect(page.getByRole("button", { name: "Cluster actions", exact: true })).toHaveAttribute("aria-description", "Connection status: Connected");
   await control(page, { holdStatus: true, holdDisconnect: true });
-  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true }).click();
+  await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Clusters", exact: true }).click();
   await expect(row(page)).toContainText("Disconnecting…");
   await expect.poll(() => page.evaluate(() => (window as Fixture).__connectionCalls.includes("catalog_connection_states"))).toBe(true);
   await page.evaluate(() => (window as Fixture).__releaseDisconnect());

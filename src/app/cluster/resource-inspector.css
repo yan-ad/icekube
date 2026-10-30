@@ -27,6 +27,14 @@
   min-width: 0;
 }
 
+.resource-inspector-actions button {
+  min-inline-size: var(--spacing-7);
+  min-block-size: var(--spacing-7);
+  inline-size: auto;
+  block-size: auto;
+  padding: var(--spacing-1);
+}
+
 .resource-inspector-body {
   flex: 1 1 0;
   min-height: 0;
@@ -58,8 +66,8 @@
   white-space: normal;
 }
 
-/* Two readable fact tracks need 40 em of actual panel content, not viewport width. */
-@container detail-list (inline-size < 40em) {
+/* Reflow against available detail width, including enlarged text. */
+@container detail-list (inline-size < 28em) {
   .detail-list > dl {
     grid-template-columns: minmax(0, 1fr);
   }

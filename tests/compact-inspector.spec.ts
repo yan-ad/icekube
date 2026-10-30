@@ -1,7 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 type Call = { command: string; request: Record<string, unknown> };
-type Fixture = Window & { __compactCalls: Call[]; __compactDetailError?: string };
+type Fixture = Window & { __compactCalls: Call[]; __compactDetailError?: string; __compactMutationError?: boolean };
 const podName = "api-with-a-long-name-that-must-not-push-the-inspector-controls-offscreen";
 const inspector = (page: Page) => page.getByRole("region", { name: "Resource details", exact: true });
 
@@ -29,6 +29,7 @@ async function fixture(page: Page) {
         }
         if (command === "catalog_list") return { revision: 1, discoveryError: null, webLinks: [], clusters: [{ id: "one", name: "Development", contextName: "dev", source: "kubeconfig", labels: [], color: "#476BA1", pinned: false, status: "disconnected" }] };
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: "one", sessionId: "compact-lease", contextName: "dev", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
+        if (command === "cluster_pod_mutate" && (window as Fixture).__compactMutationError) throw "connectionFailed";
         if (["cluster_disconnect", "cluster_resources_cancel", "cluster_pod_mutate", "cluster_pod_stream_close", "cluster_pod_stream_resize", "cluster_pod_stream_write"].includes(command)) return null;
         if (command === "cluster_resources") return { ...request, namespace: request.namespace ?? null, items: request.kind === "pods" ? [{ name, namespace: "team-a", uid: "compact-uid", resourceVersion: "list-version", createdAt: null, status: "Running", columns: { health: "healthy", ready: "1/1", restarts: "0" }, node: null }] : [], continueToken: null, truncated: false, fetchedAt: Date.now(), metrics: null };
         if (command === "cluster_pod_detail") {
@@ -98,20 +99,41 @@ for (const [label, mode] of [["Logs", "logs"], ["Shell", "shell"], ["Attach", "a
   expect((await calls(page, "cluster_pod_detail")).at(-1)!.request).toEqual({ clusterId: "one", sessionId: "compact-lease", namespace: "team-a", name: podName, uid: "compact-uid" });
 });
 
-test("narrow inset inspector wraps actions without clipping and respects reduced motion", async ({ page }) => {
+test("narrow inset inspector uses keyboard overflow without clipping and respects reduced motion", async ({ page }) => {
   await page.emulateMedia({ reducedMotion: "reduce" }); await fixture(page);
   await page.setViewportSize({ width: 390, height: 760 });
   const panel = inspector(page);
   await expect(panel).toBeVisible();
   const bounds = (await panel.boundingBox())!;
-  for (const name of ["Logs", "Shell", "Attach", "Port forward", "Refresh details", "Expand inspector", "Close inspector"]) {
+  for (const name of ["More actions", "Refresh details", "Expand inspector", "Close inspector"]) {
     const button = panel.getByRole("button", { name, exact: true }), box = (await button.boundingBox())!;
     expect(box.x).toBeGreaterThanOrEqual(bounds.x - 1); expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1);
   }
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(await panel.evaluate(element => getComputedStyle(element).transitionDuration)).toBe("0s");
   await panel.locator(".resource-inspector-body").evaluate(element => { element.scrollTop = element.scrollHeight; });
-  await expect(panel.getByRole("button", { name: "Edit YAML", exact: true })).toBeInViewport();
+  const more = panel.getByRole("button", { name: "More actions", exact: true });
+  await more.focus(); await more.press("Enter");
+  const menu = page.getByRole("menu");
+  for (const name of ["Logs", "Shell", "Attach", "Port forward", "Edit YAML", "Delete", "Force delete"]) {
+    await expect(menu.getByRole("menuitem", { name, exact: true })).toBeEnabled();
+  }
+  await page.keyboard.press("Escape"); await expect(menu).toHaveCount(0); await expect(more).toBeFocused();
+  await more.press("Enter");
+  await expect(menu.getByRole("menuitem").first()).toBeFocused();
+  await page.keyboard.press("Home");
+  const deletion = menu.getByRole("menuitem", { name: "Delete", exact: true });
+  for (let steps = 0; !await deletion.evaluate(element => element === document.activeElement) && steps < 10; steps++) await page.keyboard.press("ArrowDown");
+  await expect(deletion).toBeFocused(); await page.keyboard.press("Enter");
+  await expect(page.getByRole("dialog")).toContainText("compact-uid");
+  await expect(panel.getByRole("button", { name: "Refresh details", exact: true })).toBeDisabled();
+  await page.keyboard.press("Escape"); await expect(page.getByRole("dialog")).toHaveCount(0); await expect(more).toBeFocused();
+  expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
+  await page.mouse.move(0, 0);
+  if (await page.getByRole("tooltip").isVisible()) {
+    await page.keyboard.press("Escape"); await expect(page.getByRole("tooltip")).toHaveCount(0);
+  }
+  await page.keyboard.press("Escape"); await expect(panel).toHaveCount(0);
 });
 
 for (const shortcut of ["Meta+r", "Control+r"]) test(`focused inspector ${shortcut} refreshes details, not the resource list`, async ({ page }) => {
@@ -125,4 +147,51 @@ for (const shortcut of ["Meta+r", "Control+r"]) test(`focused inspector ${shortc
   await expect.poll(async () => (await calls(page, "cluster_pod_detail")).length).toBe(detailReads + 1);
   await expect(panel.getByRole("button", { name: "Refresh details", exact: true })).toBeEnabled();
   expect((await calls(page, "cluster_resources")).length).toBe(listReads);
+});
+
+
+test("Pod mutation launchers stay disabled after failed refresh until a fresh read", async ({ page }) => {
+  await fixture(page);
+  const panel = inspector(page), header = panel.locator(".resource-inspector-header");
+  await expect(header.getByRole("button", { name: "Edit YAML", exact: true })).toBeEnabled();
+  await page.evaluate(() => { (window as Fixture).__compactDetailError = "resourceUnavailable"; });
+  await header.getByRole("button", { name: "Refresh details", exact: true }).click();
+  await expect(panel.getByRole("alert")).toContainText("Retained details may be stale");
+  for (const name of ["Edit YAML", "Delete", "Force delete"]) await expect(header.getByRole("button", { name, exact: true })).toBeDisabled();
+  expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
+  await page.evaluate(() => { delete (window as Fixture).__compactDetailError; });
+  await header.getByRole("button", { name: "Refresh details", exact: true }).click();
+  await expect(header.getByRole("button", { name: "Delete", exact: true })).toBeEnabled();
+  await expect(header.getByRole("button", { name: "Edit YAML", exact: true })).toBeEnabled();
+  await expect(panel.locator(".resource-inspector-body").getByRole("button", { name: /^(Edit YAML|Delete|Force delete)$/ })).toHaveCount(0);
+});
+
+test("uncertain Pod mutation cannot be replayed before refresh", async ({ page }) => {
+  await fixture(page);
+  const panel = inspector(page), header = panel.locator(".resource-inspector-header");
+  await page.evaluate(() => { (window as Fixture).__compactMutationError = true; });
+  await header.getByRole("button", { name: "Delete", exact: true }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "Confirm mutation", exact: true }).click();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(panel.getByRole("alert")).toContainText("do not replay");
+  await expect(header.getByRole("button", { name: "Delete", exact: true })).toBeDisabled();
+  expect(await calls(page, "cluster_pod_mutate")).toHaveLength(1);
+  await header.getByRole("button", { name: "Refresh details", exact: true }).click();
+  await expect(header.getByRole("button", { name: "Delete", exact: true })).toBeEnabled();
+});
+
+
+test("inline Pod edit blocks refresh until cancelled without writing", async ({ page }) => {
+  await fixture(page);
+  const panel = inspector(page), header = panel.locator(".resource-inspector-header");
+  await header.getByRole("button", { name: "Edit YAML", exact: true }).click();
+  await expect(panel.getByRole("button", { name: "Cancel editing", exact: true })).toBeVisible();
+  await expect(header.getByRole("button", { name: "Refresh details", exact: true })).toBeDisabled();
+  const reads = (await calls(page, "cluster_pod_detail")).length;
+  await panel.focus(); await page.keyboard.press("Control+r");
+  expect((await calls(page, "cluster_pod_detail")).length).toBe(reads);
+  await panel.getByRole("button", { name: "Cancel editing", exact: true }).click();
+  await expect(header.getByRole("button", { name: "Edit YAML", exact: true })).toBeEnabled();
+  await expect(header.getByRole("button", { name: "Refresh details", exact: true })).toBeEnabled();
+  expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
 });

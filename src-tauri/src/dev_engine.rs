@@ -529,6 +529,18 @@ async fn dispatch(state: Arc<Engine>, client: &str, invocation: Invocation) -> R
             let request = request!();
             encoded(state.connections.cancel_node_action(request))
         }
+        "cluster_node_drain_review" => {
+            let request = request!();
+            encoded(state.connections.node_drain_review(request).await)
+        }
+        "cluster_node_drain_execute" => {
+            let request = request!();
+            encoded(state.connections.node_drain_execute(request).await)
+        }
+        "cluster_node_drain_cancel" => {
+            let request = request!();
+            encoded(state.connections.node_drain_cancel(request))
+        }
         "cluster_resource_delete" => {
             let request = request!();
             encoded(state.connections.delete(request).await)

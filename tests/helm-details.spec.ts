@@ -85,3 +85,19 @@ test("closing pending details cancels the exact read and ignores late result", a
   await page.evaluate(() => (window as Fixture).__detailRelease());
   await expect(details(page)).toHaveCount(0);
 });
+
+
+for (const shortcut of ["Meta+r", "Control+r"]) test(`focused Helm ${shortcut} retries details without refreshing inventory`, async ({ page }) => {
+  await fixture(page);
+  await page.evaluate(() => { (window as Fixture).__detailFailure = true; });
+  await page.getByRole("button", { name: "stable/demo", exact: true }).click();
+  const panel = details(page);
+  await expect(panel.getByRole("alert")).toBeVisible();
+  await expect(panel.getByRole("button", { name: /Refresh/ })).toHaveCount(1);
+  await page.evaluate(() => { (window as Fixture).__detailFailure = false; });
+  const before = await page.evaluate(() => ({ detail: (window as Fixture).__detailCalls.filter(c => c.command === "helm_detail").length, table: (window as Fixture).__detailCalls.filter(c => c.command === "helm_table").length }));
+  await panel.focus(); await page.keyboard.press(shortcut);
+  await expect(panel).toContainText("Chart metadata from repository");
+  expect(await page.evaluate(() => (window as Fixture).__detailCalls.filter(c => c.command === "helm_detail").length)).toBe(before.detail + 1);
+  expect(await page.evaluate(() => (window as Fixture).__detailCalls.filter(c => c.command === "helm_table").length)).toBe(before.table);
+});

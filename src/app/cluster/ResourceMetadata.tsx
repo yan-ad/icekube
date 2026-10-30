@@ -22,14 +22,14 @@ export function DetailMetadataView({ metadata }: { metadata: DetailMetadata }) {
     {metadata.deletionTimestamp && <DetailList title="Deletion"><MetadataListItem label="Timestamp"><Text type="code">{metadata.deletionTimestamp}</Text></MetadataListItem></DetailList>}
     {metadata.managedFields.length > 0 && <VStack gap={2}>
       <HStack gap={2} vAlign="center"><Text as="h3" size="sm" weight="semibold">Managed fields</Text><IconButton label={showManaged ? "Hide managed fields" : "Show managed fields"} tooltip={showManaged ? "Hide managed fields" : "Show managed fields"} icon={<Icon icon={showManaged ? IconChevronUp : IconChevronDown} />} variant="ghost" size="sm" aria-expanded={showManaged} aria-controls={managedId} onClick={() => setShowManaged(value => !value)} /></HStack>
-      <VStack id={managedId} hidden={!showManaged} gap={0}><MetadataList aria-label="Managed fields" label={{ position: "top" }}>{metadata.managedFields.map((field, index) => <MetadataListItem key={`${field.manager}-${index}`} label={`${field.manager} (${field.operation})`}>
+      <VStack id={managedId} hidden={!showManaged} style={{ display: showManaged ? undefined : "none" }} gap={0}>{showManaged && <MetadataList aria-label="Managed fields" label={{ position: "top" }}>{metadata.managedFields.map((field, index) => <MetadataListItem key={`${field.manager}-${index}`} label={`${field.manager} (${field.operation})`}>
         <VStack gap={1}>
           {field.apiVersion && <Text type="supporting">API version: {field.apiVersion}</Text>}
           {field.time && <Text type="supporting">Time: {field.time}</Text>}
           {field.subresource && <Text type="supporting">Subresource: {field.subresource}</Text>}
           <Text type="code" wordBreak="break-word">{field.fields}</Text>
         </VStack>
-      </MetadataListItem>)}</MetadataList></VStack>
+      </MetadataListItem>)}</MetadataList>}</VStack>
     </VStack>}
     {metadata.partial && <Text type="supporting">Some metadata is unavailable or redacted.</Text>}
     {!metadata.partial && !metadata.labels.length && !metadata.annotations.length && !metadata.finalizers.length && !metadata.managedFields.length && !metadata.deletionTimestamp && <Text type="supporting">No additional metadata.</Text>}

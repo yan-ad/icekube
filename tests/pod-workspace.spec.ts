@@ -352,6 +352,8 @@ async function fixture(page: Page, options: Controls = {}) {
               apiVersion: command === "cluster_connect" ? "v1.35.8" : null, error: null };
             case "cluster_disconnect":
             case "cluster_resources_cancel": return null;
+            case "cluster_namespace_cache_get": return null;
+            case "cluster_namespace_cache_refresh": return { ...scope(r), names: ["team-a", "team-b", "production", "default"], fetchedAt: Date.now(), expiresAt: Date.now() + 60_000, partial: false };
             case "cluster_resources": return resourcePage(r);
             case "cluster_pod_detail": {
               if (control.detailError) throw control.detailError;
@@ -707,7 +709,7 @@ for (const [label, actionName, warning] of [
   });
 }
 
-test("YAML edits are retained after conflict; save confirms exact UID/version and edited content", async ({ page }) => {
+test("YAML conflict retains edits but requires refreshed baseline before another confirmed write", async ({ page }) => {
   await fixture(page, { mutateError: "conflict" }); await action(page, "Edit YAML");
   const yaml = inspector(page).getByRole("textbox", { name: "YAML", exact: true });
   await expect(yaml).toBeEditable();
@@ -718,14 +720,21 @@ test("YAML edits are retained after conflict; save confirms exact UID/version an
   await expect(dialog).toContainText("Protected server fields are preserved");
   expect(await calls(page, "cluster_pod_mutate")).toHaveLength(0);
   await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();
-  await expect(dialog.getByRole("alert")).toContainText("The Pod changed or was replaced");
+  await expect(dialog).toHaveCount(0);
+  await expect(inspector(page).getByRole("alert")).toContainText("The Pod changed or was replaced");
+  await expect(inspector(page).getByRole("alert")).toContainText("do not replay");
   expect((await calls(page, "cluster_pod_mutate"))[0].request).toMatchObject({ action: "replace", uid: "pod-uid-123", resourceVersion: "42", yaml: edited });
-  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
   await expect(yaml).toHaveText(edited);
+  await expect(inspector(page).getByRole("button", { name: "Save YAML", exact: true })).toBeDisabled();
   await control(page, { mutateError: undefined });
+  await inspector(page).getByRole("button", { name: "Cancel editing", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Refresh details", exact: true }).click();
+  await inspector(page).getByRole("button", { name: "Edit YAML", exact: true }).click();
+  await expect(yaml).toBeEditable();
   await inspector(page).getByRole("button", { name: "Save YAML", exact: true }).click();
   await dialog.getByRole("button", { name: "Confirm mutation", exact: true }).click();
   await expect(dialog).toHaveCount(0);
+  expect(await calls(page, "cluster_pod_mutate")).toHaveLength(2);
 });
 
 test("port forwarding resolves UID, shows loopback engine state and stops on close", async ({ page }) => {
@@ -787,7 +796,7 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
   await expect(grid(page)).toContainText("Succeeded");
   await expect(page.getByRole("status").filter({ hasText: "Updates unavailable" })).toBeVisible();
   await control(page, { syncError: undefined });
-  const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  const namespace = page.getByRole("button", { name: "Namespace", exact: true });
   await namespace.click();
   for (const name of ["team-a", "team-b", "production", "default"]) await expect(page.getByRole("option", { name, exact: true })).toBeVisible();
   await page.getByRole("option", { name: "team-b", exact: true }).click();
@@ -811,7 +820,8 @@ test("live sync updates rows, pauses, retains failures, and closes on namespace 
   await expect.poll(async () => (await calls(page, "cluster_pod_sync_close")).length).toBeGreaterThan(closedBefore);
   await expect(dock(page).getByLabel("Pod logs", { exact: true })).toContainText("boot ready");
   await expect(grid(page, "Services")).toBeVisible();
-  expect((await calls(page, "cluster_resources")).filter(call => call.request.kind === "namespaces")).toHaveLength(1);
+  expect((await calls(page, "cluster_resources")).filter(call => call.request.kind === "namespaces")).toHaveLength(0);
+  expect((await calls(page, "cluster_namespace_cache_refresh")).length).toBeGreaterThan(0);
   await expect(dock(page)).toBeVisible();
   await navigate(page, "overview");
   await page.getByRole("button", { name: "Cluster actions", exact: true }).click();

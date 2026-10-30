@@ -20,10 +20,10 @@ const catalogRoute = createRoute({ getParentRoute: () => rootRoute, path: "catal
   item: typeof search.item === "string" && search.item.length <= 256 ? search.item : undefined,
 }) });
 const catalogIndexRoute = createRoute({ getParentRoute: () => catalogRoute, path: "/", component: CatalogPage });
-const generalRoute = createRoute({ getParentRoute: () => catalogRoute, path: "general", beforeLoad: () => { throw redirect({ to: "/catalog/all", replace: true }); } });
-const allRoute = createRoute({ getParentRoute: () => catalogRoute, path: "all", component: CatalogPage });
+const generalRoute = createRoute({ getParentRoute: () => catalogRoute, path: "general", beforeLoad: () => { throw redirect({ to: "/catalog/clusters", replace: true }); } });
+const allRoute = createRoute({ getParentRoute: () => catalogRoute, path: "all", beforeLoad: () => { throw redirect({ to: "/catalog/clusters", replace: true }); } });
 const clustersRoute = createRoute({ getParentRoute: () => catalogRoute, path: "clusters", component: CatalogPage });
-const webLinksRoute = createRoute({ getParentRoute: () => catalogRoute, path: "web-links", component: CatalogPage });
+const webLinksRoute = createRoute({ getParentRoute: () => catalogRoute, path: "web-links", beforeLoad: () => { throw redirect({ to: "/catalog/clusters", replace: true }); } });
 const clusterWorkspaceRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "cluster/$clusterId",

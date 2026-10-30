@@ -93,7 +93,7 @@ for (const platform of ["macos", "windows", "linux"]) {
   }
   const toolbar = page.getByRole("navigation", { name: "App toolbar", exact: true });
   expect(await toolbar.evaluate(element => getComputedStyle(element).paddingRight)).toBe("0px");
-    await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeAttached();
+    await expect(page.getByRole("heading", { level: 1, name: "Clusters", exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: "Close window", exact: true })).toHaveCount(0);
   });
 }
@@ -103,7 +103,7 @@ test("browser preview opens Catalog and preserves history and search without nat
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/");
   await expect(page).toHaveURL(/#\/catalog$/);
-  await expect(page.getByRole("heading", { level: 1, name: "All Categories", exact: true })).toBeAttached();
+  await expect(page.getByRole("heading", { level: 1, name: "Clusters", exact: true })).toBeAttached();
   await expect(page.getByTestId("window-safe-area")).toHaveCount(0);
   await page.getByRole("link", { name: "Clusters", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog\/clusters$/);
@@ -111,8 +111,6 @@ test("browser preview opens Catalog and preserves history and search without nat
   await expect(page).toHaveURL(/#\/catalog$/);
   await page.getByRole("button", { name: "Go forward", exact: true }).click();
   await expect(page).toHaveURL(/#\/catalog\/clusters$/);
-  await page.getByRole("link", { name: "All Categories", exact: true }).click();
-  await expect(page).toHaveURL(/#\/catalog\/all$/);
   await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("dialog")).toBeVisible();
   await expect(page.getByRole("dialog").getByText("Welcome Page", { exact: true })).toHaveCount(0);
@@ -165,18 +163,18 @@ test("categories cannot be pinned and there is only one sidebar", async ({ page 
   await page.goto("/");
   const sidebar = page.getByRole("navigation", { name: "Catalog navigation", exact: true });
   await expect(sidebar).toHaveCount(1);
-  await expect(sidebar.getByRole("link")).toHaveCount(3);
+  await expect(sidebar.getByRole("link")).toHaveCount(1);
   await expect(page.getByRole("navigation", { name: "Apps", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Home", exact: true })).toHaveCount(0);
-  for (const category of ["All Categories", "Clusters", "Web Links"]) {
+  for (const category of ["Clusters"]) {
     await page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: category, exact: true }).click();
     await expect(page.getByRole("heading", { level: 1, name: category, exact: true })).toBeAttached();
     await expect(page.getByRole("button", { name: /\b(?:Pin|Unpin)\b/ })).toHaveCount(0);
   }
   await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Web links", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toHaveCount(0);
   await page.reload();
-  await expect(sidebar.getByRole("link")).toHaveCount(3);
+  await expect(sidebar.getByRole("link")).toHaveCount(1);
   await page.keyboard.press("Control+k");
   await expect(page.getByRole("dialog")).toBeVisible();
   await page.keyboard.press("Escape");
@@ -208,7 +206,7 @@ test("Catalog navigation stays fixed collapsed across reload without preference 
     if (reload) await page.reload();
     await expect(sidebar).toHaveAttribute("data-collapsed", "true");
     await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
-    const categoryLabel = sidebar.getByText("Categories", { exact: true });
+    const categoryLabel = sidebar.getByText("Navigation", { exact: true });
     expect(await categoryLabel.evaluate(element => {
       for (let ancestor = element.parentElement; ancestor; ancestor = ancestor.parentElement) {
         const style = getComputedStyle(ancestor);
@@ -217,7 +215,7 @@ test("Catalog navigation stays fixed collapsed across reload without preference 
       }
       return false;
     })).toBe(true);
-    await expect(sidebar.getByRole("group", { name: "Categories", exact: true })).toBeAttached();
+    await expect(sidebar.getByRole("group", { name: "Navigation", exact: true })).toBeAttached();
     await expect(sidebar.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
     await sidebar.getByRole("link", { name: "Clusters", exact: true }).click();
     await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
@@ -236,11 +234,11 @@ test("narrow sidebar-local drawer closes after navigation and returns to the fix
   await toggle.click();
   const drawer = page.getByRole("dialog");
   await expect(drawer.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveCount(1);
-  await expect(drawer.getByRole("link", { name: "Web Links", exact: true })).toBeVisible();
-  await drawer.getByRole("link", { name: "Web Links", exact: true }).click();
+  await expect(drawer.getByRole("link", { name: "Clusters", exact: true })).toBeVisible();
+  await drawer.getByRole("link", { name: "Clusters", exact: true }).click();
   await expect(drawer).toBeHidden();
   await expect(page.getByRole("heading", { name: "Desktop engine required", exact: true })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Web links", exact: true })).toHaveCount(0);
+  await expect(page.getByRole("table", { name: "Clusters", exact: true })).toHaveCount(0);
   await page.setViewportSize({ width: 1100, height: 700 });
   await expect(page.getByRole("button", { name: /^(?:Open|Collapse|Expand) sidebar$/ })).toHaveCount(0);
   await expect(page.getByRole("navigation", { name: "Catalog navigation", exact: true })).toHaveAttribute("data-collapsed", "true");

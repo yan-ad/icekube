@@ -64,13 +64,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
             true,
             Some("CmdOrCtrl+K"),
         )?,
-        &MenuItem::with_id(
-            app,
-            "native-all-categories",
-            "All Categories",
-            true,
-            None::<&str>,
-        )?,
+        &MenuItem::with_id(app, "native-clusters", "Clusters", true, None::<&str>)?,
         &MenuItem::with_id(app, "native-homepage", "Homepage", true, None::<&str>)?,
         &MenuItem::with_id(
             app,
@@ -86,7 +80,7 @@ pub fn install(app: &App) -> tauri::Result<()> {
         let result = match event.id().as_ref() {
             "preferences" => native_navigation::dispatch(app, Action::OpenPreferences),
             "native-new-window" => crate::window::new_window(app).map(|_| ()),
-            "native-all-categories" => native_navigation::dispatch(app, Action::AllCategories),
+            "native-clusters" => native_navigation::dispatch(app, Action::Clusters),
             "native-search" => native_navigation::dispatch(app, Action::OpenSearch),
             "native-check-updates" => native_navigation::dispatch(app, Action::CheckUpdates),
             "native-homepage" => {

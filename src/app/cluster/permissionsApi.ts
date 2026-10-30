@@ -2,7 +2,7 @@ import { invoke, hasEngine as isTauri } from "../engine";
 import { nextReadId, type ResourceKind, type SessionRequest } from "./api";
 import { resourceViews } from "./resourceViews";
 
-export const permissionActions = ["list", "get", "create", "update", "patch", "delete", "watch", "logs", "exec", "attach", "portForward"] as const;
+export const permissionActions = ["list", "get", "create", "update", "patch", "delete", "watch", "logs", "exec", "attach", "portForward", "evict"] as const;
 export type PermissionAction = typeof permissionActions[number];
 export type PermissionDecision = "allowed" | "denied" | "unknown";
 export type PermissionCheck = { kind: ResourceKind; action: PermissionAction; namespace: string | null; name: string | null };
@@ -34,7 +34,7 @@ export function validPermissionCheck(value: unknown): value is PermissionCheck {
   return permissionCheck(check).namespace === check.namespace
     && (!scoped || check.namespace !== null || check.action === "list" || check.action === "watch")
     && (!(check.action === "list" || check.action === "watch") || check.name === null)
-    && (!["logs", "exec", "attach", "portForward"].includes(check.action) || check.kind === "pods" && check.name !== null);
+    && (!["logs", "exec", "attach", "portForward", "evict"].includes(check.action) || check.kind === "pods" && check.name !== null);
 }
 function validRequest(request: PermissionReviewRequest) {
   return validSession(request) && keys(request, ["clusterId", "sessionId", "readId", "checks"])

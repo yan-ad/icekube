@@ -13,18 +13,18 @@ Project-specific guidance for AI coding agents.
   notices if adapting upstream code. Do not claim extension compatibility.
 - Current state: Catalog-first navigation/search, Rust-owned catalog persistence,
   explicit kubeconfig metadata import, built-in default-file discovery, SQLite,
-  web links, persisted record colors, individual item pins, and a
-  Rust-owned seamless frame. All Categories combines clusters and web links;
-  category pages are never pinnable. Explicit Rust-owned HTTPS connections and bounded
+  persisted record colors, individual cluster/section pins, and a
+  Rust-owned seamless frame. Catalog navigation contains Clusters only;
+  the catalog page is never pinnable. Explicit Rust-owned HTTPS connections and bounded
   read-only Nodes/Namespaces snapshots are implemented; auth helpers, background watches,
   and mutations are not. Keep disconnected, failed, stale, and partial states honest.
 - Cluster rows/pins open an ID-scoped disconnected workspace with inset navigation,
   temporarily auto-collapsing main navigation without overwriting its Catalog
   preference. Do not confuse opening that route with connecting/authenticating.
-- Web-link rows/pins open only saved links through Rust `catalog_open_web_link`.
-  Keep URLs resolved/validated in Rust; do not add renderer `window.open`, direct
-  external networking, or arbitrary opener permissions. Pin/Remove must not trigger
-  row activation. Preserve keyboard activation and missing/stale/error states.
+- Web Links is removed. Do not restore link creation/opening or category navigation.
+  Do not add renderer `window.open`, direct external networking, or arbitrary
+  opener permissions. Pin/Remove must not trigger row activation. Preserve
+  keyboard activation and missing/stale/error states.
 
 ## Non-negotiable runtime architecture
 
@@ -60,11 +60,12 @@ Project-specific guidance for AI coding agents.
   belongs to list entries only. Keep collapsed icons accessible and preserve the
   independent full-width narrow-window drawer and desktop collapse preference.
 - Keep category headings visually hidden and omit routine discovery information
-  or controls. Place Add config, Add web link, and Refresh beside Search in the
-  existing toolbar, using an accessible overflow menu when space is limited.
+  or controls. Keep Add config in the existing Catalog action area and Refresh
+  in the toolbar. Preserve accessible controls when space is limited.
   Do not suppress real loading, empty, or error states to make the UI look clean.
-- All Categories replaces General and shows both entity kinds, not a setup page.
-  Preserve the legacy `/catalog/general` redirect. Reference the local `freelens`
+- `/catalog` and `/catalog/clusters` show clusters only. Legacy `/catalog/all`,
+  `/catalog/general`, and `/catalog/web-links` redirect to Clusters without exposing
+  extra navigation/search destinations. Reference the local `freelens`
   checkout, not `iceon`; record the commit before implementing another workflow.
 - Catalog import stays metadata-only until authentication/connection lifecycle
   support is separately approved. Default-file discovery is built in and

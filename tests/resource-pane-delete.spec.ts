@@ -122,21 +122,47 @@ test("known denied delete access never opens confirmation", async ({ page }) => 
   expect((await calls(page, "cluster_permissions_review")).some(call => call.request.checks?.some(check => check.action === "delete" && check.name === "alpha" && check.namespace === "team-a" && check.kind === "configMaps"))).toBe(true);
 });
 
-test("refresh disables the retained entry and invalidates an unsubmitted confirmation", async ({ page }) => {
+test("pending confirmation blocks refresh; cancelled confirmation permits a guarded detail refresh", async ({ page }) => {
   await fixture(page); await remove(page).click();
-  await controls(page, { holdDetail: true, detailError: true });
   const reads = await calls(page, "cluster_resource_detail");
-  // Model an external refresh while confirmation makes the background inert, not a user click through the modal.
-  await pane(page).getByRole("button", { name: /Refresh details/, includeHidden: true }).dispatchEvent("click");
+  const refresh = pane(page).getByRole("button", { name: /Refresh details/, includeHidden: true });
+  await expect(refresh).toBeDisabled();
+  await page.keyboard.press("Control+r");
+  await page.keyboard.press("Meta+r");
+  await expect(dialog(page)).toBeVisible();
+  expect(await calls(page, "cluster_resource_detail")).toEqual(reads);
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+
+  await dialog(page).getByRole("button", { name: "Cancel", exact: true }).click();
+  await expect(dialog(page)).toHaveCount(0);
+  await expect(refresh).toBeEnabled();
+  await controls(page, { holdDetail: true });
+  await refresh.click();
   await expect.poll(async () => (await calls(page, "cluster_resource_detail")).length).toBeGreaterThan(reads.length);
   const refreshed = (await calls(page, "cluster_resource_detail")).at(-1)!.request;
   expect(refreshed).toMatchObject({ clusterId: "one", sessionId: "pane-lease", reference: reads.at(-1)!.request.reference });
   expect(refreshed.readId).not.toBe(reads.at(-1)!.request.readId);
-  await expect(dialog(page)).toHaveCount(0);
   await expect(remove(page)).toBeDisabled();
-  await expect(pane(page)).toContainText("Inventory changed or became unavailable");
+  await expect(refresh).toBeDisabled();
+  await expect(pane(page)).toContainText("alpha-uid");
+  await expect(pane(page)).toContainText("detail-version");
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
   await page.evaluate(() => (window as FixtureWindow).__paneRelease());
-  await expect(pane(page)).toContainText("Retained details may be stale");
+  await expect(refresh).toBeEnabled();
+  await expect(remove(page)).toBeEnabled();
+  await expect(pane(page).getByRole("alert")).toHaveCount(0);
+  expect(await calls(page, "cluster_resource_delete")).toEqual([]);
+  expect(await calls(page, "cluster_resource_delete_cancel")).toEqual([]);
+});
+
+test("failed refresh retains stale details without enabling deletion", async ({ page }) => {
+  await fixture(page);
+  await expect(remove(page)).toBeEnabled();
+  await controls(page, { detailError: true });
+  await pane(page).getByRole("button", { name: /Refresh details/ }).click();
+  await expect(pane(page).getByRole("alert")).toContainText("Retained details may be stale");
+  await expect(pane(page)).toContainText("alpha-uid");
+  await expect(pane(page)).toContainText("detail-version");
   await expect(remove(page)).toBeDisabled();
   expect(await calls(page, "cluster_resource_delete")).toEqual([]);
 });

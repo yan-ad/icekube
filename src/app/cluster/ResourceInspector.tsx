@@ -24,6 +24,7 @@ import { ResourceEditor } from "./ResourceEditor";
 import { ServiceForwardActions } from "./ServiceForwardActions";
 import { ResourcePaneDelete } from "./ResourcePaneDelete";
 import { NodeActions } from "./NodeActions";
+import { NodeDrain } from "./NodeDrain";
 import { EventDiagnosticView } from "./ResourceEventDiagnostic";
 import { HelmDetails } from "./HelmDetails";
 import type { HelmReference } from "./helmDetailsApi";
@@ -256,6 +257,7 @@ function ResourceDetails({ clusterId, sessionId, selection, revision, onLoadingC
       {!loading && !error && <ResourceEditor clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       {!loading && !error && <ServiceForwardActions clusterId={clusterId} sessionId={sessionId} detail={detail} />}
       {!loading && !error && <NodeActions clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
+      {!loading && !error && <NodeDrain clusterId={clusterId} sessionId={sessionId} detail={detail} onChanged={() => setActionRevision(value => value + 1)} />}
       <ResourcePaneDelete clusterId={clusterId} sessionId={sessionId} detail={detail} disabled={loading || !!error} onChanged={() => setActionRevision(value => value + 1)} />
       <DetailList>
         <MetadataListItem label="Name">{detail.item.name}</MetadataListItem>

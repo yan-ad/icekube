@@ -484,6 +484,30 @@ fn cluster_node_action_cancel(
 }
 
 #[tauri::command]
+async fn cluster_node_drain_review(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::node_drain::DrainReviewRequest,
+) -> Result<connection::node_drain::DrainReview, connection::ConnectionError> {
+    engine.node_drain_review(request).await
+}
+
+#[tauri::command]
+async fn cluster_node_drain_execute(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::node_drain::DrainExecuteRequest,
+) -> Result<connection::node_drain::DrainResult, connection::ConnectionError> {
+    engine.node_drain_execute(request).await
+}
+
+#[tauri::command]
+fn cluster_node_drain_cancel(
+    engine: tauri::State<'_, Arc<connection::ConnectionEngine>>,
+    request: connection::node_drain::DrainCancel,
+) -> Result<(), connection::ConnectionError> {
+    engine.node_drain_cancel(request)
+}
+
+#[tauri::command]
 async fn cluster_resource_delete(
     connections: tauri::State<'_, Arc<connection::ConnectionEngine>>,
     request: connection::delete::DeleteRequest,
@@ -717,6 +741,9 @@ pub fn run() {
             cluster_service_forward_cancel,
             cluster_node_action,
             cluster_node_action_cancel,
+            cluster_node_drain_review,
+            cluster_node_drain_execute,
+            cluster_node_drain_cancel,
             cluster_custom_resources,
             cluster_custom_resources_cancel,
             cluster_custom_resource_definitions,

@@ -127,3 +127,22 @@ test("missing selected definition fails honestly without instance or detail read
   expect(commands).not.toContain("cluster_custom_resources");
   await assertInventoryOnly(page);
 });
+
+test("captured summary facts use two columns when wide and one column when narrow", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.setViewportSize({ width: 1568, height: 1000 });
+  await setup(page, "Cluster"); await page.goto(route);
+  await page.getByRole("table").getByRole("button", { name: "shared-widget", exact: true }).click();
+  const pane = page.getByRole("region", { name: "Resource details", exact: true });
+  const grid = pane.locator(".detail-list > dl");
+  const tracks = () => grid.evaluate(element => getComputedStyle(element).gridTemplateColumns.split(" ").length);
+  await expect.poll(tracks).toBe(2);
+  await page.getByRole("separator", { name: "Resize resource details" }).press("Home");
+  await expect.poll(tracks).toBe(1);
+  await pane.getByRole("button", { name: "Expand inspector", exact: true }).click();
+  await expect.poll(tracks).toBe(2);
+  await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
+  await expect.poll(tracks).toBe(1);
+  await expect(pane.getByRole("button", { name: /Refresh details|Edit|Delete/ })).toHaveCount(0);
+  await assertInventoryOnly(page);
+});

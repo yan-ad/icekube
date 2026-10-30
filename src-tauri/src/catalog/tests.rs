@@ -214,7 +214,10 @@ fn connection_lookup_rejects_storage_symlinks_without_changes() {
         }
         let before = fs::read(&target).unwrap();
         symlink(&target, &path).unwrap();
-        assert_eq!(engine.connection_target(&saved.clusters[0].id), Err(CatalogError::StoreCorrupt));
+        assert_eq!(
+            engine.connection_target(&saved.clusters[0].id),
+            Err(CatalogError::StoreCorrupt)
+        );
         assert_eq!(fs::read(&target).unwrap(), before);
     }
 }
@@ -222,12 +225,18 @@ fn connection_lookup_rejects_storage_symlinks_without_changes() {
 #[test]
 fn connection_lookup_never_initializes_or_migrates_missing_storage() {
     let (_dir, engine, _) = fixture();
-    assert_eq!(engine.connection_target("missing"), Err(CatalogError::NotFound));
+    assert_eq!(
+        engine.connection_target("missing"),
+        Err(CatalogError::NotFound)
+    );
     assert!(!engine.directory.exists());
     fs::create_dir_all(&engine.directory).unwrap();
     let legacy = engine.directory.join("catalog.json");
     fs::write(&legacy, "legacy fixture").unwrap();
-    assert_eq!(engine.connection_target("missing"), Err(CatalogError::NotFound));
+    assert_eq!(
+        engine.connection_target("missing"),
+        Err(CatalogError::NotFound)
+    );
     assert_eq!(fs::read_to_string(legacy).unwrap(), "legacy fixture");
     assert_eq!(fs::read_dir(&engine.directory).unwrap().count(), 1);
 }

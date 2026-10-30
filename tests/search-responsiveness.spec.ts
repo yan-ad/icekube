@@ -20,7 +20,10 @@ async function fixture(page: Page, section: string, controlledClock = false) {
           authorizationEpoch: String(request.sessionId), revision: 0, checkedAt: Date.now(), expiresAt: Date.now() + 30_000,
           items: (request.checks as unknown[]).map(check => ({ check, decision: "allowed", reason: null })) };
         if (command === "cluster_permissions_cancel" || command === "cluster_permissions_refresh") return null;
-        if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: catalog, webLinks: [] };
+        if (command === "cluster_namespace_cache_get") return null;
+        if (command === "cluster_namespace_cache_refresh") return { clusterId: request.clusterId, sessionId: request.sessionId,
+          names: ["team-a", "team-b"], fetchedAt: Date.now(), expiresAt: Date.now() + 60_000, partial: false };
+        if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters: catalog };
         if (command === "cluster_session_open" || command === "cluster_connect") return { clusterId: request.clusterId,
           sessionId: request.sessionId ?? `lease-${++lease}`, contextName: "fixture", status: command === "cluster_connect" ? "connected" : "disconnected", apiVersion: "v1.35.8", error: null };
         if (command === "cluster_resources") {
@@ -46,7 +49,7 @@ async function fixture(page: Page, section: string, controlledClock = false) {
   // React captures timer/performance APIs at module load. Install before it
   // loads so it cannot mix native callbacks with a subsequently paused clock.
   if (controlledClock) await page.clock.install({ time: new Date("2026-01-01T00:00:00Z") });
-  await page.goto(section === "catalog" ? "/#/catalog/all" : `/#/cluster/one?section=${section}`);
+  await page.goto(section === "catalog" ? "/#/catalog/clusters" : `/#/cluster/one?section=${section}`);
   await expect(page.getByRole("button", { name: section === "catalog" ? "Refresh catalog" : `Refresh ${section}`, exact: true })).toBeEnabled({ timeout: 20_000 });
 }
 const calls = (page: Page, command: string, kind?: string) => page.evaluate(({ command, kind }) =>
@@ -56,7 +59,7 @@ test.describe("production input latency", () => {
   test.skip(process.env.ICEON_TEST_PRODUCTION !== "1", "Run against bun run build with ICEON_TEST_PRODUCTION=1.");
 
 for (const [section, label, inputLabel, text] of [
-  ["catalog", "All Categories", "Filter catalog", "cluster-49"],
+  ["catalog", "Clusters", "Filter catalog", "cluster-49"],
   ["helm-charts", "Helm Charts", "Search Charts", "repo/chart-49"],
   ["pods", "Pods", "Search Pods", "resource-49"],
   ["nodes", "Nodes", "Search nodes", "resource-49"],
@@ -102,7 +105,7 @@ for (const [section, label, inputLabel, text] of [
 });
 
 for (const [section, label, inputLabel, command, needle, count] of [
-  ["catalog", "All Categories", "Filter catalog", "catalog_list", "cluster-499", 500],
+  ["catalog", "Clusters", "Filter catalog", "catalog_list", "cluster-499", 500],
   ["helm-charts", "Helm Charts", "Search Charts", "helm_table", "chart-499", 500],
   ["port-forwarding", "Port forwards", "Search forwards", "cluster_pod_forward_list", "forward-7", 8],
 ] as const) test(`${label}: keyboard search preserves text and filters ${count} loaded rows locally`, async ({ page }) => {
@@ -176,7 +179,7 @@ test("namespace changes during the debounce cannot restore the old request scope
   const grid = page.getByRole("table", { name: "Pods", exact: true });
   await expect(grid.getByRole("row")).toHaveCount(101);
   const input = page.getByRole("textbox", { name: "Search Pods", exact: true });
-  const namespace = page.getByRole("button", { name: /^Namespace(?:\s|$)/ });
+  const namespace = page.getByRole("button", { name: "Namespace", exact: true });
   await input.fill("held");
   await expect.poll(async () => (await calls(page, "cluster_resources", "pods")).at(-1)?.request.query).toBe("held");
   const held = (await calls(page, "cluster_resources", "pods")).at(-1)!.request;

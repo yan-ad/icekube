@@ -28,7 +28,7 @@ The objective is to discover clusters, connect deliberately, inspect resources,
 and perform operational work without losing cluster or namespace context.
 Behavioral targets include:
 
-- A Catalog of clusters and related web links, with search and pinned shortcuts.
+- A cluster-only Catalog, with search and pinned cluster/workspace shortcuts.
 - Kubeconfig/context discovery and import, explicit connect/disconnect states,
   and actionable authentication, TLS, network, and permission errors.
 - Cluster-scoped resource tables, namespace/filter selection, details, events,
@@ -39,14 +39,12 @@ Behavioral targets include:
 These are objectives, not a shipped-feature list. Today the app implements the
 shell, Catalog as the home screen, category search, navigation history, and the
 seamless window frame. The first Rust catalog engine persists imported cluster
-context metadata, web links, individual item pins, and random record colors in SQLite.
+context metadata, individual cluster/section pins, and random record colors in SQLite.
 Built-in discovery imports `~/.kube/config` on catalog load/Refresh.
 Background file watching is not implemented. The connection foundation now provides
 Rust-owned session leases, automatic connection on workspace entry, bounded
 HTTPS client setup, and read-only Nodes/Namespaces snapshots. Cluster rows open a compact
-workspace with inset navigation and a cluster-local breadcrumb/status/actions row;
-saved web links open
-in the default OS browser through a Rust-owned saved-ID command.
+workspace with inset navigation and a cluster-local breadcrumb/status/actions row.
 The workspace workflows include bounded resource inventories, Pod LIST/WATCH sync,
 protected Pod details/YAML and confirmed mutations, logs, exec/attach, loopback
 forwards, Helm chart/release inventory, and explicit Helm installation. Resource tables are ordinary
@@ -122,9 +120,9 @@ unused starter CSS, not design authority. The active brand theme lives in
    Go forward. Cluster routes place the Switch cluster selector after Refresh.
    History controls disable when unavailable. Search opens from its icon button
    or Cmd/Ctrl+K. Preferences and Search use named icons and move into overflow at
-   narrow widths. Add config and Add web link
-   are named icon actions at the Catalog's bottom right, outside its table scroll
-   region; they are not duplicated in the toolbar or a Catalog actions menu.
+   narrow widths. Add config
+   is a named icon action at the Catalog's bottom right, outside its table scroll
+   region; it is not duplicated in the toolbar or a Catalog actions menu.
     Empty space between actions is draggable in native seamless mode.
     The GitHub icon immediately before More invokes Rust `project_open_repository`
     with no renderer URL argument. `src-tauri/src/project.rs` opens only
@@ -135,16 +133,15 @@ unused starter CSS, not design authority. The active brand theme lives in
    no toolbar collapse/expand control and the legacy collapse preference is no
    longer read or written. Narrow windows retain this icon sidebar with a local
    Open sidebar action for the existing drawer and readable cluster navigation.
-   Pinned shortcuts identify individual clusters, web links, or cluster-scoped
-   workspace destinations, never
-   All Categories, Clusters, or Web Links category pages.
+   Pinned shortcuts identify individual clusters or cluster-scoped workspace
+   destinations, never the Clusters catalog page.
    Opening `/cluster/<id>`, returning to Catalog, reloading and changing window
    size all retain icon-only Catalog navigation. The inset cluster navigation
    remains readable on desktop and available through the drawer on narrow windows.
-4. **Sidebar content:** Catalog categories and a pinned-items area share one
+4. **Sidebar content:** A single Clusters entry and a pinned-items area share one
    navigation landmark. Collapsed mode keeps named category and pinned-entry
    icons usable, with labels available to assistive technology and tooltips.
-   Catalog categories are navigation only. Pin actions belong to loaded list
+   Clusters is navigation only. Pin actions belong to loaded list
    entries and static cluster-navigation rows, including grouped sections.
 5. **Content:** one main landmark and an accessible, visually hidden page heading.
    No category title bar, discovery switch, or routine explanatory information
@@ -155,8 +152,7 @@ unused starter CSS, not design authority. The active brand theme lives in
    Every category uses `Name | Kind | Source | Labels | Status | Actions`.
    Kind uses the category name and matching sidebar icon; Source identifies
    `kubeconfig` or `local`; Labels show where metadata was loaded, such as
-   `file=~/.kube/config` or `file=/absolute/path/config`. Web links have no file
-   label and show their saved URL under the name. Disconnected/Not checked remain
+   `file=~/.kube/config` or `file=/absolute/path/config`. Disconnected remains
    neutral; known positive resource/connection states use semantic success tokens,
    failures use error, and pending/degraded states use warning. Unknown text and
    generic booleans stay neutral, never an invented healthy/connected state.
@@ -164,8 +160,9 @@ unused starter CSS, not design authority. The active brand theme lives in
    with a black/white glyph chosen by WCAG relative luminance for contrast. Colors
    identify entries only, never health or category; category text remains visible.
    This runtime data color is a deliberate exception to static theme-token colors.
-   All Categories combines both kinds. `/catalog` and `/catalog/all` show this view; `/catalog/general` redirects
-   to `/catalog/all`. Clusters and Web Links filter the shared snapshot.
+   `/catalog` and `/catalog/clusters` show the same cluster-only view. Legacy
+   `/catalog/all`, `/catalog/general`, and `/catalog/web-links` URLs redirect to
+   `/catalog/clusters`; they are not navigation or search entries.
 
 Catalog cluster badges are runtime observations, not persisted import metadata.
 Rust overlays the current `ConnectionEngine` lease on every Catalog response;
@@ -175,7 +172,7 @@ discovery, authentication helpers or Kubernetes traffic. Catalog refreshes that
 projection while a runtime state is active, using one non-overlapping read every
 two seconds while visible and on focus. Local session transitions invalidate
 older reads and Catalog responses; failed status reads become Unknown. Connected
-uses a success badge, errors use an error badge, and web links remain Not checked.
+uses a success badge and errors use an error badge.
 The existing single-workspace lifecycle is unchanged: leaving the workspace
 releases its connection. Catalog shows Disconnecting until release completes,
 then Disconnected; it never presents a historical successful connection as live.
@@ -234,11 +231,6 @@ search field. History back/forward and direct links retain cluster/section scope
 Switching clusters resets the temporary sidebar expansion. On narrow windows the
 shared drawer contains Catalog and Cluster navigation; choosing a section closes
 it. Back to Catalog remains available without requiring the drawer.
-
-Web-link rows and pinned web-link actions call `catalog_open_web_link` with only
-the saved entry ID. Browser preview never uses `window.open` or directly requests
-an external URL. OS handoff errors are shown as safe actionable messages without
-changing the current route. Repeat actions are serialized with other catalog work.
 
 Hash routing works in packaged webviews. Navigation state is separate from the
 engine's connection state. On narrow windows Astryx moves navigation into its
@@ -339,10 +331,38 @@ and stale notice, not a blocking replacement. Offer retry and its shortcut only
 when there is a working action. This keeps failure distinct from a successful empty
 result; errors wrap at narrow widths in both themes.
 
-The compact details header shows the plain resource name and named icon controls:
-Pod Logs, Shell, Attach and port forward where applicable, one Refresh, Expand/Restore
-and Close. Its body scrolls vertically independently of the table. Refresh retains
-same-object details as stale on failure, rather than presenting old data as current.
+The compact details header shows the plain resource name and tooltip-equipped,
+accessible icon controls. Resource edit/delete, workload and Node scheduling launchers,
+and Service forwarding join Pod Logs/Shell/Attach/forward in this header rather than
+in the scrolling body. A panel-width-aware More actions menu exposes named choices
+when these controls would crowd the title; Refresh, Expand/Restore and Close remain
+reachable. Service forwarding uses one launcher with reviewed TCP port selection.
+Dialogs and local form submissions retain explicit text labels and existing identity,
+permission, dry-run and confirmation checks. Refresh is blocked while an inspector
+workflow is open or submitting; inline Pod YAML has Cancel editing to leave it safely.
+
+The body scrolls vertically independently of the table. Shared detail lists use at
+most two row-major columns against actual panel content width, falling back to one
+below 28em, including enlarged text. Identity, labels, annotations, Pod facts, Helm
+facts/history and captured summaries use this layout. YAML, managed-field JSON and
+related tables retain their reading width. Managed fields have a named local icon
+disclosure with announced expansion and a controlled region; related collection
+Retry icons stay beside their own headings and reload only that collection.
+
+Refresh retains same-object details as stale on failure, rather than presenting old
+data as current. Pod edit/mutation launchers and submission stay disabled after a
+failed read or uncertain mutation until a successful fresh read; failed writes are
+not replayed automatically. Logs/Shell/Attach/forward retain their existing scoped,
+permission-checked launch policy rather than being reclassified as mutations.
+Focused Helm details honor the same Cmd/Ctrl+R shortcut as resource details and have
+one header retry, preserving sanitized errors and retained-stale notices.
+
+This is an Iceon-requested presentation refinement, not a new Freelens workflow.
+`tests/compact-inspector.spec.ts`, `tests/pane-accessibility.spec.ts`,
+`tests/detail-columns.spec.ts`, `tests/pane-integration.spec.ts` and
+`tests/helm-details.spec.ts` cover the toolbar, reflow, recovery and focus contracts
+with synthetic IPC. Native OS interaction and real-cluster outcomes require separate
+verification.
 
 Generic detail/cancel commands in `src-tauri/src/lib.rs` extract the registered
 `Arc<ConnectionEngine>` state; the former non-Arc extraction mismatch caused generic
@@ -452,13 +472,13 @@ Repeated writes are idempotent; failed saves retain previous data and display
 the existing catalog error. Pins never read kubeconfig files or persist session,
 namespace, resource-selection or credential state.
 
-The Catalog snapshot's `pinnedItems` is the authoritative mixed ordering of
-cluster, web-link and section targets. Internal drag/drop reorders this list;
+The Catalog snapshot's `pinnedItems` is the authoritative ordering of
+cluster and section targets. Internal drag/drop reorders this list;
 Alt+Arrow Up/Down and native Move up/down provide keyboard alternatives. Reorder
 is a Rust-validated exact permutation, not an arbitrary list of routes. New pins
 append; unpin, removal and stale-import reconciliation remove only affected
 targets. Failed saves keep the last saved ordering. Dragging never activates the
-shortcut, accepts external pin data, reads dropped files, or opens a saved link.
+shortcut, accepts external pin data, or reads dropped files.
 Tauri's file-drop handler is disabled at Rust window creation to allow HTML drag
 events on Windows; no filesystem/menu/opener capability is added.
 
@@ -482,14 +502,14 @@ drawer behavior with synthetic metadata and mocked IPC only.
 
 `src-tauri/src/catalog.rs` and `catalog/storage.rs` own `catalog.sqlite3` in Tauri's
 app-data directory. Commands in `lib.rs` delegate to serialized blocking engine
-operations. Normalized metadata, clusters, and web_links tables are updated in
+operations. Normalized metadata and cluster tables are updated in
 SQLite transactions, with a cross-process lock and bounded storage. Unix
 directories/files are private; Windows inherits OS ACLs. Corrupt or unsupported
 stores fail closed and are never silently reset. The original `catalog.json`
 migrates once, preserving IDs/pins/revision and adding colors; its original bytes
 and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afterward.
 
-- `catalog_list` returns a revision, metadata-only clusters/web links, and a safe
+- `catalog_list` returns a revision, metadata-only clusters, and a safe
   nullable `discoveryError` code if the built-in default-file scan failed.
 - Add config offers **Choose file** through Rust `catalog_choose_kubeconfig` in
   `catalog_picker.rs`, using a native dialog parented to the main window. It returns
@@ -531,21 +551,18 @@ and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afte
   previously imported default source preserve previous rows and show an actionable
   warning. Mutations do not rescan. Removing an auto-discovered record is local only:
   it returns on the next load/Refresh if still in the file; the dialog explains this.
-- `catalog_add_web_link` validates names and HTTP(S) URLs without contacting them.
-  Userinfo, query strings, and fragments are rejected to reduce accidental secret
-  persistence. This is deliberately narrower than Freelens's URL support.
 - `catalog_set_pin` accepts an existing entry ID, never a category route.
 - `catalog_remove` removes local metadata and its pin after UI confirmation;
-  it does not delete source files or change clusters/websites.
-- `catalog_open_web_link` accepts only a saved ID, resolves/revalidates its HTTP(S)
-  URL from existing SQLite records, then uses the Rust opener integration with the
-  OS-default browser. It does not accept a renderer-supplied URL, migrate/create
-  storage, rescan kubeconfig, change pins, or increment catalog revision. Invalid,
-  missing, removed, cluster, or tampered-link IDs fail closed. Opener failures map
-  to `openFailed`, without emitting underlying platform error details.
-  Renderer `opener:default` permission is removed; JS cannot use the opener plugin
-  as an arbitrary-URL escape hatch. No application-side website fetch occurs;
-  the launched browser handles its own network activity.
+  it does not delete source files or change clusters.
+SQLite schema 5 removes the retired `web_links` table and its pins transactionally,
+without reading obsolete link payloads. Cluster IDs, colors, pin order, section
+pins, preferences, provenance, and revision survive. Legacy JSON imports ignore
+retired links while preserving cluster metadata and the original/backup files.
+No add/open web-link commands or renderer opener permissions remain. This is a
+user-requested simplification, not a new upstream workflow. Migration acceptance
+is covered by Rust `catalog/pin_order_tests.rs` and `catalog/tests.rs`; browser
+coverage is in `tests/catalog.spec.ts`, `catalog-activation.spec.ts`,
+`pinned-items.spec.ts`, and `app-search.spec.ts`.
 
 The catalog is bounded to 1,000 entries, 4 MiB serialized metadata, and a 16 MiB
 SQLite database. Rust generates a random `#RRGGBB` color once for each new entry
@@ -969,10 +986,8 @@ No upstream source code was copied. `iceon` is not the reference checkout.
 | Workflow/source under `packages/core/src/` | Expected interaction / Rust owner | UI states / acceptance |
 | --- | --- | --- |
 | `renderer/components/catalog/catalog.tsx`, `columns/browse-all.injectable.tsx` | Combined entity inventory with kind/category, category filters; `CatalogEngine::list` | Loading, empty, loaded, filtered-empty, unavailable/error; `tests/catalog.spec.ts` aggregation and legacy redirect |
-| `common/catalog/catalog-entity.ts`, `common/catalog-entities/web-link.ts` | Explicit local entities, web-link name/URL, local-only removal; `import_kubeconfig`, `add_web_link`, `remove` | Entry forms, safe validation, saved, confirmed removal; Rust catalog fixtures plus browser import/link/remove tests |
 | `renderer/components/catalog/hotbar-toggle-menu-item.tsx` | Toggle shortcuts for entities, not categories; `set_pin` | Persisted pinned/unpinned, item-specific workspace or browser activation; Rust restart/dedup tests plus browser row-pin tests |
 | `common/catalog-entities/kubernetes-cluster.ts` (`onRun`), `renderer/components/layout/sidebar.tsx`, `sidebar-cluster.tsx`, `common/sidebar-menu-items-starting-order.ts` | Cluster-ID route, scoped inset navigation, temporary Catalog collapse; Rust owns the session lease and bounded client/resource requests | Loading, disconnected, connecting, connected, permission/transport failure, stale resource data, missing cluster; `tests/catalog-activation.spec.ts` and `tests/cluster-connection.spec.ts` |
-| `common/catalog-entities/web-link.ts` (`onRun`) | Open the selected saved link externally; `CatalogEngine::open_web_link_with` and Rust `OpenerExt` replace upstream `window.open` | Success/error without route change; Rust `catalog/open_tests.rs` validates saved IDs/URLs and injected opener, browser activation tests verify IPC-only handoff |
 
 Default-path discovery and the six-column table/colors are Iceon requirements,
 not a claim of complete Freelens behavior. Acceptance: Rust discovery/migration/

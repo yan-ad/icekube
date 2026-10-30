@@ -32,6 +32,7 @@ mod lifecycle_tests;
 mod metrics;
 pub(crate) mod namespace_cache;
 pub(crate) mod node_actions;
+pub(crate) mod node_drain;
 #[cfg(test)]
 mod node_tests;
 pub(crate) mod permissions;
@@ -378,6 +379,7 @@ struct Session {
     resource_edit: resource_edit::EditSlot,
     service_forward: service_forward::ServiceForwardSlot,
     node_action: node_actions::NodeActionSlot,
+    node_drain: node_drain::DrainSlot,
     permissions: permissions::PermissionSession,
     rbac_users: Option<rbac::UsersSlot>,
     rbac_management: rbac_management::ManagementSlot,
@@ -481,6 +483,7 @@ impl ConnectionEngine {
             resource_edit: resource_edit::EditSlot::default(),
             service_forward: service_forward::ServiceForwardSlot::default(),
             node_action: node_actions::NodeActionSlot::default(),
+            node_drain: node_drain::DrainSlot::default(),
             permissions: permissions::PermissionSession::default(),
             rbac_users: None,
             rbac_management: rbac_management::ManagementSlot::default(),
@@ -510,6 +513,7 @@ impl ConnectionEngine {
                         || session.resource_edit.active()
                         || session.service_forward.active()
                         || session.node_action.active()
+                        || session.node_drain.active()
                 })
             })
     }

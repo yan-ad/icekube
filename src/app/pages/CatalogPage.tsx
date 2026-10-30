@@ -39,7 +39,6 @@ type CatalogRow = {
   color: string;
   status: string;
   pinned: boolean;
-  url?: string;
 };
 
 const CatalogTable = memo(Table) as typeof Table;
@@ -52,7 +51,7 @@ export default function CatalogPage() {
     select: (state) => state.location.search.item,
   });
   const navigate = useNavigate();
-  const { snapshot, loading, busy, error, available, run, openWebLink, connectionStates, refreshConnectionStates } = useCatalog();
+  const { snapshot, loading, busy, error, available, run, connectionStates, refreshConnectionStates } = useCatalog();
   const hasRuntimeState = Object.values(connectionStates).some(status => status !== "disconnected");
   useEffect(() => {
     if (!hasRuntimeState || !available) return;
@@ -66,28 +65,14 @@ export default function CatalogPage() {
   const [query, setQuery] = useState("");
   const deferredQuery = useDeferredValue(query);
   const [remove, setRemove] = useState<CatalogRow | null>(null);
-  const kind =
-    pathname === "/catalog/clusters"
-      ? "Clusters"
-      : pathname === "/catalog/web-links"
-        ? "Web Links"
-        : "All Categories";
-  const rows = useMemo<CatalogRow[]>(() => [
-    ...(snapshot?.clusters ?? []).map((item) => ({
-      ...item,
-      category: "Clusters" as const,
-      status: ({ disconnected: "Disconnected", connecting: "Connecting…", connected: "Connected", error: "Connection error", disconnecting: "Disconnecting…", unknown: "Unknown" })[connectionStates[item.id] ?? item.status],
-    })),
-    ...(snapshot?.webLinks ?? []).map((item) => ({
-      ...item,
-      category: "Web Links" as const,
-      status: "Not checked",
-    })),
-  ]
-    .filter((item) => kind === "All Categories" || item.category === kind)
-    .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), [snapshot, kind, connectionStates]);
+  const kind = "Clusters";
+  const rows = useMemo<CatalogRow[]>(() => (snapshot?.clusters ?? []).map((item) => ({
+    ...item,
+    category: "Clusters" as const,
+    status: ({ disconnected: "Disconnected", connecting: "Connecting…", connected: "Connected", error: "Connection error", disconnecting: "Disconnecting…", unknown: "Unknown" })[connectionStates[item.id] ?? item.status],
+  })).sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)), [snapshot, connectionStates]);
   const searchable = useMemo(() => rows.map(item => ({ item, text:
-    `${item.name} ${item.category} ${item.source} ${item.labels.join(" ")} ${item.url ?? ""}`.toLowerCase(),
+    `${item.name} ${item.category} ${item.source} ${item.labels.join(" ")}`.toLowerCase(),
   })), [rows]);
   const needle = deferredQuery.toLowerCase();
   const filtered = useMemo(() => searchable.filter(
@@ -96,14 +81,13 @@ export default function CatalogPage() {
   ).map(({ item }) => item), [searchable, selectedItem, needle]);
   const activate = useCallback((item: CatalogRow) => {
     if (busy) return;
-    if (item.category === "Clusters") void navigate({ to: "/cluster/$clusterId", params: { clusterId: item.id }, search: {} });
-    else void openWebLink(item.id);
-  }, [busy, navigate, openWebLink]);
+    void navigate({ to: "/cluster/$clusterId", params: { clusterId: item.id }, search: {} });
+  }, [busy, navigate]);
   const activation = useMemo<TablePlugin<CatalogRow>>(() => ({
     transformBodyRow: (props, item) => ({ ...props, htmlProps: {
       ...props.htmlProps,
       tabIndex: 0,
-      "aria-label": `Open ${item.category === "Clusters" ? "cluster" : "web link"} ${item.name}`,
+      "aria-label": `Open cluster ${item.name}`,
       "aria-disabled": busy,
       style: { ...props.htmlProps.style, cursor: busy ? "wait" : "pointer" },
       onClick: (event) => {
@@ -125,14 +109,7 @@ export default function CatalogPage() {
       renderCell: (item) => (
         <HStack gap={2} vAlign="center">
           <RecordIcon kind={item.category} color={item.color} />
-          <VStack gap={1}>
-            <Text color="accent">{item.name}</Text>
-            {item.url && (
-              <Text type="supporting" color="accent" style={{ overflowWrap: "anywhere" }}>
-                {item.url}
-              </Text>
-            )}
-          </VStack>
+          <Text color="accent">{item.name}</Text>
         </HStack>
       ),
     },
@@ -212,17 +189,13 @@ export default function CatalogPage() {
         ? "Catalog unavailable"
         : selectedItem || (deferredQuery && rows.length)
           ? "No matching items"
-          : kind === "Clusters"
-            ? "No clusters imported"
-            : kind === "Web Links"
-              ? "No web links saved"
-              : "Your catalog is empty";
+          : "Your catalog is empty";
   const plugins = useMemo(() => ({ activation, viewport: tableViewport<CatalogRow>() }), [activation]);
   const emptyState = useMemo(() => <VStack padding={6} gap={2} hAlign="center">
     <Heading level={2}>{emptyTitle}</Heading>
     <Text color="secondary" justify="center">{deferredQuery && rows.length ? "Try a different filter." : !available
-      ? "Open the desktop app to import cluster contexts and save web links."
-      : "Import a kubeconfig or add a web link to populate the catalog."}</Text>
+      ? "Open the desktop app to import cluster contexts."
+      : "Import a kubeconfig to populate the catalog."}</Text>
   </VStack>, [emptyTitle, !!deferredQuery, rows.length, available]);
 
   return (
@@ -272,7 +245,7 @@ export default function CatalogPage() {
                 density="compact"
                 hasHover
                 plugins={plugins}
-                aria-label={kind === "Web Links" ? "Web links" : kind}
+                aria-label={kind}
                 aria-busy={busy}
                 emptyState={emptyState}
               />}
@@ -299,11 +272,9 @@ export default function CatalogPage() {
               <VStack gap={3}>
                 <Text as="p">
                   Remove this item and its pin from Iceon's local catalog
-                  only? The kubeconfig, cluster, and website will not be
-                  changed.
+                  only? The kubeconfig and cluster will not be changed.
                 </Text>
-                {remove?.category === "Clusters" &&
-                  remove.labels.includes("file=~/.kube/config") && (
+                {remove?.labels.includes("file=~/.kube/config") && (
                     <Text as="p">
                       This context will return on the
                       next catalog load or Refresh while it remains in

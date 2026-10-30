@@ -90,7 +90,7 @@ async function fixture(page: Page, options: Options = {}) {
             apiVersion: null as string | null,
             error: null,
           };
-          if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters, webLinks: [] };
+          if (command === "catalog_list") return { revision: 1, discoveryError: null, clusters };
           if (command === "cluster_permissions_review") {
             const review = args?.request as unknown as { clusterId: string; sessionId: string; readId: number; checks: unknown[] };
             const checkedAt = Date.now();
@@ -347,7 +347,7 @@ test("metadata toggle and Catalog navigation are keyboard reachable and preserve
   await expect(switcher).toContainText("A very long Development cluster name that should remain compact");
   await switcher.hover();
   await expect(page.getByRole("tooltip", { name: "Switch cluster · A very long Development cluster name that should remain compact", exact: true })).toBeVisible();
-  const catalog = page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "All Categories", exact: true });
+  const catalog = page.getByRole("navigation", { name: "Catalog navigation", exact: true }).getByRole("link", { name: "Clusters", exact: true });
   await catalog.focus();
   await expect(catalog).toBeFocused();
   await catalog.press("Enter");

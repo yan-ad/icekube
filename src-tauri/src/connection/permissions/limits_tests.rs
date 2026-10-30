@@ -13,6 +13,7 @@ struct BatchActivity {
     started_permits: tokio::sync::Semaphore,
     release: Option<tokio::sync::Semaphore>,
     completed: Mutex<Vec<String>>,
+    node_one_completed: tokio::sync::Notify,
 }
 
 impl Default for BatchActivity {
@@ -24,6 +25,7 @@ impl Default for BatchActivity {
             started_permits: tokio::sync::Semaphore::new(0),
             release: None,
             completed: Mutex::new(Vec::new()),
+            node_one_completed: tokio::sync::Notify::new(),
         }
     }
 }
@@ -52,26 +54,31 @@ fn delayed_client(activity: Arc<BatchActivity>) -> Client {
                     .get::<CancellationToken>()
                     .unwrap()
                     .clone();
-                activity.started.lock().unwrap().push(cancel);
-                let active = activity.active.fetch_add(1, Ordering::SeqCst) + 1;
-                activity.maximum.fetch_max(active, Ordering::SeqCst);
-                let _active = ActiveReview(activity.clone());
-                activity.started_permits.add_permits(1);
                 let bytes = request.into_body().collect().await.unwrap().to_bytes();
                 let mut value: Value = serde_json::from_slice(&bytes).unwrap();
                 let name = value["spec"]["resourceAttributes"]["name"]
                     .as_str()
                     .unwrap()
                     .to_owned();
+                let delay = tokio::time::sleep(Duration::from_millis(400));
+                activity.started.lock().unwrap().push(cancel);
+                let active = activity.active.fetch_add(1, Ordering::SeqCst) + 1;
+                activity.maximum.fetch_max(active, Ordering::SeqCst);
+                let _active = ActiveReview(activity.clone());
+                activity.started_permits.add_permits(1);
                 if let Some(release) = &activity.release {
                     release.acquire().await.unwrap().forget();
                 } else {
-                    tokio::time::sleep(Duration::from_millis(400)).await;
+                    delay.await;
                     if name == "node-0" {
-                        tokio::time::sleep(Duration::from_millis(1)).await;
+                        activity.node_one_completed.notified().await;
                     }
                 }
+                let notify_node_zero = name == "node-1";
                 activity.completed.lock().unwrap().push(name);
+                if notify_node_zero {
+                    activity.node_one_completed.notify_one();
+                }
                 value["status"] = json!({"allowed":true});
                 Ok(Response::new(Body::from(
                     serde_json::to_vec(&value).unwrap(),
@@ -107,7 +114,38 @@ async fn full_batch_reviews_two_at_a_time_within_deadline_in_request_order() {
     let mut request = batch_request(&identity(&snapshot));
     tokio::time::pause();
     let started = tokio::time::Instant::now();
-    let response = engine.review_permissions(request.clone()).await.unwrap();
+    let drive_clock = async {
+        let wall_started = std::time::Instant::now();
+        let mut previous_completed = None;
+        loop {
+            assert!(
+                wall_started.elapsed() < Duration::from_secs(30),
+                "review batch stopped making progress: started {}, active {}, completed {:?}, elapsed {:?}",
+                activity.started.lock().unwrap().len(),
+                activity.active.load(Ordering::SeqCst),
+                activity.completed.lock().unwrap(),
+                started.elapsed()
+            );
+            let completed = activity.completed.lock().unwrap().len();
+            if completed == 32 {
+                break;
+            }
+            let active = activity.active.load(Ordering::SeqCst);
+            let all_started = activity.started.lock().unwrap().len() == 32;
+            // Other test runtimes share REVIEW_WORKERS. Keep this runtime runnable
+            // while they own a permit, rather than auto-advancing to our deadline.
+            if previous_completed != Some(completed)
+                && (active == 2 || (all_started && active == 1))
+            {
+                previous_completed = Some(completed);
+                // Cross the timer wheel tick containing each 400 ms delay.
+                tokio::time::advance(Duration::from_millis(401)).await;
+            }
+            tokio::task::yield_now().await;
+        }
+    };
+    let (response, ()) = tokio::join!(engine.review_permissions(request.clone()), drive_clock);
+    let response = response.unwrap();
     assert!(
         started.elapsed() < Duration::from_secs(10),
         "batch elapsed {:?}, completed {:?}",

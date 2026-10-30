@@ -15,6 +15,27 @@ fn check(action: PermissionAction) -> PermissionCheck {
     }
 }
 
+#[test]
+fn eviction_requires_pod_get_and_core_eviction_create_without_delete() {
+    let mut value = check(PermissionAction::Evict);
+    assert_eq!(
+        requirements(&value).unwrap(),
+        vec![
+            json!({"group":"", "version":"v1", "resource":"pods", "verb":"get", "namespace":"team-a", "name":"api"}),
+            json!({"group":"", "version":"v1", "resource":"pods", "subresource":"eviction", "verb":"create", "namespace":"team-a", "name":"api"}),
+        ]
+    );
+    value.kind = ResourceKind::Nodes;
+    value.namespace = None;
+    assert_eq!(requirements(&value), Err(ConnectionError::InvalidInput));
+    value = check(PermissionAction::Evict);
+    value.name = None;
+    assert_eq!(requirements(&value), Err(ConnectionError::InvalidInput));
+    value = check(PermissionAction::Evict);
+    value.namespace = None;
+    assert_eq!(requirements(&value), Err(ConnectionError::InvalidInput));
+}
+
 #[tokio::test]
 async fn direct_delete_cannot_bypass_backend_denial() {
     let (_root, _catalog, engine, id, _) = fixture();
