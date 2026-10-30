@@ -140,6 +140,9 @@ jobs:
       - name: Build frontend
         timeout-minutes: 3
         run: bun run build
+      - name: Test import dialog and file-drop lifecycle without a browser
+        timeout-minutes: 1
+        run: bun test ./tools/tests
       - name: Install Chromium
         timeout-minutes: 5
         run: bunx playwright install --with-deps chromium

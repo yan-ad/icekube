@@ -36,6 +36,8 @@ pub(crate) mod node_drain;
 #[cfg(test)]
 mod node_tests;
 pub(crate) mod permissions;
+#[cfg(test)]
+mod platform_tests;
 pub(crate) mod pod_runtime;
 pub(crate) mod pod_sync;
 pub(crate) mod pods;

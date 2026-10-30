@@ -43,8 +43,8 @@ fn create_window(app: &AppHandle, label: &str) -> tauri::Result<WebviewWindow> {
         .expect("main window configuration is required");
     let mut config = config.clone();
     config.label = label.to_owned();
+    // Native file paths arrive through Tauri drop events; pins use pointer reordering.
     let builder = WebviewWindowBuilder::from_config(app, &config)?
-        .disable_drag_drop_handler()
         .initialization_script(layout_script(SEAMLESS, std::env::consts::OS)?);
 
     #[cfg(target_os = "macos")]

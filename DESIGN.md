@@ -508,8 +508,10 @@ is a Rust-validated exact permutation, not an arbitrary list of routes. New pins
 append; unpin, removal and stale-import reconciliation remove only affected
 targets. Failed saves keep the last saved ordering. Dragging never activates the
 shortcut, accepts external pin data, or reads dropped files.
-Tauri's file-drop handler is disabled at Rust window creation to allow HTML drag
-events on Windows; no filesystem/menu/opener capability is added.
+Tauri's native file-drop handler is enabled for kubeconfig selection. Native pin
+reordering uses mouse/pen pointer events instead of HTML drag events (which
+WebView2's native handler intercepts); browser preview retains HTML drag events.
+Keyboard movement is unchanged. No filesystem/menu/opener capability is added.
 
 Native menu requests are bounded to approved window labels and the saved pin,
 use one-shot random native IDs, expire after 30 seconds, and are canceled on
@@ -547,6 +549,17 @@ and a non-overwriting `catalog.json.backup` remain. SQLite is authoritative afte
   results cannot update a closed/reopened form. `catalog_import_kubeconfig` remains
   the validator, including the 1 MiB limit; do not repeat that limit as routine form
   copy. Native dialog behavior has not been smoke-tested.
+- Add config keeps Choose File beside the path and platform guidance collapsed
+  behind an optional disclosure. The file area accepts one native dropped path
+  only while idle and under the pointer. Physical coordinates are scaled to CSS
+  coordinates; drops never read contents in React or automatically import.
+  Multiple files, relative paths and URLs are rejected without replacing the path.
+  Listeners are disposed on close, pending picker/import and unmount, including
+  late registrations. Rust still validates regular-file/size/symlink constraints.
+  `tools/tests/fileDrop.test.ts` covers path bounds and listener lifetime;
+  `tools/tests/catalogForms.test.tsx` mounts real Astryx components under React
+  StrictMode for open/help/pending/cancel/reopen hook-order regression coverage.
+  Native drop/zoom/window behavior and pointer reorder need OS smoke tests.
 - `catalog_import_kubeconfig` accepts an explicit absolute regular-file path.
   Default-file discovery is separate from explicit imports; there is no `KUBECONFIG`
   environment or directory scan. Files are capped at

@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.0.8 (pending CI)
+
+### Kubeconfig import
+
+- Keep Add config compact, with Choose file inline beside the path. A single
+  native dropped-file path selects the file only; it never imports automatically.
+  Import remains an explicit, metadata-only action, not authentication or connection.
+- Add optional grouped platform guidance for managed providers (GKE, DOKS, LKE,
+  VKE, OKE, IBM Cloud Kubernetes, Alibaba ACK, Tencent TKE, Scaleway Kapsule,
+  OVHcloud and Civo), self-managed platforms (Hetzner + K3s, OpenShift, Rancher,
+  RKE2 and K3s), and local clusters (MicroK8s, kind and minikube). Guidance helps
+  prepare an existing kubeconfig; it does not enumerate cloud accounts or add
+  authentication, login, SSH or tunnels.
+- Add synthetic compatibility fixtures for provider-neutral import and connection
+  preparation, source identity, credential redaction and insecure-transport
+  rejection. These are not live-provider authentication or certification tests.
+
+### Other changes since 0.0.6
+
+- Add conservative Node drain with read-only review, explicit Node-name
+  confirmation, single-use expiring plans, guarded cordon and policy/v1 evictions.
+  Partial inventories and unsupported/local-data Pods block execution; no force,
+  PDB bypass or direct-delete fallback is provided. Completion requires observed
+  Pod removal; cancellation cannot undo submitted writes.
+- Expand bounded inspector facts, related collections, Event diagnostics, Helm
+  details and metadata-only custom-resource snapshots. Add reduced resource
+  editing with dry-run/confirmation, guarded workload actions and Service-aware
+  forwarding. These are scoped workflows, not full-object editing or feature parity.
+- Improve namespace continuity/caching, Catalog-aware search, cluster/section
+  pins and native pin ordering, sidebar resizing and inspector/dock actions.
+  Remove Web Links; Catalog navigation now contains Clusters only.
+- Download verified updates automatically but defer installation/restart until
+  **Restart to Update**. Reduce redundant updater-context renders; native CPU
+  savings have not been measured. Add an authenticated development-only browser
+  engine bridge, not a production Node backend.
+
+### Verification and distribution
+
+Playwright was skipped locally at the user's request for this import/release
+preparation. Native file drops and Windows runtime behavior still need smoke
+validation; no live-provider, real-credential or live-cluster success is claimed.
+Full CI and both platform packages, verified signed updater packaging and
+uploaded-byte checks gate publication. macOS remains ad-hoc signed and not
+notarized; Windows has no Authenticode certificate. Native installation/update
+smoke checks remain outstanding. See [installation](docs/releases.md).
+
 ## 0.0.6
 
 ### Fixed

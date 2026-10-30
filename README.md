@@ -15,8 +15,8 @@ and open Pod logs or a shell without leaving the workspace.
 The goal is a familiar daily workspace where you can understand what is running,
 investigate a problem, and take the next action without constantly switching tools.
 
-[Iceon 0.0.6 downloads](https://github.com/yan-ad/iceon/releases/tag/0.0.6)
-for Apple Silicon macOS and Windows 32-bit x86.
+[Iceon 0.0.8 downloads](https://github.com/yan-ad/iceon/releases/tag/0.0.8)
+for Apple Silicon macOS and Windows 32-bit x86, pending CI and publication.
 [Latest published release](https://github.com/yan-ad/iceon/releases/latest).
 
 ## What you can do today
@@ -84,7 +84,7 @@ measurements above, and native CPU savings have not been measured.
 
 ## Install
 
-For **Apple Silicon Macs**, download `Iceon_0.0.6_aarch64.dmg` from the
+For **Apple Silicon Macs**, download `Iceon_0.0.8_aarch64.dmg` from the
 release page and drag `Iceon.app` to `/Applications`. Intel Macs and Linux
 installers are not included. Publication requires full CI and packaging checks.
 
@@ -104,7 +104,7 @@ A matching checksum detects corruption; it does not authenticate the publisher.
 Never disable Gatekeeper globally or remove quarantine from an untrusted download.
 
 For **Windows 32-bit x86**, use
-[`Iceon_0.0.6_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.6/Iceon_0.0.6_x86-setup.exe).
+[`Iceon_0.0.8_x86-setup.exe`](https://github.com/yan-ad/iceon/releases/download/0.0.8/Iceon_0.0.8_x86-setup.exe).
 The installer targets the current user and downloads WebView2 if missing, so that
 step needs network access. It has no Authenticode certificate; SmartScreen may
 show an unknown publisher. CI verifies Windows x86 compilation and packaging;
@@ -113,10 +113,12 @@ native installation and update smoke checks remain outstanding.
 If 0.0.3 crashes immediately on launch, manually install this patch: that crash
 occurs before its updater can download a fix.
 
-Working 0.0.4 installations can update automatically to 0.0.6. Older 0.0.1/0.0.2
+Working 0.0.4–0.0.6 installations can update automatically to 0.0.8 after publication. Older 0.0.1/0.0.2
 installations need a manual install because they have no updater trust key. After bootstrap, Iceon
-checks GitHub for signed newer versions and automatically installs and restarts
-when all windows and backend work are safe. It does not save or discard drafts
+checks GitHub for signed newer versions and downloads verified updates automatically.
+Installation and restart wait for **Restart to Update** and safe windows/backend work.
+Already-installed older binaries retain their previous automatic-restart policy
+until updated. It does not save or discard drafts
 for you. See [automatic updates](docs/automatic-updates.md) and
 [installation details](docs/releases.md) for the trust model and OS warnings.
 

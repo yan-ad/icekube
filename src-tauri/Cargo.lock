@@ -1846,7 +1846,7 @@ dependencies = [
 
 [[package]]
 name = "iceon"
-version = "0.0.6"
+version = "0.0.8"
 dependencies = [
  "axum",
  "base64 0.22.1",
