@@ -1,5 +1,7 @@
 # Pane analysis: Iceon compared with Freelens
 
+Focused implementation follow-up: [18: Node Drain](18-node-drain-implementation.md) records the delivered conservative review/cordon/eviction workflow, tests and intentional differences from upstream force-drain behavior. Node shell and historical metrics are still separate pending work.
+
 **Expanded scope:** the audit now covers **all 41 built-in Kubernetes kinds**, dynamic custom resources, Users, Helm, Pod runtime/dock, forwarding and global dialogs, not only the original five workflows. Start with the [complete coverage matrix](00-coverage-matrix.md). This is source-and-fixture analysis, not a live walkthrough of every reference pane.
 
 **Current implementation follow-up:** [16: Implementation status and remaining gaps](16-implementation-status.md) reconciles these historical source-audit findings with the current dirty implementation tree. Substantial bounded readers, metadata, related collections and guarded operations are now implemented, but complete Freelens parity is not established. Read that ledger before treating the older missing-feature lists below as current; final validation totals remain coordinator-owned.

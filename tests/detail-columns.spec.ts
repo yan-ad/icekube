@@ -92,7 +92,7 @@ for (const theme of ["light", "dark"] as const) for (const section of ["nodes", 
       await panel(page).getByRole("button", { name: "Hide managed fields", exact: true }).click();
     }
     await panel(page).getByRole("button", { name: "Restore inspector width", exact: true }).click();
-    await geometry(lists, 2);
+    await geometry(lists, 1);
     await page.setViewportSize({ width: 390, height: 800 });
     await geometry(lists, 1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);

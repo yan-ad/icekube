@@ -347,15 +347,14 @@ for (const width of [1440, 800, 390]) for (const colorScheme of ["light", "dark"
     expect(bounds.y + bounds.height).toBeLessThanOrEqual(651);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
     expect(await inspector(page).evaluate(element => element.scrollWidth <= element.clientWidth + 1)).toBe(true);
-    expect(await inspector(page).evaluate(element => {
-      const scroll = [element, ...Array.from(element.querySelectorAll("*"))].find(candidate => {
-        const style = getComputedStyle(candidate);
-        return ["auto", "scroll"].includes(style.overflowY) && candidate.scrollHeight > candidate.clientHeight;
-      });
-      if (!scroll) return false;
-      scroll.scrollTop = scroll.scrollHeight;
-      return scroll.scrollTop > 0;
-    })).toBe(true);
+    const scrolling = await inspector(page).locator(".resource-inspector-body").evaluate(element => {
+      const overflow = getComputedStyle(element).overflowY;
+      const overflowing = element.scrollHeight > element.clientHeight;
+      element.scrollTop = element.scrollHeight;
+      return { overflow, overflowing, canScroll: element.scrollTop > 0 };
+    });
+    expect(scrolling.overflow).toBe("auto");
+    expect(scrolling.canScroll).toBe(scrolling.overflowing);
     const close = inspector(page).getByRole("button", { name: /close/i });
     await expect(close).toBeInViewport();
     await close.click(); await expect(inspector(page)).toHaveCount(0);

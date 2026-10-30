@@ -375,6 +375,35 @@ Latest validation for these search/theme/auth changes is pending. Historical
 suite totals in the workspace reference are not a claim about this revision;
 no real credentials or native smoke tests were used for this documentation pass.
 
+## Node drain
+
+The Node inspector exposes a conservative **Drain** action through the existing
+inspector toolbar. Rust `connection/node_drain.rs` owns read-only review, a
+single-use random plan bound to the Node UID/resourceVersion and authorization
+epoch, 120-second plan expiry, guarded cordon and sequential `policy/v1` Pod
+evictions. The renderer displays bounded Pod dispositions, requires the exact
+Node name before confirmation, and retains the execution outcome until closed.
+Opening the dialog never reviews or mutates the cluster by itself.
+
+Drain respects disruption-budget rejection and Pod grace periods. It never uses
+kubectl, force deletion, direct Pod DELETE fallback, local-data overrides, automatic
+write retries, rollback or automatic uncordon. Mirror and verified DaemonSet Pods
+remain; unmanaged/orphaned Pods, unsupported controllers and local or unrecognized
+volume sources block this version. A continuation beyond the 100-Pod bound is an
+incomplete review, not authorization to drain a partial inventory. Only eligible
+evictions require Pod GET plus core `pods/eviction` CREATE access; skipped and
+waiting Pods still require reviewed read access but no eviction grant.
+
+Execution revalidates the reviewed identities before writes and observes Pod
+removal and final inventory before reporting complete. Stop, disposal, disconnect,
+timeout and changed authorization stop future work but cannot undo submitted
+writes. Complete is not infrastructure-shutdown certification; skipped Pods remain,
+and Kubernetes cannot make the multi-resource workflow atomic. Pending work blocks
+app update/restart until it settles. See
+[`pane-analysis/18-node-drain-implementation.md`](pane-analysis/18-node-drain-implementation.md)
+for the pinned reference, acceptance tests and deliberate force-drain differences.
+Privileged Node shell and historical metrics remain separate work.
+
 ## `seamless` window contract
 
 `seamless` is a window/layout mode, not an Astryx `variant`. It removes the
